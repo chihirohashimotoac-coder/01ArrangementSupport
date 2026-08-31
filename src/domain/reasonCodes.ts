@@ -73,6 +73,8 @@ export const SETUP_REASON_CODES = [
   'SETUP_TON_TRAP',
   /** 取得点が少なすぎて次ラウンドも上がれない領域に留まる。 */
   'SETUP_LOW_SCORE',
+  /** ダブルリングという細い的を、得点・調整のために狙っている。 */
+  'SETUP_THIN_TARGET',
 ] as const;
 
 export type SetupReasonCode = (typeof SETUP_REASON_CODES)[number];

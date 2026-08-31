@@ -121,15 +121,47 @@ export const SETUP_REASON_WEIGHTS: Readonly<Record<SetupReasonCode, number>> = {
   LEAVES_PREMIUM_TENPAI: 30,
   LEAVES_TWO_DART_CHECKOUT: 26,
   LEAVE_LAST_DIGIT_0147: 6,
-  LEAVE_REQUIRES_BULL: -12,
-  LEAVE_GOOD_FINISH_DOUBLE: 20,
+  LEAVE_REQUIRES_BULL: -8,
+  LEAVE_GOOD_FINISH_DOUBLE: 10,
 
   SETUP_MAIN_TARGET_CONTINUITY: 16,
   SETUP_THIRD_DART_ADJUST: 10,
   SETUP_USES_SBULL: 4,
   SETUP_TON_TRAP: -30,
   SETUP_LOW_SCORE: -18,
+  // 得点・調整のためにダブルリングを狙うのは、細い的をわざわざ選ぶことになる。
+  SETUP_THIN_TARGET: 0, // 難易度モデル（SEGMENT_DIFFICULTY）へ統合したため 0。表示のみに使う。
 };
+
+/**
+ * SETUP における取得点 1 点あたりの加点。
+ *
+ * 「最大得点を取るゲームではない」ため、残りの質（LEAVES_* の重み）より
+ * 十分に小さくしてある。同じ質の残りを作れるなら、点を多く取る方を選ぶ、
+ * という位置づけの重み。
+ */
+export const SETUP_POINTS_WEIGHT = 0.7;
+
+/**
+ * SETUP で「その的を狙うことの難しさ」。
+ *
+ * 確率モデルではなく、盤面上の面積と実戦感覚から人間が決めた順序データ。
+ *  0: シングル      — 盤面で最も広く、外しても同じウェッジ内に収まりやすい
+ *  2: トリプル       — 狭いが、得点効率のために狙う価値がある
+ *  3: アウターブル   — ダブルリング同様に細い輪。調整には使えるが、無料ではない
+ *  3: ダブル         — さらに細く、刻みの的としては割に合わない
+ *  4: インナーブル   — 盤面で最小。SETUP の得点手段としては選ばない
+ */
+export const SEGMENT_DIFFICULTY: Readonly<Record<string, number>> = {
+  single: 0,
+  triple: 2,
+  double: 3,
+  'outer-bull': 3,
+  'inner-bull': 4,
+};
+
+/** SEGMENT_DIFFICULTY 1 単位あたりのペナルティ。 */
+export const SETUP_DIFFICULTY_WEIGHT = 12;
 
 /**
  * 「重要教材」として扱う好ましい残り。
@@ -144,7 +176,11 @@ export const PREMIUM_TENPAI_LEAVES: readonly number[] = [170, 167, 164, 161, 160
 /** SETUP で「主目標」として続けて狙うナンバー（既定値。設定で変更可能）。 */
 export const DEFAULT_SETUP_MAIN_TARGET = 'T20';
 
-/** SETUP で 1 投あたりの取得点がこれ未満なら SETUP_LOW_SCORE を付ける。 */
+/**
+ * SETUP で 1 投あたりの取得点がこれ未満なら SETUP_LOW_SCORE を付ける。
+ * 「1 ビジットを丸ごと無駄にした」ことを示す指標なので、
+ * 3 本すべてを投げる場面でだけ評価する（リカバリー中の 1〜2 本には付けない）。
+ */
 export const SETUP_LOW_SCORE_THRESHOLD = 20;
 
 /** 添付資料 (4) の「とりあえず TON」。ちょうどこの点を取る危険を評価する。 */

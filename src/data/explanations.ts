@@ -323,6 +323,14 @@ const SETUP_TEMPLATES: Record<SetupReasonCode, ReasonTemplate> = {
       detail: null,
     }),
   },
+  SETUP_THIN_TARGET: {
+    polarity: 'negative',
+    label: '細い的を狙っている',
+    render: () => ({
+      summary: '得点・調整のためにダブルリングを狙っています。',
+      detail: 'ダブルリングは細く、刻みの的としては割に合いません。シングルか S-BULL の方が安定します。',
+    }),
+  },
 };
 
 export function renderCheckoutReason(
