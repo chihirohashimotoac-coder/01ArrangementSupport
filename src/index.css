@@ -1,0 +1,100 @@
+/**
+ * 配色とタイポグラフィ。
+ * スマートフォンで屋内（ダーツバー等）でも見やすいよう、暗い背景を既定にしている。
+ */
+:root {
+  color-scheme: dark;
+
+  --bg: #10131a;
+  --surface: #191d27;
+  --surface-alt: #212734;
+  --chip: #232936;
+  --border: #2c3444;
+  --border-strong: #3b4557;
+
+  --text: #eef1f6;
+  --text-dim: #a3adbf;
+
+  --accent: #57c2ff;
+  --accent-soft: #16334a;
+  --accent-contrast: #062033;
+
+  --positive: #4ad991;
+  --positive-bg: #12331f;
+  --negative: #ff7a86;
+  --warn-bg: #3a1c22;
+  --warn-fg: #ffb3bb;
+
+  --grade-s-bg: #0f4a35;
+  --grade-s-fg: #7ff0bd;
+  --grade-a-bg: #0d3a52;
+  --grade-a-fg: #8fd8ff;
+  --grade-b-bg: #3a3416;
+  --grade-b-fg: #f0dd8f;
+  --grade-c-bg: #43222a;
+  --grade-c-fg: #ffaab3;
+
+  --board-surround: #0b0d13;
+  --board-edge: #4a525f;
+  --board-wire: #c3c9d2;
+  --board-number: #eef1f6;
+  --segment-dark: #1c1e23;
+  --segment-light: #f0e3c2;
+  --segment-red: #d02a32;
+  --segment-green: #17864a;
+
+  --highlight-fill: #2a6b8f;
+  --highlight-stroke: #7fd4ff;
+  --focus-fill: #b07d1c;
+  --focus-ring: #ffd166;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Hiragino Kaku Gothic ProN',
+    'Noto Sans JP',
+    Meiryo,
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

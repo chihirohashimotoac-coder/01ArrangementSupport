@@ -12,6 +12,7 @@ import {
   MIN_CHECKOUT,
   isCheckoutable,
 } from '../../domain/checkoutRules';
+import { DOUBLE_QUALITY } from '../../data/rankingRules';
 
 export interface CheckoutRoute {
   readonly darts: readonly Dart[];
@@ -75,16 +76,52 @@ export function enumerateCheckoutRoutes(
   return frozen;
 }
 
+const DOUBLE_TIER_ORDER = ['excellent', 'good', 'fair', 'awkward'];
+
+/** 説明文の例として自然な順に並べるための比較用スコア。 */
+function exampleOrderKey(route: CheckoutRoute): [number, number, number, number, string] {
+  const finish = route.darts[route.darts.length - 1];
+  const bullCount = route.darts.filter((dart) => dart.baseNumber === null).length;
+  const tier = DOUBLE_QUALITY[finish.id]?.tier ?? 'fair';
+  return [
+    route.darts.length,
+    // BULL を含む例は「他に選択肢がないとき」だけにする。
+    bullCount,
+    DOUBLE_TIER_ORDER.indexOf(tier),
+    // 同じ質なら得点効率の高い入り方を例に選ぶ。
+    -route.darts[0].score,
+    route.key,
+  ];
+}
+
 /**
  * 残り点・残り本数に対する代表的な 1 ルートを返す（説明文の生成に使う）。
- * 「最短本数・そのなかでキー順が先頭」という決定論的な選び方をする。
+ *
+ * 単なるキー順の先頭だと「BULL → D17」のような不自然な例が選ばれてしまうため、
+ * 「本数が少ない → BULL を使わない → 上がりが扱いやすいダブル → 得点効率が高い」
+ * という決定論的な順序で 1 本選ぶ。ランキング本体とは独立した軽量な指標で、
+ * 相互参照（ranking → sample → ranking）を作らないためにここで完結させている。
  */
 export function sampleCheckoutRoute(
   remaining: number,
   dartsAvailable: number,
 ): CheckoutRoute | null {
   const routes = enumerateCheckoutRoutes(remaining, dartsAvailable);
-  return routes.length > 0 ? routes[0] : null;
+  if (routes.length === 0) return null;
+  let best = routes[0];
+  let bestKey = exampleOrderKey(best);
+  for (let i = 1; i < routes.length; i += 1) {
+    const key = exampleOrderKey(routes[i]);
+    for (let j = 0; j < key.length; j += 1) {
+      if (key[j] === bestKey[j]) continue;
+      if (key[j] < bestKey[j]) {
+        best = routes[i];
+        bestKey = key;
+      }
+      break;
+    }
+  }
+  return best;
 }
 
 /** テスト用にキャッシュを空にする。 */

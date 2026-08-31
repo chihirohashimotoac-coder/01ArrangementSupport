@@ -1,0 +1,332 @@
+.training {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.training__setup {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.training__modes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+
+.training__modes button,
+.training__settings fieldset button {
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  background: var(--chip);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 0.25rem;
+  cursor: pointer;
+}
+
+.training__modes button[aria-pressed='true'],
+.training__settings fieldset button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.training__settings-toggle,
+.training__clear {
+  align-self: flex-start;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: none;
+  border: none;
+  min-height: 2.75rem;
+  cursor: pointer;
+}
+
+.training__settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.6rem;
+  border-radius: 0.5rem;
+  background: var(--surface-alt);
+}
+
+.training__settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.training__range {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.training__range input,
+.training__settings input[type='number'] {
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  width: 5rem;
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  color: var(--text);
+  background: var(--chip);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+}
+
+.training__settings fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.training__settings legend {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  padding: 0 0.4rem 0 0;
+  float: left;
+  width: 100%;
+}
+
+.training__checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  letter-spacing: normal;
+  color: var(--text);
+}
+
+.training__checkbox input {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.training__start,
+.training__actions button {
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--text);
+  background: var(--chip);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  min-height: 3rem;
+  cursor: pointer;
+}
+
+.training__start {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.training__timer {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--negative);
+}
+
+.training__progress {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+.training__hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.training__answer {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+}
+
+.training__answer li {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  min-height: 3rem;
+  display: grid;
+  place-items: center;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.training__actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+}
+
+.training__actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.training__submit {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent-contrast) !important;
+}
+
+.training__result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.training__verdict {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.training__verdict--ok {
+  background: var(--positive-bg);
+  color: var(--positive);
+}
+
+.training__verdict--ng {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.training__finished {
+  margin: 0;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: var(--surface-alt);
+  font-size: 0.9rem;
+}
+
+.training__stats {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.training__stats h2 {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.training__stats dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.5rem;
+}
+
+.training__stats dl div {
+  background: var(--surface-alt);
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+}
+
+.training__stats dt {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.training__stats dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.training__grades,
+.training__weak {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.training__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.training__table caption {
+  text-align: left;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  padding-bottom: 0.25rem;
+}
+
+.training__table th,
+.training__table td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.35rem 0.25rem;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.training__table thead th {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+}
+
+@media (min-width: 60rem) {
+  .training {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    column-gap: 1.5rem;
+    align-items: start;
+  }
+  .training__setup,
+  .training__stats {
+    grid-column: 1 / -1;
+  }
+}

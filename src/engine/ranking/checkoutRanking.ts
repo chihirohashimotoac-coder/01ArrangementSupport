@@ -11,6 +11,7 @@ import type { CheckoutReasonCode, ReasonPolarity } from '../../domain/reasonCode
 import {
   CHECKOUT_REASON_WEIGHTS,
   DART_COUNT_PENALTY,
+  DISCOURAGING_REASON_CODES,
   DOUBLE_QUALITY,
   GOOD_DOUBLE_TIERS,
   GRADE_THRESHOLDS,
@@ -269,6 +270,12 @@ function buildReasons(
   });
 }
 
+function hasDiscouragingReason(reasons: readonly RouteReason[]): boolean {
+  return reasons.some((reason) =>
+    (DISCOURAGING_REASON_CODES as readonly string[]).includes(reason.code),
+  );
+}
+
 function gradeOf(score: number, bestScore: number): RouteGrade {
   const gap = bestScore - score;
   if (gap <= GRADE_THRESHOLDS.S) return 'S';
@@ -339,12 +346,18 @@ export function rankCheckoutRoutes(
 
   scored.sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));
   const bestTactical = scored.reduce((max, item) => Math.max(max, item.tacticalScore), -Infinity);
+  // 最高評価のルートが非推奨理由を持たないなら、「その欠点を避ける選択肢がある」と言える。
+  const bestHasDiscouragingReason = scored
+    .filter((item) => item.tacticalScore === bestTactical)
+    .every((item) => hasDiscouragingReason(item.reasons));
 
-  return scored.map((item) => ({
-    // 基準ルートは定義上つねに S。それ以外は戦術スコアの差で決める。
-    ...item,
-    grade: item.isStandard ? ('S' as const) : gradeOf(item.tacticalScore, bestTactical),
-  }));
+  return scored.map((item) => {
+    // 基準ルートは定義上つねに S。
+    if (item.isStandard) return { ...item, grade: 'S' as const };
+    const byScore = gradeOf(item.tacticalScore, bestTactical);
+    const discouraged = !bestHasDiscouragingReason && hasDiscouragingReason(item.reasons);
+    return { ...item, grade: discouraged ? ('C' as const) : byScore };
+  });
 }
 
 /** 指定ルートの評価だけを取り出す（TRAINING の採点で使う）。 */

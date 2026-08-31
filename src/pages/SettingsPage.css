@@ -1,0 +1,130 @@
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.settings__section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.settings__section h2 {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.settings__section h3 {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--text-dim);
+}
+
+.settings__note,
+.settings__data {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.settings__data {
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.settings__ranked {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.settings__ranked li {
+  display: grid;
+  grid-template-columns: 1.75rem 3.5rem 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--surface-alt);
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  min-height: 3rem;
+}
+
+.settings__empty {
+  display: block !important;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.settings__rank {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.settings__id {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.settings__reason {
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.settings__move {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.settings__move button,
+.settings__grid button {
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--text);
+  background: var(--chip);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.4rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  cursor: pointer;
+}
+
+.settings__move button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.settings__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(3.5rem, 1fr));
+  gap: 0.35rem;
+}
+
+.settings__grid button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.settings__move button:focus-visible,
+.settings__grid button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}

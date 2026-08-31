@@ -1,0 +1,100 @@
+.practice {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.practice__controls {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+}
+
+.practice__board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.practice__hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.practice__routes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.practice__heading {
+  margin: 0.25rem 0 0;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.practice__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.practice__more {
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--chip);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  min-height: 2.75rem;
+  cursor: pointer;
+}
+
+.practice__more:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.practice__empty {
+  margin: 0;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+@media (min-width: 60rem) {
+  .practice {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'controls status'
+      'board routes'
+      'board routes';
+    align-items: start;
+    column-gap: 1.5rem;
+  }
+  .practice__controls {
+    grid-area: controls;
+  }
+  .practice > .status-bar {
+    grid-area: status;
+  }
+  .practice__board {
+    grid-area: board;
+    position: sticky;
+    top: 1rem;
+  }
+  .practice__routes,
+  .practice__empty {
+    grid-area: routes;
+  }
+}

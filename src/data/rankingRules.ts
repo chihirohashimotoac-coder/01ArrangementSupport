@@ -197,12 +197,28 @@ export const TON_SCORE = 100;
  * best（そのお題での最高スコア）との差で判定する。
  */
 export const GRADE_THRESHOLDS = {
-  /** 基準推奨・非常に良い。 */
+  /** 基準推奨・非常に良い。最高評価と同点のルート。 */
   S: 0,
-  /** 非常に良い代替。 */
-  A: 45,
+  /** 非常に良い代替。最高評価との差がこの値以内。 */
+  A: 25,
   /** 十分実用的。 */
-  B: 100,
+  B: 60,
 } as const;
 
 export type RouteGrade = 'S' | 'A' | 'B' | 'C';
+
+/**
+ * 「非推奨」と判断する理由コード。
+ *
+ * これらが付いたルートは、同じ欠点を持たない選択肢が存在する場合、
+ * スコア差にかかわらず C（成立するが戦術的に非推奨）とする。
+ * C には必ず非推奨理由を表示する、という仕様（25 節）と 1 対 1 に対応する。
+ */
+export const DISCOURAGING_REASON_CODES = [
+  'SINGLE_MISS_LOSES_CHECKOUT',
+  'SINGLE_MISS_LEAVES_BOGEY',
+  'NEIGHBOR_RISK',
+  'SAFER_START_EXISTS',
+  'UNNECESSARY_TRIPLE',
+  'NON_FINAL_DOUBLE',
+] as const;

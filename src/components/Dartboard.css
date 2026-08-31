@@ -1,0 +1,117 @@
+.dartboard {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dartboard__svg {
+  width: 100%;
+  max-width: min(100%, 30rem);
+  height: auto;
+  display: block;
+  /* タッチ時のダブルタップズーム・遅延クリックを避ける */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dartboard__backdrop {
+  fill: var(--board-surround);
+  stroke: var(--board-edge);
+  stroke-width: 3;
+}
+
+.dartboard__segment {
+  stroke: var(--board-wire);
+  stroke-width: 0.9;
+  stroke-linejoin: round;
+  transition: opacity 120ms ease-out;
+}
+
+.dartboard__svg[aria-disabled='false'] .dartboard__segment[role='button'] {
+  cursor: pointer;
+}
+
+.dartboard__segment--dark {
+  fill: var(--segment-dark);
+}
+.dartboard__segment--light {
+  fill: var(--segment-light);
+}
+.dartboard__segment--red {
+  fill: var(--segment-red);
+}
+.dartboard__segment--green {
+  fill: var(--segment-green);
+}
+.dartboard__segment--miss {
+  fill: var(--board-surround);
+  stroke: none;
+}
+
+.dartboard__segment[data-highlighted='true'] {
+  fill: var(--highlight-fill);
+  stroke: var(--highlight-stroke);
+  stroke-width: 2.5;
+  paint-order: stroke;
+}
+
+.dartboard__segment[data-focused='true'] {
+  fill: var(--focus-fill);
+  stroke: var(--focus-ring);
+  stroke-width: 4;
+  paint-order: stroke;
+}
+
+.dartboard__segment:focus {
+  outline: none;
+}
+
+.dartboard__segment:focus-visible {
+  stroke: var(--focus-ring);
+  stroke-width: 4;
+  paint-order: stroke;
+}
+
+@media (hover: hover) {
+  .dartboard__svg[aria-disabled='false'] .dartboard__segment[role='button']:hover {
+    stroke: var(--focus-ring);
+    stroke-width: 2;
+    paint-order: stroke;
+  }
+}
+
+.dartboard__svg[aria-disabled='true'] .dartboard__segment {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dartboard__wires line,
+.dartboard__wires circle {
+  fill: none;
+  stroke: var(--board-wire);
+  stroke-width: 1.1;
+  pointer-events: none;
+}
+
+.dartboard__numbers text {
+  fill: var(--board-number);
+  font-size: 20px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  user-select: none;
+}
+
+.dartboard__disabled-reason {
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
+}

@@ -208,8 +208,7 @@ ${alts}
     })
     .join('\n');
 
-  return `/* eslint-disable */
-/**
+  return `/**
  * 自動生成ファイル — 直接編集しないこと。
  *
  * 生成元 : data/source/checkout_table_added_routes_final.xlsx（シート「${SHEET}」）
