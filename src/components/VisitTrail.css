@@ -1,0 +1,78 @@
+.visit-trail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.visit-trail__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+}
+
+.visit-trail__list li {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-height: 3.25rem;
+}
+
+.visit-trail__list li[data-filled='true'] {
+  border-color: var(--border-strong);
+}
+
+.visit-trail__index {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+.visit-trail__dart {
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.visit-trail__after {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.visit-trail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.visit-trail__actions button {
+  flex: 1 1 auto;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--chip);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  cursor: pointer;
+}
+
+.visit-trail__actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.visit-trail__actions button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}

@@ -1,0 +1,63 @@
+.score-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.score-input__label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+.score-input__label input {
+  font-family: inherit;
+  font-size: 1.5rem;
+  font-weight: 800;
+  width: 6rem;
+  min-height: 2.75rem;
+  padding: 0.25rem 0.5rem;
+  color: var(--text);
+  background: var(--chip);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+}
+
+.score-input__label input:focus-visible,
+.score-input button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.score-input__apply,
+.score-input__presets button {
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--chip);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 0.9rem;
+  cursor: pointer;
+}
+
+.score-input__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.score-input__error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--negative);
+}

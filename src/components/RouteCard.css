@@ -1,0 +1,184 @@
+.route-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.route-card--standard {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.route-card__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.25rem;
+}
+
+.route-card__badge {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0.25rem;
+  padding: 0.15rem 0.45rem;
+}
+
+.route-card__grade {
+  margin-left: auto;
+  font-size: 0.85rem;
+  font-weight: 800;
+  width: 1.6rem;
+  height: 1.6rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.route-card__grade--S {
+  background: var(--grade-s-bg);
+  color: var(--grade-s-fg);
+}
+.route-card__grade--A {
+  background: var(--grade-a-bg);
+  color: var(--grade-a-fg);
+}
+.route-card__grade--B {
+  background: var(--grade-b-bg);
+  color: var(--grade-b-fg);
+}
+.route-card__grade--C {
+  background: var(--grade-c-bg);
+  color: var(--grade-c-fg);
+}
+
+.route-card__darts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.route-card__darts li + li::before {
+  content: '→';
+  color: var(--text-dim);
+  margin-right: 0.4rem;
+}
+
+.route-card__darts li {
+  display: flex;
+  align-items: center;
+}
+
+.route-card__dart {
+  font-family: inherit;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  background: var(--chip);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  /* タップ領域を 44px 以上確保する */
+  min-width: 3rem;
+  min-height: 2.75rem;
+  padding: 0 0.6rem;
+  cursor: pointer;
+}
+
+.route-card__dart[data-active='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.route-card__dart:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.route-card__meta {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.route-card__headline {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.route-card__toggle {
+  align-self: flex-start;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0.5rem 0;
+  min-height: 2.75rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.route-card__toggle:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.route-card__reasons ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.route-card__reasons li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  background: var(--surface-alt);
+  border-left: 3px solid var(--border);
+}
+
+.route-card__reasons li[data-polarity='positive'] {
+  border-left-color: var(--positive);
+}
+.route-card__reasons li[data-polarity='negative'] {
+  border-left-color: var(--negative);
+}
+
+.route-card__reason-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.route-card__reason-summary {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.route-card__reason-detail {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
