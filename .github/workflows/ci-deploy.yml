@@ -55,6 +55,11 @@ jobs:
       - name: Build (for E2E)
         run: npm run build
 
+      # E2E は base = / でしか動かないため、GitHub Pages のサブパス配信は
+      # ビルド成果物の静的検証で担保する（asset / manifest / Service Worker）。
+      - name: Validate GitHub Pages base path build
+        run: npm run check:base
+
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
