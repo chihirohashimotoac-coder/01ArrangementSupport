@@ -4,15 +4,22 @@ import { TrainingPage } from './pages/TrainingPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { sequenceTable } from './engine/setup/sequences';
 import { DEFAULT_SETUP_MAIN_TARGET } from './data/rankingRules';
+import { usePreferences } from './hooks/usePreferences';
+import type { Theme } from './storage/preferences';
 import './App.css';
 
 type Tab = 'home' | 'checkout' | 'setup' | 'training' | 'settings';
 
 const TABS: ReadonlyArray<{ id: Tab; label: string; sub: string }> = [
-  { id: 'checkout', label: 'CHECKOUT', sub: '2〜170' },
-  { id: 'setup', label: 'SETUP', sub: '171〜350' },
-  { id: 'training', label: 'TRAINING', sub: '反復学習' },
+  { id: 'checkout', label: 'CHECKOUT', sub: '2〜170・この3投で上がる' },
+  { id: 'setup', label: 'SETUP', sub: '171〜350・次の3投に向けて整える' },
+  { id: 'training', label: 'TRAINING', sub: '反復練習で判断を磨く' },
 ];
+
+const THEME_COLOR: Record<Theme, string> = {
+  dark: '#07111f',
+  light: '#edf4fb',
+};
 
 function HomePage({ onSelect }: { onSelect: (tab: Tab) => void }) {
   return (
@@ -45,6 +52,15 @@ function HomePage({ onSelect }: { onSelect: (tab: Tab) => void }) {
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('home');
+  const { preferences, setTheme } = usePreferences();
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = preferences.theme;
+    document.documentElement.style.colorScheme = preferences.theme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', THEME_COLOR[preferences.theme]);
+  }, [preferences.theme]);
 
   // SETUP の探索表は初回だけ構築コストがかかるため、余裕のあるうちに温めておく。
   useEffect(() => {
@@ -58,7 +74,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app">
+    <div className="app" data-theme={preferences.theme}>
       <header className="app__header">
         <button
           type="button"
@@ -99,7 +115,9 @@ export default function App() {
         {tab === 'checkout' && <PracticePage key="checkout" mode="checkout" />}
         {tab === 'setup' && <PracticePage key="setup" mode="setup" />}
         {tab === 'training' && <TrainingPage />}
-        {tab === 'settings' && <SettingsPage />}
+        {tab === 'settings' && (
+          <SettingsPage theme={preferences.theme} onThemeChange={setTheme} />
+        )}
       </main>
 
       <footer className="app__footer">

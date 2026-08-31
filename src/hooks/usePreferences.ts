@@ -1,5 +1,10 @@
 import { useCallback, useState } from 'react';
-import { loadPreferences, savePreferences, type Preferences } from '../storage/preferences';
+import {
+  loadPreferences,
+  savePreferences,
+  type Preferences,
+  type Theme,
+} from '../storage/preferences';
 
 /** ユーザー設定（MY ROUTE など）を localStorage と同期して扱う。 */
 export function usePreferences() {
@@ -18,5 +23,12 @@ export function usePreferences() {
     [update],
   );
 
-  return { preferences, update, setPreferredDoubles };
+  const setTheme = useCallback(
+    (theme: Theme) => {
+      update({ ...loadPreferences(), theme });
+    },
+    [update],
+  );
+
+  return { preferences, update, setPreferredDoubles, setTheme };
 }

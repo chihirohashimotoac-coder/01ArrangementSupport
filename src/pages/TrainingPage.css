@@ -369,3 +369,30 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+.training__setup, .training__stats {
+  padding: 1rem;
+  background: linear-gradient(145deg, var(--surface-elevated), var(--surface));
+  border-color: var(--border-strong);
+  border-radius: 1rem;
+  box-shadow: var(--inner-highlight), var(--shadow-md);
+}
+.training__modes { padding: 0.28rem; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 0.8rem; }
+.training__modes button, .training__settings fieldset button { min-width: 0; background: transparent; border-color: transparent; }
+.training__modes button[aria-pressed='true'], .training__settings fieldset button[aria-pressed='true'] {
+  background: var(--surface-elevated); box-shadow: var(--inner-highlight), var(--shadow-sm);
+}
+.training__settings { border: 1px solid var(--border); border-radius: 0.8rem; }
+.training__start, .training__submit, .training__next {
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 18%, transparent), var(--inner-highlight);
+}
+.training__answer li { background: var(--surface-alt); border-color: var(--border-strong); box-shadow: var(--inner-highlight); }
+.training__result { padding: 0.75rem; background: color-mix(in srgb, var(--surface) 80%, transparent);
+  border: 1px solid var(--border); border-radius: 0.9rem; box-shadow: var(--inner-highlight); }
+.training__verdict { border: 1px solid currentColor; }
+.training__stats dl div { border: 1px solid var(--border); box-shadow: var(--inner-highlight); }
+.training__stats dd { color: var(--text); }
+@media (max-width: 22rem) {
+  .training__modes { grid-template-columns: repeat(2, 1fr); }
+}

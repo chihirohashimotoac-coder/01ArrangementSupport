@@ -62,10 +62,12 @@ export function RouteCard({
   const positives = reasons.filter((reason) => reason.polarity === 'positive');
   const negatives = reasons.filter((reason) => reason.polarity === 'negative');
   const headline = curatedExplanation ?? negatives[0]?.summary ?? positives[0]?.summary ?? null;
+  const isPrimary = badge === 'STANDARD' || badge === 'BEST';
+  const isPersonal = badge === 'MY ROUTE';
 
   return (
     <article
-      className={`route-card${isStandard ? ' route-card--standard' : ''}`}
+      className={`route-card${isStandard ? ' route-card--standard' : ''}${isPrimary ? ' route-card--primary' : ''}${isPersonal ? ' route-card--personal' : ''}`}
       data-testid={testId}
       data-grade={grade}
     >

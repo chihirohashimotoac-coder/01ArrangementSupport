@@ -888,6 +888,62 @@ describe('v1.2 UX（答えを先に見せる）', () => {
   });
 });
 
+describe('v1.3 テーマとユーザー向け文言', () => {
+  it('Settings で Light / Dark を選び、document と theme-color へ反映する', async () => {
+    const themeColor = document.createElement('meta');
+    themeColor.name = 'theme-color';
+    document.head.append(themeColor);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-settings'));
+
+    expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
+    await user.click(screen.getByTestId('theme-light'));
+
+    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light');
+    expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute(
+      'content',
+      '#edf4fb',
+    );
+    expect(JSON.parse(window.localStorage.getItem('oas.preferences.v1') ?? '{}').theme).toBe(
+      'light',
+    );
+
+    await user.keyboard('{ArrowRight}');
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+    expect(screen.getByTestId('theme-dark')).toHaveFocus();
+  });
+
+  it('保存済み Light テーマを初期表示で復元する', () => {
+    window.localStorage.setItem(
+      'oas.preferences.v1',
+      JSON.stringify({ version: 1, preferredDoubles: [], setupMainTarget: 'T20', theme: 'light' }),
+    );
+    render(<App />);
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light');
+  });
+
+  it('ユーザー向け画面に「ビジット」を表示しない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    expect(document.body).not.toHaveTextContent('ビジット');
+
+    await openCheckoutWith(user, '103');
+    await openRecovery(user);
+    expect(document.body).not.toHaveTextContent('ビジット');
+
+    await user.click(screen.getByTestId('nav-setup'));
+    expect(document.body).toHaveTextContent('次の3投に向けて整える');
+    expect(document.body).not.toHaveTextContent('ビジット');
+
+    await user.click(screen.getByTestId('nav-training'));
+    expect(document.body).not.toHaveTextContent('ビジット');
+    await user.click(screen.getByTestId('nav-settings'));
+    expect(document.body).not.toHaveTextContent('ビジット');
+  });
+});
+
 describe('v1.2 レビュー指摘の回帰テスト', () => {
   /** ルートカードの n 投目のチップ。 */
   function chipOf(card: HTMLElement, index: number) {

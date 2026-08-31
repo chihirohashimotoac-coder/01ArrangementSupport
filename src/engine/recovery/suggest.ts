@@ -91,6 +91,6 @@ export function suggestFor(
     canReachTenpai: reachable,
     unavailableReason: reachable
       ? null
-      : `残り ${dartsLeft} 本では、この ${remaining} からテンパイを作れません。次のビジットで整えます。`,
+      : `残り ${dartsLeft} 本では、この ${remaining} からテンパイを作れません。次の3投で整えます。`,
   };
 }

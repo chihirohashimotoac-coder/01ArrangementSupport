@@ -113,3 +113,20 @@
   outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
+
+.next-target {
+  position: relative;
+  padding: 0.85rem;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface-elevated) 92%, var(--accent) 8%), var(--surface-alt));
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-strong));
+  border-radius: 0.9rem;
+  box-shadow: var(--inner-highlight), var(--shadow-sm);
+}
+.next-target__number { font-size: 2rem; font-weight: 840; letter-spacing: -0.03em; }
+.next-target__number--small { font-size: 1.35rem; }
+.next-target__unit { color: var(--text-secondary); }
+.next-target__label { border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent); border-radius: 999px; }
+.next-target__darts li { font-size: 1.12rem; color: var(--text); }
+.next-target__undo { align-self: flex-end; background: transparent; color: var(--text-secondary); }
