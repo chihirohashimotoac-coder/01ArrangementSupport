@@ -1,8 +1,6 @@
-import { useMemo } from 'react';
 import { usePreferences } from '../hooks/usePreferences';
 import { SELECTABLE_FINISH_TARGETS } from '../storage/preferences';
 import { DOUBLE_QUALITY } from '../data/rankingRules';
-import { STANDARD_ROUTES } from '../data/standardCheckoutRoutes';
 import './SettingsPage.css';
 
 /**
@@ -14,11 +12,6 @@ import './SettingsPage.css';
 export function SettingsPage() {
   const { preferences, setPreferredDoubles } = usePreferences();
   const selected = preferences.preferredDoubles;
-
-  const approvedV1 = useMemo(
-    () => STANDARD_ROUTES.filter((entry) => entry.reviewStatus === 'human-approved-v1').length,
-    [],
-  );
 
   const toggle = (id: string) => {
     setPreferredDoubles(
@@ -92,22 +85,11 @@ export function SettingsPage() {
       </section>
 
       <section className="settings__section">
-        <h2>データの出典</h2>
-        <ul className="settings__data">
-          <li>
-            LEFT 41〜170 の基準ルートは、添付 Excel の第1候補を取り込んだもの（123 件）。
-            アプリ起動時のテストで、合計・最終ダート・Double Out を全件再計算しています。
-          </li>
-          <li>
-            LEFT 2〜40 は Excel に収録がないため、明示ルールで導出しています
-            （<strong>{approvedV1} 件・v1 として承認済み</strong>）。
-            運用しながら見直す前提の暫定の方針です。
-          </li>
-          <li>
-            出典の一次資料が確認できていないため、「PDC公式ルート」とは呼ばず
-            「基準ルート」と表記しています。
-          </li>
-        </ul>
+        <h2>基準ルートについて</h2>
+        <p className="settings__note" data-testid="standard-route-note">
+          STANDARD（基準ルート）は、PDC で頻出する実戦的なアレンジをベースにしています。
+          MY ROUTE では、設定した得意ダブルを考慮した候補を表示します。
+        </p>
       </section>
     </div>
   );

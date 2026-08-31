@@ -226,3 +226,20 @@ test('CHECKOUT の LEFT を SETUP へ持ち越さない', async ({ page }) => {
   await expect(page.getByTestId('score-input')).toHaveValue('');
   await expect(page.getByTestId('practice-idle')).toBeVisible();
 });
+
+test('footer は Copyright 表記だけ', async ({ page }) => {
+  const footer = page.locator('.app__footer');
+  await expect(footer).toHaveText('© 2026 Chihiro Hashimoto');
+  await expect(footer).not.toContainText('添付資料');
+});
+
+test('設定画面は基準ルートをユーザー向けの言葉で説明する', async ({ page }) => {
+  await page.getByTestId('nav-settings').click();
+  await expect(page.getByRole('heading', { name: '基準ルートについて' })).toBeVisible();
+  await expect(page.getByTestId('standard-route-note')).toContainText(
+    'PDC で頻出する実戦的なアレンジ',
+  );
+  const settings = page.locator('.settings');
+  await expect(settings).not.toContainText('添付');
+  await expect(settings).not.toContainText('human-approved-v1');
+});

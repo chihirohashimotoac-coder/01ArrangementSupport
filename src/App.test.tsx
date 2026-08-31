@@ -518,3 +518,41 @@ describe('AUD-P2-001「すべて表示」の打ち切り', () => {
     expect(screen.getByTestId('setup-routes').childElementCount).toBe(total);
   });
 });
+
+describe('v1.1 ユーザー向け文言', () => {
+  it('footer は Copyright 表記だけになっている', () => {
+    const { container } = render(<App />);
+    const footer = container.querySelector('.app__footer');
+    expect(footer?.textContent).toBe('© 2026 Chihiro Hashimoto');
+  });
+
+  it('footer に開発内部の注記が残っていない', () => {
+    const { container } = render(<App />);
+    const footer = container.querySelector('.app__footer')?.textContent ?? '';
+    for (const phrase of ['添付資料', '第1候補', 'PDC 公式', 'Excel', '端末内']) {
+      expect(footer).not.toContain(phrase);
+    }
+  });
+
+  it('設定画面に開発内部の情報を出さない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-settings'));
+
+    const text = screen.getByTestId('nav-settings').closest('.app')?.textContent ?? '';
+    for (const phrase of ['添付', '第1候補', 'human-approved-v1', '123 件', '一次資料', 'Excel']) {
+      expect(text).not.toContain(phrase);
+    }
+  });
+
+  it('設定画面に基準ルートのユーザー向け説明が出る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-settings'));
+
+    expect(screen.getByRole('heading', { name: '基準ルートについて' })).toBeInTheDocument();
+    const note = screen.getByTestId('standard-route-note').textContent ?? '';
+    expect(note).toContain('PDC で頻出する実戦的なアレンジ');
+    expect(note).not.toContain('公式');
+  });
+});
