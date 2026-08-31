@@ -1,9 +1,35 @@
+/**
+ * Safe Area（iOS の PWA / スタンドアロン表示）。
+ *
+ * `apple-mobile-web-app-status-bar-style` が `black-translucent` のとき、
+ * Web コンテンツはステータスバー（時計・電波・バッテリー・Dynamic Island）や
+ * ホームインジケーターの下まで広がる。暗い背景との一体感はこの指定で保ちつつ、
+ * 中身が隠れないよう、アプリ全体の余白として 4 辺すべての inset を足し込む。
+ *
+ * - `env()` 非対応のブラウザでも余白が消えないよう、素の値を先に書いてから上書きする。
+ * - 通常のブラウザや Android では inset が 0 になるため、見た目は従来どおり。
+ * - 横画面（ノッチが左右に来る）でも崩れないよう、left / right も足す。
+ */
 .app {
+  --app-gutter-x: 0.75rem;
+  --app-gutter-top: 0.75rem;
+  --app-gutter-bottom: 1.5rem;
+
+  --app-safe-top: env(safe-area-inset-top, 0px);
+  --app-safe-right: env(safe-area-inset-right, 0px);
+  --app-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --app-safe-left: env(safe-area-inset-left, 0px);
+
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 0.75rem 0.75rem calc(1.5rem + env(safe-area-inset-bottom));
+  padding: var(--app-gutter-top) var(--app-gutter-x) var(--app-gutter-bottom);
+  padding-top: calc(var(--app-gutter-top) + var(--app-safe-top));
+  padding-right: calc(var(--app-gutter-x) + var(--app-safe-right));
+  /* © フッター側の余白は従来の挙動を維持する（1.5rem + bottom inset）。 */
+  padding-bottom: calc(var(--app-gutter-bottom) + var(--app-safe-bottom));
+  padding-left: calc(var(--app-gutter-x) + var(--app-safe-left));
   max-width: 78rem;
   margin: 0 auto;
 }

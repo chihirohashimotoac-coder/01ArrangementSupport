@@ -227,6 +227,29 @@ test('CHECKOUT の LEFT を SETUP へ持ち越さない', async ({ page }) => {
   await expect(page.getByTestId('practice-idle')).toBeVisible();
 });
 
+test('Safe Area の余白は通常ブラウザの見た目を変えない', async ({ page }) => {
+  const app = page.locator('.app');
+
+  // env(safe-area-inset-*) は通常ブラウザで 0px。従来どおり 0.75rem / 1.5rem になる。
+  const padding = await app.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft];
+  });
+  expect(padding).toEqual(['12px', '12px', '24px', '12px']);
+
+  // 縦・横どちらでも横スクロールを生まないこと（横画面のノッチ対応で崩れないかの確認）。
+  for (const size of [
+    { width: 393, height: 852 },
+    { width: 852, height: 393 },
+  ]) {
+    await page.setViewportSize(size);
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(overflows, `${size.width}x${size.height} で横スクロールが出ている`).toBe(false);
+  }
+});
+
 test('footer は Copyright 表記だけ', async ({ page }) => {
   const footer = page.locator('.app__footer');
   await expect(footer).toHaveText('© 2026 Chihiro Hashimoto');
