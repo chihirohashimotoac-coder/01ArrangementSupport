@@ -9,12 +9,14 @@ import {
   DARTS_PER_VISIT,
   MAX_CHECKOUT,
   MAX_SETUP_REMAINING,
+  applyDart,
   isBogey,
   isCheckoutable,
 } from '../../domain/checkoutRules';
 import { getStandardRoute } from '../../data/standardCheckoutRoutes';
+import { sampleCheckoutRoute } from '../checkout/enumerate';
 import { canReachTenpai } from '../setup/enumerate';
-import { createRandom, type RandomSource } from './random';
+import { createRandom } from './random';
 
 export type TrainingKind = 'checkout' | 'setup' | 'recovery';
 export type TrainingMode = TrainingKind | 'mixed';
@@ -49,6 +51,14 @@ export interface RecoveryContext {
   readonly intendedDart: Dart;
   /** 実際に刺さったセグメント。 */
   readonly actualDart: Dart;
+  /** 出題時に存在確認した、grader へ入力できる合法な正答。 */
+  readonly expectedRoute: readonly Dart[];
+}
+
+/** 実投後の状態と合法な正答まで確定した RECOVERY 出題候補。 */
+export interface RecoveryQuestionCandidate extends RecoveryContext {
+  readonly remaining: number;
+  readonly dartsAvailable: number;
 }
 
 export interface TrainingQuestion {
@@ -78,28 +88,82 @@ export function checkoutCandidates(range: { min: number; max: number }): number[
 }
 
 /**
- * RECOVERY の出題対象になる残り点。
+ * 任意の狙い・実投から、回答可能な RECOVERY 出題候補を作る。
  *
- * 基準ルートの 1 投目をシングルへ外した状態を問題にするため、
- * 「1 投目がトリプル / ダブルで、外した後の残りが 2 以上」でなければ出題できない。
- * 例えば 2〜3 の範囲では 1 問も作れない（2 は D1 を外すと 1 残り、
- * 3 は 1 投目が S1 なので外す先がない）。
+ * Bust / Checkout 済みの状態は「次にどこを狙うか」を問えないため除外する。
+ * 継続状態でも、残り 2 本以内の合法な Double Out route が実在しなければ除外する。
  */
-export function recoveryCandidates(range: { min: number; max: number }): number[] {
-  return checkoutCandidates(range).filter((left) => canBuildRecoveryQuestion(left));
+export function createRecoveryQuestionCandidate(
+  visitStartRemaining: number,
+  intendedDart: Dart,
+  actualDart: Dart,
+): RecoveryQuestionCandidate | null {
+  if (
+    !Number.isInteger(visitStartRemaining) ||
+    visitStartRemaining < 2 ||
+    visitStartRemaining > MAX_CHECKOUT
+  ) {
+    return null;
+  }
+
+  const actualResult = applyDart(visitStartRemaining, actualDart);
+  if (actualResult.outcome !== 'continue') return null;
+
+  const dartsAvailable = DARTS_PER_VISIT - 1;
+  const remaining = actualResult.remainingAfter;
+  if (!isCheckoutable(remaining, dartsAvailable)) return null;
+
+  const expected = sampleCheckoutRoute(remaining, dartsAvailable);
+  if (expected === null) return null;
+
+  return {
+    visitStartRemaining,
+    intendedDart,
+    actualDart,
+    remaining,
+    dartsAvailable,
+    expectedRoute: expected.darts,
+  };
 }
 
-/** その残り点から RECOVERY の問題を作れるか。 */
-export function canBuildRecoveryQuestion(visitStart: number): boolean {
+/** 基準ルートの 1 投目がシングルへ落ちた RECOVERY 候補を作る。 */
+function recoveryQuestionCandidateFor(visitStart: number): RecoveryQuestionCandidate | null {
   const standard = getStandardRoute(visitStart);
-  if (!standard) return false;
+  if (!standard) return null;
   const intended = standard.darts[0];
-  if (intended.baseNumber === null) return false;
+  if (intended.baseNumber === null) return null;
+
   const singleMiss = findDart(`S${intended.baseNumber}`);
   // 1 投目がすでにシングルなら「外した先」が同じ的になり、問題にならない。
-  if (!singleMiss || singleMiss.id === intended.id) return false;
-  const remaining = visitStart - singleMiss.score;
-  return remaining >= 2 && remaining <= MAX_SETUP_REMAINING;
+  if (!singleMiss || singleMiss.id === intended.id) return null;
+  return createRecoveryQuestionCandidate(visitStart, intended, singleMiss);
+}
+
+/**
+ * RECOVERY の全出題候補。
+ *
+ * 生成時の random retry に頼らず、実投後に合法な正答が存在する候補だけを先に構築する。
+ */
+export function recoveryQuestionCandidates(range: {
+  min: number;
+  max: number;
+}): RecoveryQuestionCandidate[] {
+  const candidates: RecoveryQuestionCandidate[] = [];
+  for (const visitStart of checkoutCandidates(range)) {
+    const candidate = recoveryQuestionCandidateFor(visitStart);
+    if (candidate !== null) candidates.push(candidate);
+  }
+  return candidates;
+}
+
+/** RECOVERY の出題対象になるビジット開始時の残り点。 */
+export function recoveryCandidates(range: { min: number; max: number }): number[] {
+  return recoveryQuestionCandidates(range).map((candidate) => candidate.visitStartRemaining);
+}
+
+/** その残り点から回答可能な RECOVERY 問題を作れるか。 */
+export function canBuildRecoveryQuestion(visitStart: number): boolean {
+  return recoveryQuestionCandidateFor(visitStart) !== null;
 }
 
 /** SETUP の出題対象になる残り点（テンパイを作れるものだけ）。 */
@@ -141,35 +205,25 @@ function buildSetupQuestion(remaining: number, index: number): TrainingQuestion 
  * 基準ルートの 1 投目を「狙った的」とし、そこから実戦で起きやすいズレ
  * （トリプル → シングル）を起こした状態を問題にする。
  */
-function buildRecoveryQuestion(
-  visitStart: number,
-  random: RandomSource,
+export function buildRecoveryQuestion(
+  candidate: RecoveryQuestionCandidate,
   index: number,
-): TrainingQuestion | null {
-  const standard = getStandardRoute(visitStart);
-  if (!standard) return null;
-  const intended = standard.darts[0];
-  if (intended.baseNumber === null) return null;
-
-  // 縦ズレ（シングルへ落ちる）を基本にしつつ、たまに横ズレも出す。
-  const singleMiss = findDart(`S${intended.baseNumber}`);
-  const candidates: Dart[] = [];
-  if (singleMiss && singleMiss.id !== intended.id) candidates.push(singleMiss);
-  if (candidates.length === 0) return null;
-
-  const actual = random.pick(candidates);
-  if (!actual) return null;
-
-  const remaining = visitStart - actual.score;
-  if (remaining < 2 || remaining > MAX_SETUP_REMAINING) return null;
-
+): TrainingQuestion {
+  const {
+    visitStartRemaining,
+    intendedDart,
+    actualDart,
+    remaining,
+    dartsAvailable,
+    expectedRoute,
+  } = candidate;
   return {
-    id: `recovery-${visitStart}-${actual.id}-${index}`,
+    id: `recovery-${visitStartRemaining}-${actualDart.id}-${index}`,
     kind: 'recovery',
     remaining,
-    dartsAvailable: DARTS_PER_VISIT - 1,
-    promptJa: `残り ${visitStart} から ${intended.id} を狙って ${actual.id} でした。残り ${remaining} 点・2 本。次はどこを狙いますか？`,
-    recovery: { visitStartRemaining: visitStart, intendedDart: intended, actualDart: actual },
+    dartsAvailable,
+    promptJa: `残り ${visitStartRemaining} から ${intendedDart.id} を狙って ${actualDart.id} でした。残り ${remaining} 点・${dartsAvailable} 本。次はどこを狙いますか？`,
+    recovery: { visitStartRemaining, intendedDart, actualDart, expectedRoute },
   };
 }
 
@@ -190,20 +244,25 @@ export function generateQuestions(options: GenerateOptions): TrainingQuestion[] 
 
   const checkoutPool = checkoutCandidates(settings.checkoutRange);
   const setupPool = setupCandidates(settings.setupRange);
-  const recoveryPool = recoveryCandidates(settings.checkoutRange);
+  const recoveryPool = recoveryQuestionCandidates(settings.checkoutRange);
   const reviewPool = (options.reviewTargets ?? []).filter(
     (n) => checkoutPool.includes(n) || setupPool.includes(n),
   );
+  const availableKinds = kindsWithCandidates(settings.mode, {
+    checkoutPool,
+    setupPool,
+    recoveryPool,
+  });
 
-  // 選ばれたモードで 1 問も作れない設定なら、空回りせずに空を返す。
+  // 選ばれたモードで 1 問も作れない設定なら、空の pool を引かずに空を返す。
   // 呼び出し側（UI）はこれを「この設定では出題できません」として扱う。
-  if (poolFor(settings.mode, { checkoutPool, setupPool, recoveryPool }).length === 0) return [];
+  if (availableKinds.length === 0) return [];
 
   const questions: TrainingQuestion[] = [];
-  for (let i = 0; questions.length < count && i < count * 20; i += 1) {
+  for (let i = 0; i < count; i += 1) {
     const kind: TrainingKind =
       settings.mode === 'mixed'
-        ? (['checkout', 'setup', 'recovery'] as const)[random.nextInt(0, 2)]
+        ? availableKinds[random.nextInt(0, availableKinds.length - 1)]
         : settings.mode;
 
     // 苦手スコアを 3 回に 1 回ほど混ぜる。
@@ -213,47 +272,46 @@ export function generateQuestions(options: GenerateOptions): TrainingQuestion[] 
     if (kind === 'setup') {
       const pool = useReview ? reviewPool.filter((n) => setupPool.includes(n)) : setupPool;
       const remaining = random.pick(pool.length > 0 ? pool : setupPool);
-      if (remaining !== null) questions.push(buildSetupQuestion(remaining, i));
+      if (remaining === null) throw new Error('SETUP の出題候補 pool が空です。');
+      questions.push(buildSetupQuestion(remaining, i));
+      continue;
+    }
+
+    if (kind === 'recovery') {
+      const candidate = random.pick(
+        useReview
+          ? (recoveryPool.filter((item) => reviewPool.includes(item.visitStartRemaining)).length > 0
+              ? recoveryPool.filter((item) => reviewPool.includes(item.visitStartRemaining))
+              : recoveryPool)
+          : recoveryPool,
+      );
+      if (candidate === null) throw new Error('RECOVERY の出題候補 pool が空です。');
+      questions.push(buildRecoveryQuestion(candidate, i));
       continue;
     }
 
     const pool = useReview ? reviewPool.filter((n) => checkoutPool.includes(n)) : checkoutPool;
     const remaining = random.pick(pool.length > 0 ? pool : checkoutPool);
-    if (remaining === null) continue;
-
-    if (kind === 'recovery') {
-      const recoveryBase = random.pick(
-        useReview
-          ? (reviewPool.filter((n) => recoveryPool.includes(n)).length > 0
-              ? reviewPool.filter((n) => recoveryPool.includes(n))
-              : recoveryPool)
-          : recoveryPool,
-      );
-      if (recoveryBase === null) continue;
-      const question = buildRecoveryQuestion(recoveryBase, random, i);
-      if (question) questions.push(question);
-      continue;
-    }
+    if (remaining === null) throw new Error('CHECKOUT の出題候補 pool が空です。');
     questions.push(buildCheckoutQuestion(remaining, i));
   }
   return questions;
 }
 
-/** モードごとに、出題に使える残り点のプール。 */
-function poolFor(
+/** 空でない pool を持つ出題種別だけを返す。 */
+function kindsWithCandidates(
   mode: TrainingMode,
-  pools: { checkoutPool: number[]; setupPool: number[]; recoveryPool: number[] },
-): number[] {
-  switch (mode) {
-    case 'checkout':
-      return pools.checkoutPool;
-    case 'setup':
-      return pools.setupPool;
-    case 'recovery':
-      return pools.recoveryPool;
-    case 'mixed':
-      return [...pools.checkoutPool, ...pools.setupPool, ...pools.recoveryPool];
-  }
+  pools: {
+    checkoutPool: readonly number[];
+    setupPool: readonly number[];
+    recoveryPool: readonly RecoveryQuestionCandidate[];
+  },
+): TrainingKind[] {
+  const available: TrainingKind[] = [];
+  if (pools.checkoutPool.length > 0) available.push('checkout');
+  if (pools.setupPool.length > 0) available.push('setup');
+  if (pools.recoveryPool.length > 0) available.push('recovery');
+  return mode === 'mixed' ? available : available.filter((kind) => kind === mode);
 }
 
 /**
@@ -262,10 +320,10 @@ function poolFor(
  */
 export function canGenerateQuestions(settings: TrainingSettings): boolean {
   return (
-    poolFor(settings.mode, {
+    kindsWithCandidates(settings.mode, {
       checkoutPool: checkoutCandidates(settings.checkoutRange),
       setupPool: setupCandidates(settings.setupRange),
-      recoveryPool: recoveryCandidates(settings.checkoutRange),
+      recoveryPool: recoveryQuestionCandidates(settings.checkoutRange),
     }).length > 0
   );
 }
