@@ -38,9 +38,18 @@ Claude Code はこのリポジトリの**主実装担当**です。
 | `src/data/rankingRules.ts` | **重みの変更は Human Approval Required** |
 | `src/data/bogeyNumbers.ts` | **Human Approval Required**（計算結果との一致をテストが担保） |
 | `src/data/standardCheckoutRoutes.generated.ts` | **手編集禁止**（`npm run import:checkout` で再生成） |
-| `src/data/lowStandardRoutes.ts` | 導出ルールの変更は **Human Approval Required** |
+| `src/data/lowStandardRoutes.ts` | v1 承認済み。導出ルールの変更は **Human Approval Required** |
 | `src/data/setupReferenceCases.ts` | 添付資料の記録。**書き換えず、矛盾は報告する** |
 | `data/source/*.xlsx` | 一次資料。**変更禁止** |
+
+## 3-1. 承認済みの戦術方針
+
+`docs/APPROVALS.md` に、人間が承認した v1 の戦術方針（呼称・2〜40 の導出規則・
+SEGMENT_DIFFICULTY・SETUP の重み・GRADE_THRESHOLDS など）が記録されています。
+
+- 承認済み = **人間が選んだ暫定の方針**であって、「絶対に正しい値」ではありません。
+- ドキュメントや説明文で、これらを「数学的・統計的に正しい」と表現しないこと。
+- v1 から変更したい場合は、値を変えずに提案だけを書き、承認を得てください。
 
 ## 4. データに矛盾を見つけたとき
 

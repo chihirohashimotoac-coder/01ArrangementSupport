@@ -5,14 +5,17 @@
 | 残り点 | 出典 | `source` | `reviewStatus` |
 | --- | --- | --- | --- |
 | 41〜170 | 添付 Excel `checkout_table_added_routes_final.xlsx` の第1候補 | `excel-first-candidate` | `source-of-truth` |
-| 2〜40 | 明示ルールによる導出（Excel に収録なし） | `derived-rule-v1` | `pending-human-review` |
+| 2〜40 | 明示ルールによる導出（Excel に収録なし） | `derived-rule-v1` | `human-approved-v1` |
 
 一次資料は `data/source/checkout_table_added_routes_final.xlsx` に置き、**変更しません**。
 
-## 2. 呼び方（DATA CONFLICT #1）
+## 2. 呼び方（承認済み / docs/APPROVALS.md A-1）
 
 Excel の見出しには「Steel Darts Checkout Table｜**PDC頻出ルート** + D20 / D16 / D14 / D12 終わり候補」
 とありますが、PDC が公式に定めたルート表であることを示す一次資料を確認できていません。
+
+2026-08-31 に、**「基準ルート（Standard Route）」の呼称を採用する**方針が人間により承認されました。
+Excel の第1候補データ自体は変更していません。
 
 したがってアプリ内・ドキュメント内では、
 
@@ -65,7 +68,12 @@ Excel の「検算」欄が OK であることは**信用しません**。
 - Excel の「検算」欄が OK 以外の行: **0 件**
 - 再計算で見つかった不一致: **0 件**
 
-## 5. 2〜40 の導出ルール（レビュー対象）
+## 5. 2〜40 の導出ルール（v1 として承認済み）
+
+> **承認状態**: 2026-08-31 に **v1 の STANDARD 基準ルートとして人間が承認**しました
+> （`docs/APPROVALS.md` A-4）。これは「数学的に一意へ定まる正解」ではなく、
+> 運用しながら見直す前提の**戦術方針の暫定値**です。
+> 変更にはあらためて Human Approval が必要です。
 
 Excel に収録がないため、アルゴリズムが暗黙の「好み」を持たないよう、
 採用ルールを次の 2 つだけに限定しています（`src/data/lowStandardRoutes.ts`）。
@@ -91,10 +99,10 @@ Excel に収録がないため、アルゴリズムが暗黙の「好み」を�
 ```
 
 このルールは、41〜170 の Excel 第1候補が D16 / D20 を多用する傾向とは**独立に**定義しています。
-両者の整合性は人間が確認してください。
+両者の整合性は人間が確認済みです（v1）。
 
-`reviewStatus: 'pending-human-review'` は、人間のレビューが済むまで外しません。
-UI の「設定」画面にもレビュー待ち件数を表示しています。
+`reviewStatus` は `human-approved-v1` です。UI の「設定」画面にも件数と承認状態を表示しています。
+今後この帯に未承認のデータを追加する場合は `pending-human-review` を使ってください。
 
 ## 6. 生成ファイルの扱い
 

@@ -15,8 +15,8 @@ export function SettingsPage() {
   const { preferences, setPreferredDoubles } = usePreferences();
   const selected = preferences.preferredDoubles;
 
-  const pendingReview = useMemo(
-    () => STANDARD_ROUTES.filter((entry) => entry.reviewStatus === 'pending-human-review').length,
+  const approvedV1 = useMemo(
+    () => STANDARD_ROUTES.filter((entry) => entry.reviewStatus === 'human-approved-v1').length,
     [],
   );
 
@@ -99,8 +99,9 @@ export function SettingsPage() {
             アプリ起動時のテストで、合計・最終ダート・Double Out を全件再計算しています。
           </li>
           <li>
-            LEFT 2〜40 は Excel に収録がないため、明示ルールで導出した
-            <strong>レビュー待ちデータ（{pendingReview} 件）</strong>です。
+            LEFT 2〜40 は Excel に収録がないため、明示ルールで導出しています
+            （<strong>{approvedV1} 件・v1 として承認済み</strong>）。
+            運用しながら見直す前提の暫定の方針です。
           </li>
           <li>
             出典の一次資料が確認できていないため、「PDC公式ルート」とは呼ばず

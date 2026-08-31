@@ -3,7 +3,7 @@
  *
  * 出典が 2 系統あるため、どの LEFT がどちらから来たかを必ず保持する。
  *   - 41〜170 : 添付 Excel の第1候補（source of truth。自動修正禁止）
- *   - 2〜40   : 明示ルールによる導出（人間レビュー待ち）
+ *   - 2〜40   : 明示ルールによる導出（v1 として人間承認済み）
  *
  * Excel のヘッダーには「PDC頻出ルート」とあるが、一次資料が確認できないため
  * アプリ内では「基準ルート / Standard Route」とだけ呼ぶ
@@ -17,7 +17,16 @@ import {
 } from './standardCheckoutRoutes.generated';
 
 export type StandardRouteSource = 'excel-first-candidate' | 'derived-rule-v1';
-export type ReviewStatus = 'source-of-truth' | 'pending-human-review';
+
+/**
+ * データの確認状態。
+ *
+ *  - `source-of-truth`      : 一次資料（添付 Excel）そのもの
+ *  - `human-approved-v1`    : 導出データだが、人間が v1 の方針として承認済み
+ *                             （docs/APPROVALS.md A-4）。暫定値であり、見直す前提。
+ *  - `pending-human-review` : まだ承認されていない導出データ。今後追加する場合に使う。
+ */
+export type ReviewStatus = 'source-of-truth' | 'human-approved-v1' | 'pending-human-review';
 
 export interface StandardAlternativeRoute {
   readonly finish: AlternativeFinish;
@@ -41,7 +50,8 @@ for (const row of DERIVED_LOW_ROUTES) {
     left: row.left,
     darts: parseRoute(row.darts),
     source: 'derived-rule-v1',
-    reviewStatus: 'pending-human-review',
+    // v1 の基準ルートとして承認済み（docs/APPROVALS.md A-4）。
+    reviewStatus: 'human-approved-v1',
     alternatives: [],
   });
 }

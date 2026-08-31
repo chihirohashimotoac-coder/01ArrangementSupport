@@ -132,11 +132,20 @@ describe('導出した基準ルート（2〜40）', () => {
     }
   });
 
-  it('レビュー待ちであることが記録されている', () => {
+  it('v1 として人間承認済みであることが記録されている', () => {
     for (const entry of STANDARD_ROUTES) {
       if (entry.left > 40) continue;
       expect(entry.source).toBe('derived-rule-v1');
-      expect(entry.reviewStatus).toBe('pending-human-review');
+      // docs/APPROVALS.md A-4 で v1 の基準ルートとして承認済み。
+      expect(entry.reviewStatus).toBe('human-approved-v1');
+    }
+  });
+
+  it('Excel 由来の帯は一次資料として区別されたままである', () => {
+    for (const entry of STANDARD_ROUTES) {
+      if (entry.left <= 40) continue;
+      expect(entry.source).toBe('excel-first-candidate');
+      expect(entry.reviewStatus).toBe('source-of-truth');
     }
   });
 

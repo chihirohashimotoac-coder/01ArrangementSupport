@@ -10,8 +10,9 @@
 1. `docs/SPEC.md` — アプリ全体の仕様
 2. `docs/ARRANGE_RULES.md` — 戦術評価のルールと重み
 3. `docs/CHECKOUT_DATA_POLICY.md` — 基準ルートデータの扱い（**最重要**）
-4. `docs/SETUP_THEORY.md` — SETUP（171〜350）の考え方
-5. `docs/TEST_STRATEGY.md` — テストの方針
+4. `docs/APPROVALS.md` — どの戦術方針が人間承認済みか（**最重要**）
+5. `docs/SETUP_THEORY.md` — SETUP（171〜350）の考え方
+6. `docs/TEST_STRATEGY.md` — テストの方針
 
 読まずに実装を始めないこと。
 
@@ -51,6 +52,12 @@
 
 変更が必要に見える場合は、**変更せずに** `docs/DATA_CONFLICTS.md` か PR 説明へ
 `QUESTION` / `DATA CONFLICT` / `PROPOSED CHANGE` として記録してください。
+
+現在の値のうち、どれが人間の承認を受けた「v1 の戦術方針」かは
+**`docs/APPROVALS.md`** に記録されています。
+承認済みであることは「その値が絶対に正しい」という意味ではなく、
+**「人間が選んだ暫定の方針である」**という意味です。
+v1 から変更したい場合は、あらためて承認を得て `docs/APPROVALS.md` へ v2 として追記してください。
 
 ### 2-3. 生成物の手編集
 

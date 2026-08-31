@@ -6,6 +6,13 @@
  *  このファイルの数値・分類の変更は「戦術方針の変更」に当たる。
  *  AI が「こちらの方が合理的だから」という理由で書き換えてはならない。
  *  変更提案は docs/DATA_CONFLICTS.md へ PROPOSED CHANGE として記録する。
+ *
+ *  現在の値の位置づけ:
+ *    SEGMENT_DIFFICULTY / SETUP_POINTS_WEIGHT / SETUP_DIFFICULTY_WEIGHT /
+ *    LEAVE_GOOD_FINISH_DOUBLE / LEAVE_REQUIRES_BULL / GRADE_THRESHOLDS は
+ *    2026-08-31 に **v1 暫定値として人間が承認**した（docs/APPROVALS.md A-5〜A-8）。
+ *    これらは「数学的・統計的に絶対正しい値」ではなく、運用しながら見直す前提の
+ *    戦術方針である。変更にはあらためて承認が必要。
  * ============================================================
  *
  * 重みはすべて加点方式で、合計値が大きいほど推奨度が高い。
