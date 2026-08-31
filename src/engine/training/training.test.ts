@@ -1,17 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_TRAINING_SETTINGS,
+  buildRecoveryQuestion,
   canBuildRecoveryQuestion,
   canGenerateQuestions,
   checkoutCandidates,
+  createRecoveryQuestionCandidate,
   generateQuestions,
   recoveryCandidates,
+  recoveryQuestionCandidates,
   setupCandidates,
 } from './questions';
 import { gradeAnswer, isDiscouraged, leftBogey } from './grade';
 import { createRandom } from './random';
-import { parseRoute } from '../../domain/dart';
-import { DARTS_PER_VISIT, isBogey } from '../../domain/checkoutRules';
+import { isFinishingDart, parseRoute, requireDart, routeTotal } from '../../domain/dart';
+import {
+  DARTS_PER_VISIT,
+  applyDart,
+  isBogey,
+  isCheckoutable,
+  isLegalCheckoutRoute,
+} from '../../domain/checkoutRules';
 import { BOGEY_NUMBERS } from '../../data/bogeyNumbers';
 
 describe('擬似乱数', () => {
@@ -77,6 +86,12 @@ describe('RECOVERY の出題可否（PR #1 レビュー指摘の回帰テスト�
     expect(canBuildRecoveryQuestion(122)).toBe(true);
   });
 
+  it('161 → T20 狙い → S20 で 141 / 2 本になる問題は作れない', () => {
+    expect(isCheckoutable(141, 2)).toBe(false);
+    expect(canBuildRecoveryQuestion(161)).toBe(false);
+    expect(recoveryCandidates({ min: 161, max: 161 })).toEqual([]);
+  });
+
   it('2〜3 の範囲では RECOVERY の出題対象が 0 件になる', () => {
     expect(recoveryCandidates({ min: 2, max: 3 })).toEqual([]);
     expect(canGenerateQuestions({
@@ -114,6 +129,148 @@ describe('RECOVERY の出題可否（PR #1 レビュー指摘の回帰テスト�
   it('他のモードは出題できる設定として扱われる', () => {
     expect(canGenerateQuestions(DEFAULT_TRAINING_SETTINGS)).toBe(true);
     expect(canGenerateQuestions({ ...DEFAULT_TRAINING_SETTINGS, mode: 'setup' })).toBe(true);
+  });
+
+  it('MIXED は空の RECOVERY pool を選ばず、要求数を決定的に満たす', () => {
+    const settings = {
+      ...DEFAULT_TRAINING_SETTINGS,
+      mode: 'mixed' as const,
+      checkoutRange: { min: 2, max: 3 },
+      questionCount: 100,
+    };
+    const questions = generateQuestions({ settings, seed: 23 });
+    expect(questions).toHaveLength(100);
+    expect(questions.some((question) => question.kind === 'recovery')).toBe(false);
+    expect(generateQuestions({ settings, seed: 23 })).toEqual(questions);
+  });
+});
+
+describe('RECOVERY 候補の合法性 invariant', () => {
+  it('全候補で表示状態・合法 route・grader が一致する', () => {
+    const candidates = recoveryQuestionCandidates({ min: 2, max: 170 });
+    const violations: string[] = [];
+
+    for (const [index, candidate] of candidates.entries()) {
+      const label = `${candidate.visitStartRemaining}/${candidate.actualDart.id}`;
+      const recalculated = candidate.visitStartRemaining - candidate.actualDart.score;
+      const question = buildRecoveryQuestion(candidate, index);
+
+      if (candidate.remaining !== recalculated) violations.push(`${label}: remaining`);
+      if (candidate.dartsAvailable !== DARTS_PER_VISIT - 1) violations.push(`${label}: darts`);
+      if (question.remaining !== recalculated) violations.push(`${label}: question remaining`);
+      if (question.dartsAvailable !== candidate.dartsAvailable) {
+        violations.push(`${label}: question darts`);
+      }
+      if (question.recovery === null) violations.push(`${label}: context`);
+      if (!question.promptJa.includes(`${candidate.visitStartRemaining}`)) {
+        violations.push(`${label}: prompt initial`);
+      }
+      if (!question.promptJa.includes(candidate.intendedDart.id)) {
+        violations.push(`${label}: prompt intended`);
+      }
+      if (!question.promptJa.includes(candidate.actualDart.id)) {
+        violations.push(`${label}: prompt actual`);
+      }
+      if (!question.promptJa.includes(`${candidate.remaining}`)) {
+        violations.push(`${label}: prompt remaining`);
+      }
+
+      const route = candidate.expectedRoute;
+      if (route.length === 0 || route.length > candidate.dartsAvailable) {
+        violations.push(`${label}: route length`);
+      }
+      if (routeTotal(route) !== candidate.remaining) violations.push(`${label}: route total`);
+      if (!isFinishingDart(route[route.length - 1])) violations.push(`${label}: finish`);
+      if (!isLegalCheckoutRoute(candidate.remaining, route, candidate.dartsAvailable)) {
+        violations.push(`${label}: illegal route`);
+      }
+
+      let left = candidate.remaining;
+      for (const [dartIndex, dart] of route.entries()) {
+        const result = applyDart(left, dart);
+        if (result.outcome === 'bust') violations.push(`${label}: bust at ${dartIndex}`);
+        if (result.outcome === 'checkout' && dartIndex !== route.length - 1) {
+          violations.push(`${label}: early checkout`);
+        }
+        if (result.outcome === 'continue') left = result.remainingAfter;
+      }
+
+      const graded = gradeAnswer(question, route);
+      if (!graded.valid) violations.push(`${label}: grader ${graded.invalidReason}`);
+      if (graded.grade === null) violations.push(`${label}: grade`);
+      if (graded.checkoutEvaluation === null) violations.push(`${label}: reason`);
+      if (graded.bestCheckout === null) violations.push(`${label}: better route`);
+    }
+
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(violations).toEqual([]);
+  });
+});
+
+describe('RECOVERY 実投境界', () => {
+  const intended = requireDart('T19');
+
+  it.each([
+    ['MISS', 100],
+    ['S20', 80],
+    ['D20', 60],
+    ['T20', 40],
+    ['SB', 75],
+    ['BULL', 50],
+  ])('%s の実投後に合法な回答があれば候補になる', (actualId, expectedRemaining) => {
+    const candidate = createRecoveryQuestionCandidate(
+      100,
+      intended,
+      requireDart(actualId),
+    );
+    expect(candidate?.remaining).toBe(expectedRemaining);
+    expect(
+      candidate === null
+        ? false
+        : isLegalCheckoutRoute(
+            candidate.remaining,
+            candidate.expectedRoute,
+            candidate.dartsAvailable,
+          ),
+    ).toBe(true);
+  });
+
+  it('BULL finish を必要とする 104 / 2 本を生成・採点できる', () => {
+    const candidate = createRecoveryQuestionCandidate(
+      122,
+      requireDart('T18'),
+      requireDart('S18'),
+    );
+    expect(candidate?.remaining).toBe(104);
+    expect(candidate?.expectedRoute.map((dart) => dart.id)).toEqual(['T18', 'BULL']);
+    expect(gradeAnswer(buildRecoveryQuestion(candidate!, 0), candidate!.expectedRoute).valid).toBe(
+      true,
+    );
+  });
+
+  it('D1 finish の 2 / 2 本を生成・採点できる', () => {
+    const candidate = createRecoveryQuestionCandidate(
+      4,
+      requireDart('D2'),
+      requireDart('S2'),
+    );
+    expect(candidate?.remaining).toBe(2);
+    expect(candidate?.expectedRoute.map((dart) => dart.id)).toEqual(['D1']);
+    expect(gradeAnswer(buildRecoveryQuestion(candidate!, 0), candidate!.expectedRoute).valid).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    [40, 'T20', 'BELOW_ZERO'],
+    [21, 'S20', 'LEFT_ONE'],
+    [20, 'S20', 'single zero'],
+    [60, 'T20', 'triple zero'],
+    [40, 'D20', 'checkout'],
+  ])('%i から %s の %s 状態は次の狙いを問わない', (remaining, actualId) => {
+    expect(
+      createRecoveryQuestionCandidate(remaining, intended, requireDart(actualId)),
+    ).toBeNull();
   });
 });
 

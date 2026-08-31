@@ -26,6 +26,20 @@
 `41 / 43 / 46 / 50 / 61 / 99 / 103 / 122 / 160 / 161 / 164 / 167 / 170`
 について、基準ルートが存在し、第 1 候補として並ぶこと。
 
+### RECOVERY TRAINING
+
+- RECOVERY の全出題候補について、実投後の残り点・残り本数を独立に再計算する
+- 各候補に残り本数以内の合法な Double Out route があり、合計・最終 Double / BULL・
+  途中の Bust なしを確認する
+- 出題時に保持した正答を実際の TRAINING grader へ渡し、grade・reason・better route が
+  得られることを確認する
+- `161 → T20 狙い → S20 → 141 / 2 本` を候補に含めず、141 を 2 本で上がれると判定しない
+- MISS / Single / Double / Triple / S-BULL / BULL の実投と、Bust・1 残り・
+  Single / Triple による 0・D1 finish・BULL finish の境界を固定テストする
+- RECOVERY 10,000 問と MIXED 10,000 問を決定的に生成し、解なし・NaN・undefined・
+  grader 不一致が 0 件であることを通常の unit suite で確認する
+- MIXED は空の種別 pool を乱数で選ばず、利用可能な種別だけから要求数を生成する
+
 ### Excel 検算（123 件）
 
 `starting LEFT` / `route score total` / `final dart` / `Double Out` /
@@ -78,5 +92,5 @@ vitest の既定タイムアウト（5 秒）を超えます。違反を配列�
 
 ## 7. 現在の規模
 
-- ユニット / コンポーネント: **11 ファイル / 340 テスト**
+- ユニット / コンポーネント: **12 ファイル / 357 テスト**
 - E2E: **37 テスト × 2 プロジェクト = 74**
