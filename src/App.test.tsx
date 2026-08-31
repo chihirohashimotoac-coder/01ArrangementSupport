@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 
@@ -26,6 +26,19 @@ async function openSetupWith(user: User, value: string) {
   await typeLeft(user, value);
 }
 
+/**
+ * 実戦入力（盤面）を開く。
+ * v1.2 では通常表示で盤面をたたむので、着弾を入れるテストは必ずここを通る。
+ */
+async function openRecovery(user: User) {
+  await user.click(screen.getByTestId('recovery-toggle'));
+}
+
+/** a が b より前（DOM 順）にあるか。 */
+function precedes(a: Element, b: Element) {
+  return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+}
+
 describe('アプリの骨格', () => {
   it('トップに 3 つのモードが並ぶ', () => {
     render(<App />);
@@ -38,7 +51,7 @@ describe('アプリの骨格', () => {
     const user = userEvent.setup();
     render(<App />);
     await openCheckoutWith(user, '103');
-    expect(screen.getByTestId('status-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('standard-route')).toBeInTheDocument();
     await user.click(screen.getByTestId('nav-training'));
     expect(screen.getByTestId('start-training')).toBeInTheDocument();
   });
@@ -50,8 +63,9 @@ describe('CHECKOUT 画面', () => {
     render(<App />);
     await openCheckoutWith(user, '103');
 
-    expect(screen.getByTestId('status-left')).toHaveTextContent('103');
-    expect(screen.getByTestId('status-darts')).toHaveTextContent('3');
+    // v1.2: 通常表示では StatusBar / 盤面を通らず、いきなり答えが出る。
+    expect(screen.queryByTestId('status-bar')).toBeNull();
+    expect(screen.queryByTestId('dartboard')).toBeNull();
 
     const standard = screen.getByTestId('standard-route');
     expect(within(standard).getByText('T19')).toBeInTheDocument();
@@ -66,6 +80,7 @@ describe('CHECKOUT 画面', () => {
     const user = userEvent.setup();
     render(<App />);
     await openCheckoutWith(user, '103');
+    await openRecovery(user);
 
     // T19 を狙って S19 に落ちた、という入力。
     await user.click(screen.getByTestId('segment-s19-outer'));
@@ -78,6 +93,7 @@ describe('CHECKOUT 画面', () => {
     const user = userEvent.setup();
     render(<App />);
     await openCheckoutWith(user, '103');
+    await openRecovery(user);
 
     await user.click(screen.getByTestId('segment-s19-outer'));
     expect(screen.getByTestId('status-left')).toHaveTextContent('84');
@@ -90,6 +106,7 @@ describe('CHECKOUT 画面', () => {
     const user = userEvent.setup();
     render(<App />);
     await openCheckoutWith(user, '103');
+    await openRecovery(user);
 
     // 103 → T19 → 46 → T20 で 46 - 60 < 0 となり Bust。
     await user.click(screen.getByTestId('segment-t19'));
@@ -106,6 +123,7 @@ describe('CHECKOUT 画面', () => {
     const user = userEvent.setup();
     render(<App />);
     await openCheckoutWith(user, '103');
+    await openRecovery(user);
 
     await user.click(screen.getByTestId('segment-t19'));
     await user.click(screen.getByTestId('segment-s6-outer'));
@@ -165,6 +183,7 @@ describe('PR #1 レビュー指摘の回帰テスト', () => {
     const user = userEvent.setup();
     render(<App />);
     await openCheckoutWith(user, '103');
+    await openRecovery(user);
 
     // 103 → T20 で 43 残り、3 投使い切ってビジット終了。
     await user.click(screen.getByTestId('segment-t20'));
@@ -217,7 +236,7 @@ describe('SETUP 画面', () => {
     render(<App />);
     await openSetupWith(user, '305');
 
-    expect(screen.getByTestId('status-left')).toHaveTextContent('305');
+    expect(screen.getByTestId('score-input')).toHaveValue('305');
     const best = screen.getByTestId('standard-route');
     // T20 → T20 → S18 なので T20 は 2 つ現れる。
     expect(within(best).getAllByText('T20')).toHaveLength(2);
@@ -356,7 +375,7 @@ describe('v1.1 入力 UX（LEFT 即時反映）', () => {
     expect(within(standard).getByText('T19')).toBeInTheDocument();
     expect(within(standard).getByText('S6')).toBeInTheDocument();
     expect(within(standard).getByText('D20')).toBeInTheDocument();
-    expect(screen.getByTestId('status-left')).toHaveTextContent('103');
+    expect(screen.getByTestId('score-input')).toHaveValue('103');
   });
 
   it('SETUP で 302 を入力するだけで候補が出る', async () => {
@@ -365,7 +384,7 @@ describe('v1.1 入力 UX（LEFT 即時反映）', () => {
     await user.click(screen.getByTestId('nav-setup'));
     await typeLeft(user, '302');
 
-    expect(screen.getByTestId('status-left')).toHaveTextContent('302');
+    expect(screen.getByTestId('score-input')).toHaveValue('302');
     expect(screen.getByTestId('standard-route')).toBeInTheDocument();
     expect(screen.getByTestId('setup-routes').childElementCount).toBeGreaterThan(0);
   });
@@ -422,9 +441,10 @@ describe('v1.1 入力 UX（LEFT 即時反映）', () => {
     await user.type(input, '1');
     expect(screen.queryByRole('alert')).toBeNull();
     await user.type(input, '0');
-    expect(screen.getByTestId('status-left')).toHaveTextContent('10');
+    // 10 も合法な CHECKOUT 値なので、この時点で候補は出る（画面は動かさない）。
+    expect(within(screen.getByTestId('standard-route')).getByText('D5')).toBeInTheDocument();
     await user.type(input, '3');
-    expect(screen.getByTestId('status-left')).toHaveTextContent('103');
+    expect(within(screen.getByTestId('standard-route')).getByText('T19')).toBeInTheDocument();
   });
 
   it('入力欄に focus すると現在値が全選択され、そのまま置き換えられる', async () => {
@@ -441,14 +461,14 @@ describe('v1.1 入力 UX（LEFT 即時反映）', () => {
     // 3 桁を消さずに次の数字で置き換わる。
     await user.keyboard('61');
     expect(input).toHaveValue('61');
-    expect(screen.getByTestId('status-left')).toHaveTextContent('61');
+    expect(within(screen.getByTestId('standard-route')).getByText('T15')).toBeInTheDocument();
   });
 
   it('範囲外へ書き換えたら、前の残り点の候補を残さない', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openCheckoutWith(user, '170');
-    expect(screen.getByTestId('status-left')).toHaveTextContent('170');
+    expect(screen.getByTestId('standard-route')).toBeInTheDocument();
 
     // 170 を 171 へ書き換える。途中で 17 が有効になるが、
     // 入力欄が 171 のまま 17 の候補を出したままにはしない。
@@ -464,7 +484,7 @@ describe('v1.1 入力 UX（LEFT 即時反映）', () => {
     const user = userEvent.setup();
     render(<App />);
     await openSetupWith(user, '305');
-    expect(screen.getByTestId('status-left')).toHaveTextContent('305');
+    expect(screen.getByTestId('standard-route')).toBeInTheDocument();
 
     // タップで全選択 → 100 を打つ。SETUP の範囲外なので候補は消える。
     await user.tab();
@@ -474,17 +494,6 @@ describe('v1.1 入力 UX（LEFT 即時反映）', () => {
     expect(screen.getByTestId('score-input')).toHaveValue('100');
     expect(screen.queryByTestId('standard-route')).toBeNull();
     expect(screen.getByTestId('practice-idle')).toBeInTheDocument();
-  });
-
-  it('プリセットを押すと確定操作なしで反映される', async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await openCheckout(user);
-
-    await user.click(screen.getByRole('button', { name: '122' }));
-    expect(screen.getByTestId('score-input')).toHaveValue('122');
-    expect(screen.getByTestId('status-left')).toHaveTextContent('122');
-    expect(within(screen.getByTestId('standard-route')).getByText('T18')).toBeInTheDocument();
   });
 
   it('CHECKOUT の LEFT を SETUP へ持ち越さない', async () => {
@@ -592,5 +601,289 @@ describe('v1.1 ユーザー向け文言', () => {
     for (const phrase of ['PDC', '公式']) {
       expect(note).not.toContain(phrase);
     }
+  });
+});
+
+describe('v1.2 UX（答えを先に見せる）', () => {
+  it('A: CHECKOUT の通常表示では、答えが盤面より先に来る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+
+    // 通常表示では盤面自体を出さない（答えの前を大きく占有させない）。
+    expect(screen.queryByTestId('dartboard')).toBeNull();
+
+    // 開いたあとも、DOM 順は STANDARD が先。
+    await openRecovery(user);
+    expect(precedes(screen.getByTestId('standard-route'), screen.getByTestId('dartboard'))).toBe(
+      true,
+    );
+  });
+
+  it('B: SETUP の通常表示では、BEST が盤面より先に来る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupWith(user, '302');
+
+    expect(screen.queryByTestId('dartboard')).toBeNull();
+    const best = screen.getByTestId('standard-route');
+    expect(within(best).getByText('BEST')).toBeInTheDocument();
+
+    await openRecovery(user);
+    expect(precedes(best, screen.getByTestId('dartboard'))).toBe(true);
+  });
+
+  it('C: 通常状態では実戦入力が展開されていない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+
+    expect(screen.getByTestId('recovery-toggle')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('dartboard')).toBeNull();
+    expect(screen.queryByTestId('status-bar')).toBeNull();
+    expect(screen.queryByTestId('visit-trail')).toBeNull();
+  });
+
+  it('D: 「実際の着弾を入力」で盤面が出る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+
+    const toggle = screen.getByTestId('recovery-toggle');
+    expect(toggle.textContent).toContain('実際の着弾を入力');
+    // 英語の Recovery だけを主ボタン文言にしない。
+    expect(toggle.textContent).not.toBe('Recovery');
+
+    await user.click(toggle);
+    expect(screen.getByTestId('dartboard')).toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('E: 実戦入力は閉じられる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+    await openRecovery(user);
+    expect(screen.getByTestId('dartboard')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('recovery-toggle'));
+    expect(screen.queryByTestId('dartboard')).toBeNull();
+    expect(screen.getByTestId('standard-route')).toBeInTheDocument();
+  });
+
+  it('E2: 同じ画面にいるあいだ、開いた実戦入力は保たれる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-s19-outer'));
+    expect(screen.getByTestId('dartboard')).toBeInTheDocument();
+
+    // 理由を開閉するといった別の操作では閉じない。
+    await user.click(
+      within(screen.getByTestId('standard-route')).getByRole('button', { name: /理由/ }),
+    );
+    expect(screen.getByTestId('dartboard')).toBeInTheDocument();
+    expect(screen.getByTestId('status-left')).toHaveTextContent('84');
+  });
+
+  it('E3: LEFT を別の残り点へ変えたら、新しいビジットとして初期化する', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-s19-outer'));
+    expect(screen.getByTestId('thrown-0')).toHaveTextContent('S19');
+
+    await typeLeft(user, '122');
+    // 前のビジットの着弾を持ち越さず、まず答えを見せる状態へ戻る。
+    expect(screen.queryByTestId('dartboard')).toBeNull();
+    await openRecovery(user);
+    expect(screen.getByTestId('thrown-0')).toHaveTextContent('—');
+    expect(screen.getByTestId('status-left')).toHaveTextContent('122');
+  });
+
+  it('F: 103 → S19 で、盤面のすぐ下に 84 / 2 DARTS と NEXT が出る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+    await openRecovery(user);
+
+    await user.click(screen.getByTestId('segment-s19-outer'));
+
+    const next = screen.getByTestId('recovery-next');
+    expect(within(next).getByTestId('next-remaining')).toHaveTextContent('84');
+    expect(within(next).getByTestId('next-darts')).toHaveTextContent('2');
+
+    const nextRoute = screen.getByTestId('recovery-next-route');
+    expect(nextRoute.textContent).toContain('NEXT');
+    expect(within(nextRoute).getByLabelText('次に狙うルート').childElementCount).toBeGreaterThan(0);
+
+    // 盤面の直後（スクロールせずに一緒に見える位置）にある。
+    const board = screen.getByTestId('dartboard');
+    expect(precedes(board, next)).toBe(true);
+    expect(board.parentElement).toBe(next.parentElement);
+  });
+
+  it('G: 盤面のそばの Undo が効く', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+    await openRecovery(user);
+
+    const undo = screen.getByTestId('undo-button');
+    expect(undo).toBeDisabled();
+    // Undo は盤面の直下（NEXT 表示の中）にひとつだけ。
+    expect(screen.getAllByRole('button', { name: '1投戻す' })).toHaveLength(1);
+    expect(screen.getByTestId('recovery-next').contains(undo)).toBe(true);
+
+    await user.click(screen.getByTestId('segment-s19-outer'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('84');
+    await user.click(screen.getByTestId('undo-button'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('103');
+    expect(screen.getByTestId('thrown-0')).toHaveTextContent('—');
+  });
+
+  it('H: LEFT のラベルは「残り点 LEFT」', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckout(user);
+
+    expect(screen.getByLabelText(/残り点 LEFT/)).toBe(screen.getByTestId('score-input'));
+
+    await user.click(screen.getByTestId('nav-setup'));
+    expect(screen.getByLabelText(/残り点 LEFT/)).toBe(screen.getByTestId('score-input'));
+  });
+
+  it('I: CHECKOUT の placeholder は入力例（例 103）', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckout(user);
+
+    const input = screen.getByTestId('score-input');
+    expect(input).toHaveAttribute('placeholder', '例 103');
+    expect(input).toHaveValue('');
+    expect(screen.getByLabelText(/残り点 LEFT/).closest('.score-input')?.textContent).toContain(
+      '2〜170',
+    );
+  });
+
+  it('J: SETUP の placeholder は入力例（例 302）', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-setup'));
+
+    const input = screen.getByTestId('score-input');
+    expect(input).toHaveAttribute('placeholder', '例 302');
+    expect(input).toHaveValue('');
+    expect(screen.getByLabelText(/残り点 LEFT/).closest('.score-input')?.textContent).toContain(
+      '171〜350',
+    );
+  });
+
+  it('K: 有効値になっただけでは画面を動かさない', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckout(user);
+
+    // 103 を打つ途中の "10" も合法な CHECKOUT 値。ここで動くと入力できない。
+    await user.type(screen.getByTestId('score-input'), '103');
+    expect(screen.getByTestId('standard-route')).toBeInTheDocument();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    // 入力を終えていないので、待っても動かない。
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('L: Enter / Done で答えの位置へ移動する', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckout(user);
+
+    await user.type(screen.getByTestId('score-input'), '103{Enter}');
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+
+    // 移動先は StatusBar ではなく、答えである STANDARD の先頭。
+    const target = scrollIntoView.mock.contexts[0] as HTMLElement;
+    expect(target.contains(screen.getByTestId('standard-route'))).toBe(true);
+  });
+
+  it('L2: SETUP でも Enter で答えの位置へ移動する', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-setup'));
+
+    await user.type(screen.getByTestId('score-input'), '302{Enter}');
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    const target = scrollIntoView.mock.contexts[0] as HTMLElement;
+    expect(target.contains(screen.getByTestId('standard-route'))).toBe(true);
+  });
+
+  it('M / O: CHECKOUT に旧プリセットボタンが残っていない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckout(user);
+
+    for (const preset of ['170', '167', '164', '161', '160', '122', '103', '61', '46', '40']) {
+      expect(screen.queryByRole('button', { name: preset })).toBeNull();
+    }
+    expect(document.querySelector('.score-input__presets')).toBeNull();
+  });
+
+  it('N / P: SETUP に旧プリセットボタンが残っていない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-setup'));
+
+    for (const preset of ['350', '340', '309', '305', '302', '275', '271', '269', '235', '231']) {
+      expect(screen.queryByRole('button', { name: preset })).toBeNull();
+    }
+    expect(document.querySelector('.score-input__presets')).toBeNull();
+  });
+
+  it('Q: プリセットがなくても 103 を直接入力すれば STANDARD が出る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+
+    const standard = screen.getByTestId('standard-route');
+    expect(within(standard).getByText('T19')).toBeInTheDocument();
+    expect(within(standard).getByText('S6')).toBeInTheDocument();
+    expect(within(standard).getByText('D20')).toBeInTheDocument();
+  });
+
+  it('R: プリセットがなくても 302 を直接入力すれば BEST が出る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupWith(user, '302');
+
+    const best = screen.getByTestId('standard-route');
+    expect(within(best).getAllByText('T20')).toHaveLength(2);
+    expect(within(best).getByText('S18')).toBeInTheDocument();
+    expect(best.textContent).toContain('残り 164');
+  });
+
+  it('S: TRAINING は採点後にだけ、結果の直下へ「次の問題」を出す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-training'));
+    await user.click(screen.getByTestId('start-training'));
+
+    // 回答前には出さない（上部の操作群にも置かない）。
+    expect(screen.queryByTestId('training-next')).toBeNull();
+
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('training-submit'));
+
+    const result = screen.getByTestId('training-result');
+    const next = screen.getByTestId('training-next');
+    expect(precedes(result, next)).toBe(true);
+    expect(result.parentElement).toBe(next.parentElement);
+    // 「次の問題」はひとつだけ。
+    expect(screen.getAllByRole('button', { name: '次の問題' })).toHaveLength(1);
   });
 });

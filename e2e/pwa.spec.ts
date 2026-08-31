@@ -33,7 +33,7 @@ test('Service Worker が登録され、オフラインでも表示できる', as
   await page.goto('/');
   await page.getByTestId('nav-checkout').click();
   await page.getByTestId('score-input').fill('103');
-  await expect(page.getByTestId('status-left')).toHaveText('103');
+  await expect(page.getByTestId('standard-route')).toContainText('T19');
 
   // Service Worker のプリキャッシュが終わるまで待つ。
   await page.waitForFunction(
@@ -47,7 +47,7 @@ test('Service Worker が登録され、オフラインでも表示できる', as
   await expect(page.getByTestId('app-title')).toBeVisible();
   await page.getByTestId('nav-checkout').click();
   await page.getByTestId('score-input').fill('103');
-  await expect(page.getByTestId('status-left')).toHaveText('103');
+  await expect(page.getByTestId('standard-route')).toContainText('T19');
   await context.setOffline(false);
 });
 
@@ -55,6 +55,8 @@ test('主要な操作対象にアクセシブルな名前がある', async ({ pa
   await page.goto('/');
   await page.getByTestId('nav-checkout').click();
   await page.getByTestId('score-input').fill('103');
+  // v1.2: 盤面は「実際の着弾を入力」で開く。
+  await page.getByTestId('recovery-toggle').click();
 
   await expect(page.getByRole('group', { name: /ダーツボード/ })).toBeVisible();
   await expect(page.getByTestId('segment-t20')).toHaveAttribute('aria-label', /トリプル20/);
@@ -65,6 +67,7 @@ test('キーボードだけで盤面を操作できる', async ({ page }) => {
   await page.goto('/');
   await page.getByTestId('nav-checkout').click();
   await page.getByTestId('score-input').fill('103');
+  await page.getByTestId('recovery-toggle').click();
 
   await page.getByTestId('segment-s19-outer').focus();
   await page.keyboard.press('Enter');

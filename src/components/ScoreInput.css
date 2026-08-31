@@ -1,19 +1,44 @@
+/*
+ * 残り点の入力はこの画面の主操作。
+ * v1.2 でプリセットボタンを廃止したので、カードはラベル行と大きな入力欄だけになる。
+ * 余白は「ラベル → 入力欄 → 次のカード（STANDARD / BEST）」の流れが
+ * そのまま読める最小限にとどめ、答えを 1 画面でも早く見せる。
+ */
 .score-input {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.4rem;
 }
 
-/*
- * 残り点の入力はこの画面の主操作なので、一目で「ここへ数字を入れる」と
- * 分かる大きさにしている（モバイルでは横幅いっぱい）。
- */
+.score-input__labels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.5rem;
+  row-gap: 0.1rem;
+  cursor: pointer;
+}
+
+.score-input__label {
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text);
+}
+
+/* 320px でも折り返しで収まる長さにとどめる（長い説明は置かない）。 */
+.score-input__hint {
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
 .score-input__field {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  min-height: 4.25rem;
-  padding: 0.5rem 0.9rem;
+  min-height: 3.5rem;
+  padding: 0.2rem 0.75rem;
   background: var(--chip);
   border: 2px solid var(--border-strong);
   border-radius: 0.85rem;
@@ -24,74 +49,34 @@
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.score-input__labels {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  cursor: pointer;
-}
-
-.score-input__label {
-  font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: var(--text);
-}
-
-.score-input__range {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
 .score-input__input {
   flex: 1;
   min-width: 0;
   font-family: inherit;
-  font-size: 2.25rem;
+  font-size: 2.5rem;
   font-weight: 800;
-  line-height: 1.1;
-  text-align: right;
+  line-height: 1.15;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
   color: var(--text);
   background: transparent;
   border: 0;
-  padding: 0.1rem 0;
+  padding: 0;
 }
 
+/* 入力例（「例 103」）は数字ほど主張させない。 */
 .score-input__input::placeholder {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   color: var(--text-dim);
-  opacity: 0.6;
+  opacity: 0.75;
 }
 
 /* 枠全体が :focus-within で光るので、入力欄そのものの outline は出さない。 */
 .score-input__input:focus,
 .score-input__input:focus-visible {
   outline: none;
-}
-
-.score-input__presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.score-input__presets button {
-  font-family: inherit;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--text);
-  background: var(--chip);
-  border: 1px solid var(--border-strong);
-  border-radius: 0.5rem;
-  min-height: 2.75rem;
-  padding: 0 0.9rem;
-  cursor: pointer;
-}
-
-.score-input__presets button:focus-visible {
-  outline: 3px solid var(--focus-ring);
-  outline-offset: 2px;
 }
 
 .score-input__error {

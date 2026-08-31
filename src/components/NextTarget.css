@@ -1,0 +1,115 @@
+/*
+ * 盤面のすぐ下に置く「いまの残り」と「次の狙い」。
+ * スクロールせずに盤面と一緒に見えることが条件なので、高さを詰める。
+ */
+.next-target {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem 0.7rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.75rem;
+}
+
+.next-target__status {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.next-target__number {
+  font-size: 1.8rem;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.next-target__number--small {
+  font-size: 1.25rem;
+}
+
+.next-target__unit {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+}
+
+.next-target__sep {
+  color: var(--text-dim);
+  margin: 0 0.15rem;
+}
+
+.next-target__route {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.next-target__label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0.25rem;
+  padding: 0.15rem 0.4rem;
+}
+
+.next-target__darts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.next-target__darts li {
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.next-target__darts li + li::before {
+  content: '→';
+  color: var(--text-dim);
+  font-weight: 700;
+  margin-right: 0.35rem;
+}
+
+.next-target__message {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.next-target__undo {
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--chip);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 0.9rem;
+  cursor: pointer;
+}
+
+.next-target__undo:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.next-target__undo:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}

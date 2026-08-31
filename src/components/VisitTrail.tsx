@@ -3,13 +3,17 @@ import './VisitTrail.css';
 
 export interface VisitTrailProps {
   readonly visit: VisitState;
-  readonly onUndo: () => void;
   readonly onNextVisit: () => void;
   readonly onReset: () => void;
 }
 
-/** このビジットで実際に投げた 3 投の記録と、やり直し操作。 */
-export function VisitTrail({ visit, onUndo, onNextVisit, onReset }: VisitTrailProps) {
+/**
+ * このビジットで実際に投げた 3 投の記録と、ビジット単位のやり直し操作。
+ *
+ * 「1投戻す」はここではなく盤面直下（NextTarget）に置く。誤タップの訂正は
+ * 盤面を見たまま行う操作なので、盤面から離すと探しに行くことになる。
+ */
+export function VisitTrail({ visit, onNextVisit, onReset }: VisitTrailProps) {
   const finished = visit.status !== 'in-progress' || visit.dartsLeft === 0;
 
   return (
@@ -31,14 +35,6 @@ export function VisitTrail({ visit, onUndo, onNextVisit, onReset }: VisitTrailPr
         })}
       </ol>
       <div className="visit-trail__actions">
-        <button
-          type="button"
-          data-testid="undo-button"
-          onClick={onUndo}
-          disabled={visit.thrown.length === 0}
-        >
-          1投戻す
-        </button>
         <button type="button" data-testid="next-visit-button" onClick={onNextVisit} disabled={!finished}>
           次のビジットへ
         </button>
