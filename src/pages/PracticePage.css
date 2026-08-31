@@ -56,9 +56,27 @@
   cursor: pointer;
 }
 
+.practice__more-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .practice__more:focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+.practice__idle {
+  margin: 0;
+  padding: 1.25rem 1rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  text-align: center;
 }
 
 .practice__empty {
@@ -94,7 +112,8 @@
     top: 1rem;
   }
   .practice__routes,
-  .practice__empty {
+  .practice__empty,
+  .practice__idle {
     grid-area: routes;
   }
 }

@@ -95,17 +95,15 @@ export default function App() {
 
       <main className="app__main">
         {tab === 'home' && <HomePage onSelect={setTab} />}
-        {tab === 'checkout' && <PracticePage mode="checkout" />}
-        {tab === 'setup' && <PracticePage mode="setup" />}
+        {/* key を分けて、モードを切り替えたら残り点を持ち越さず未入力から始める。 */}
+        {tab === 'checkout' && <PracticePage key="checkout" mode="checkout" />}
+        {tab === 'setup' && <PracticePage key="setup" mode="setup" />}
         {tab === 'training' && <TrainingPage />}
         {tab === 'settings' && <SettingsPage />}
       </main>
 
       <footer className="app__footer">
-        <p>
-          基準ルートは添付資料の第1候補にもとづく「基準ルート」です（PDC 公式ルートではありません）。
-          データ・保存はすべて端末内で完結します。
-        </p>
+        <p>&copy; 2026 Chihiro Hashimoto</p>
       </footer>
     </div>
   );

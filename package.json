@@ -15,6 +15,7 @@
     "test:e2e": "playwright test",
     "icons": "node scripts/generate-icons.mjs",
     "import:checkout": "node scripts/import-checkout-excel.mjs",
+    "check:base": "node scripts/check-base-path.mjs",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
