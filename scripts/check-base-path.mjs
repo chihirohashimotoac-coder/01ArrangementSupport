@@ -30,29 +30,44 @@ execFileSync('npx', ['vite', 'build', '--outDir', outDir, '--emptyOutDir'], {
   env: { ...process.env, VITE_BASE_PATH: base },
   stdio: 'inherit',
 });
+// デプロイと同じ成果物を作る。`npm run build` はこの手順で 404.html を用意する。
+execFileSync('node', ['scripts/copy-spa-fallback.mjs', outDir], { cwd: root, stdio: 'inherit' });
 
 try {
-  const html = readFileSync(join(outDir, 'index.html'), 'utf8');
+  // index.html と、GitHub Pages の SPA フォールバックである 404.html の両方を見る。
+  // 404.html は深いパスで配信されるため、base を含まない参照があると壊れる。
+  for (const page of ['index.html', '404.html']) {
+    const file = join(outDir, page);
+    check(existsSync(file), `${page} が出力されていません。`);
+    if (!existsSync(file)) continue;
+    const html = readFileSync(file, 'utf8');
 
-  // index.html が参照するローカル資源はすべて base 配下でなければならない。
-  const refs = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((match) => match[1]);
-  check(refs.length > 0, 'index.html が asset を参照していません。');
-  for (const ref of refs) {
-    // 外部 URL と、文書相対（./…）の参照はサブパスでもそのまま解決できる。
-    if (/^(https?:|data:|#|mailto:|\.)/.test(ref)) continue;
+    // 参照するローカル資源はすべて base 配下でなければならない。
+    const refs = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((match) => match[1]);
+    check(refs.length > 0, `${page} が asset を参照していません。`);
+    for (const ref of refs) {
+      if (/^(https?:|data:|#|mailto:)/.test(ref)) continue;
+      // 文書相対（./…）は index.html なら解決できるが、深いパスで返る 404.html では壊れる。
+      check(
+        ref.startsWith(base),
+        `${page} の参照 "${ref}" が base (${base}) 配下ではありません。`,
+      );
+    }
     check(
-      ref.startsWith(base),
-      `index.html の参照 "${ref}" が base (${base}) 配下ではありません。`,
+      html.includes(`${base}manifest.webmanifest`),
+      `${page} の manifest link が base を含みません。`,
     );
-  }
-  check(html.includes(`${base}manifest.webmanifest`), 'manifest の link が base を含みません。');
+    check(html.includes('<div id="root">'), `${page} にアプリのマウント先がありません。`);
 
-  // アプリの起動に必要な JS が実際に出力されているか。
-  const scripts = refs.filter((ref) => ref.startsWith(base) && ref.endsWith('.js'));
-  check(scripts.length > 0, 'index.html から読み込む JS がありません。');
-  for (const script of scripts) {
-    const file = join(outDir, script.slice(base.length));
-    check(existsSync(file), `${script} に対応するファイルが出力されていません。`);
+    // アプリの起動に必要な JS が実際に出力されているか。
+    const scripts = refs.filter((ref) => ref.startsWith(base) && ref.endsWith('.js'));
+    check(scripts.length > 0, `${page} から読み込む JS がありません。`);
+    for (const script of scripts) {
+      check(
+        existsSync(join(outDir, script.slice(base.length))),
+        `${script} に対応するファイルが出力されていません。`,
+      );
+    }
   }
 
   const manifestName = readdirSync(outDir).find((name) => name.endsWith('.webmanifest'));
