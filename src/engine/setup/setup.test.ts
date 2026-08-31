@@ -265,6 +265,25 @@ describe('資料 (6) S-BULL を使った調整', () => {
   });
 });
 
+describe('残り点の分類（PR #1 レビュー指摘の回帰テスト）', () => {
+  it('3 本投げても 170 を超える残りは out-of-range であり、テンパイではない', () => {
+    const evaluated = evaluateSetupRoute(350, DARTS_PER_VISIT, parseRoute(['S1', 'S1', 'S1']));
+    expect(evaluated).not.toBeNull();
+    expect(evaluated!.leave).toBe(347);
+    expect(evaluated!.leaveTier).toBe('out-of-range');
+    expect(isCheckoutable(evaluated!.leave, DARTS_PER_VISIT)).toBe(false);
+    expect(evaluated!.reasons.map((r) => r.code)).toContain('LEAVE_ABOVE_CHECKOUT_RANGE');
+    expect(evaluated!.reasons.map((r) => r.code)).not.toContain('LEAVES_CHECKOUTABLE');
+  });
+
+  it('leaveTier は残り点の実態と一致する', () => {
+    expect(leaveTierOf(170)).toBe('premium');
+    expect(leaveTierOf(169)).toBe('bogey');
+    expect(leaveTierOf(171)).toBe('out-of-range');
+    expect(leaveTierOf(110)).toBe('good');
+  });
+});
+
 describe('SETUP のリカバリー（残り本数が減った状態）', () => {
   it('305 から T20 を狙って S20 だった場合、残り 285 / 2 本で再計算できる', () => {
     const afterMiss = 305 - 20;

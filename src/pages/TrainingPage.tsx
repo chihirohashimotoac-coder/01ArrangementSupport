@@ -6,12 +6,14 @@ import type { Dart } from '../domain/dart';
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
 import {
   DEFAULT_TRAINING_SETTINGS,
+  canGenerateQuestions,
   generateQuestions,
   type TrainingMode,
   type TrainingQuestion,
   type TrainingSettings,
 } from '../engine/training/questions';
 import { gradeAnswer, type GradeResult } from '../engine/training/grade';
+import type { LeaveTier } from '../engine/setup/leaveQuality';
 import {
   appendRecord,
   clearHistory,
@@ -29,6 +31,15 @@ const MODE_LABEL: Record<TrainingMode, string> = {
   mixed: 'MIXED',
 };
 
+/** 残り点の質を、結果画面に出す短いラベルへ変換する。 */
+const LEAVE_TIER_LABEL: Record<LeaveTier, string> = {
+  premium: 'テンパイ（狙って作りたい残り）',
+  good: 'テンパイ（2 本でも上がれる）',
+  playable: 'テンパイ',
+  bogey: 'ノーテン',
+  'out-of-range': '170 超え・次ラウンドでは上がれない',
+};
+
 const COUNT_OPTIONS: ReadonlyArray<{ label: string; value: number | null }> = [
   { label: '10問', value: 10 },
   { label: '30問', value: 30 },
@@ -44,6 +55,12 @@ const TIME_OPTIONS: ReadonlyArray<{ label: string; value: number | null }> = [
 interface SessionState {
   readonly questions: readonly TrainingQuestion[];
   readonly index: number;
+  /**
+   * このセッションを開始したときの設定のスナップショット。
+   * 開始後に画面上の設定を編集しても、進行中のセッションは影響を受けない
+   * （出題数・制限時間・追加生成のすべてでこちらを使う）。
+   */
+  readonly settings: TrainingSettings;
 }
 
 export function TrainingPage() {
@@ -67,7 +84,7 @@ export function TrainingPage() {
         reviewTargets: reviewTargetsOf(computeStats(loadHistory())),
         count: nextSettings.questionCount ?? 30,
       });
-      setSession({ questions, index: 0 });
+      setSession({ questions, index: 0, settings: nextSettings });
       setAnswer([]);
       setResult(null);
       startedAt.current = performance.now();
@@ -118,25 +135,28 @@ export function TrainingPage() {
       if (!current) return current;
       const nextIndex = current.index + 1;
       if (nextIndex < current.questions.length) return { ...current, index: nextIndex };
-      // 無限モードでは追加生成する。
-      if (settings.questionCount === null) {
+      // 無限モードでは追加生成する（開始時の設定で生成する）。
+      if (current.settings.questionCount === null) {
         const more = generateQuestions({
-          settings,
+          settings: current.settings,
           seed: Date.now() % 2147483647,
           reviewTargets: reviewTargetsOf(computeStats(loadHistory())),
           count: 10,
         });
-        return { questions: [...current.questions, ...more], index: nextIndex };
+        return { ...current, questions: [...current.questions, ...more], index: nextIndex };
       }
       return { ...current, index: nextIndex };
     });
     setAnswer([]);
     setResult(null);
     startedAt.current = performance.now();
-    setRemainingSeconds(settings.timeLimitSeconds);
-  }, [settings]);
+    setRemainingSeconds(session?.settings.timeLimitSeconds ?? null);
+  }, [session]);
 
-  const finished = session !== null && question === null;
+  const finished = session !== null && question === null && session.questions.length > 0;
+  // 出題できない設定（例: RECOVERY で 2〜3 の範囲）を、開始前に伝える。
+  const unusableSettings = !canGenerateQuestions(settings);
+  const emptySession = session !== null && session.questions.length === 0;
 
   return (
     <div className="training">
@@ -279,11 +299,18 @@ export function TrainingPage() {
           </div>
         )}
 
+        {unusableSettings && (
+          <p className="training__unusable" data-testid="training-unusable" role="alert">
+            この設定では出題できる問題がありません。出題範囲を広げてください。
+          </p>
+        )}
+
         <button
           type="button"
           className="training__start"
           data-testid="start-training"
           onClick={() => startSession(settings)}
+          disabled={unusableSettings}
         >
           {session === null ? 'トレーニングを始める' : 'この設定でやり直す'}
         </button>
@@ -304,9 +331,9 @@ export function TrainingPage() {
           )}
 
           <p className="training__progress" data-testid="training-progress">
-            {settings.questionCount === null
+            {session!.settings.questionCount === null
               ? `${session!.index + 1} 問目`
-              : `${session!.index + 1} / ${settings.questionCount} 問目`}
+              : `${session!.index + 1} / ${session!.settings.questionCount} 問目`}
           </p>
 
           <p className="training__hint">
@@ -391,7 +418,7 @@ export function TrainingPage() {
                   grade={result.setupEvaluation.grade}
                   dartIds={result.setupEvaluation.darts.map((dart) => dart.id)}
                   meta={`取得 ${result.setupEvaluation.scored} 点 → 残り ${result.setupEvaluation.leave}（${
-                    result.setupEvaluation.leaveTier === 'bogey' ? 'ノーテン' : 'テンパイ'
+                    LEAVE_TIER_LABEL[result.setupEvaluation.leaveTier]
                   }）`}
                   reasons={result.setupEvaluation.reasons.map((reason) => ({ ...reason }))}
                   defaultOpen
@@ -426,6 +453,12 @@ export function TrainingPage() {
       {finished && (
         <p className="training__finished" data-testid="training-finished">
           このセットは終わりです。おつかれさまでした。
+        </p>
+      )}
+
+      {emptySession && (
+        <p className="training__finished" data-testid="training-empty-session" role="alert">
+          この設定では出題できる問題がありませんでした。出題範囲を広げてから、もう一度始めてください。
         </p>
       )}
 

@@ -77,6 +77,31 @@ export function checkoutCandidates(range: { min: number; max: number }): number[
   return values;
 }
 
+/**
+ * RECOVERY の出題対象になる残り点。
+ *
+ * 基準ルートの 1 投目をシングルへ外した状態を問題にするため、
+ * 「1 投目がトリプル / ダブルで、外した後の残りが 2 以上」でなければ出題できない。
+ * 例えば 2〜3 の範囲では 1 問も作れない（2 は D1 を外すと 1 残り、
+ * 3 は 1 投目が S1 なので外す先がない）。
+ */
+export function recoveryCandidates(range: { min: number; max: number }): number[] {
+  return checkoutCandidates(range).filter((left) => canBuildRecoveryQuestion(left));
+}
+
+/** その残り点から RECOVERY の問題を作れるか。 */
+export function canBuildRecoveryQuestion(visitStart: number): boolean {
+  const standard = getStandardRoute(visitStart);
+  if (!standard) return false;
+  const intended = standard.darts[0];
+  if (intended.baseNumber === null) return false;
+  const singleMiss = findDart(`S${intended.baseNumber}`);
+  // 1 投目がすでにシングルなら「外した先」が同じ的になり、問題にならない。
+  if (!singleMiss || singleMiss.id === intended.id) return false;
+  const remaining = visitStart - singleMiss.score;
+  return remaining >= 2 && remaining <= MAX_SETUP_REMAINING;
+}
+
 /** SETUP の出題対象になる残り点（テンパイを作れるものだけ）。 */
 export function setupCandidates(range: { min: number; max: number }): number[] {
   const min = clamp(Math.min(range.min, range.max), 171, MAX_SETUP_REMAINING);
@@ -165,9 +190,14 @@ export function generateQuestions(options: GenerateOptions): TrainingQuestion[] 
 
   const checkoutPool = checkoutCandidates(settings.checkoutRange);
   const setupPool = setupCandidates(settings.setupRange);
+  const recoveryPool = recoveryCandidates(settings.checkoutRange);
   const reviewPool = (options.reviewTargets ?? []).filter(
     (n) => checkoutPool.includes(n) || setupPool.includes(n),
   );
+
+  // 選ばれたモードで 1 問も作れない設定なら、空回りせずに空を返す。
+  // 呼び出し側（UI）はこれを「この設定では出題できません」として扱う。
+  if (poolFor(settings.mode, { checkoutPool, setupPool, recoveryPool }).length === 0) return [];
 
   const questions: TrainingQuestion[] = [];
   for (let i = 0; questions.length < count && i < count * 20; i += 1) {
@@ -192,13 +222,52 @@ export function generateQuestions(options: GenerateOptions): TrainingQuestion[] 
     if (remaining === null) continue;
 
     if (kind === 'recovery') {
-      const question = buildRecoveryQuestion(remaining, random, i);
+      const recoveryBase = random.pick(
+        useReview
+          ? (reviewPool.filter((n) => recoveryPool.includes(n)).length > 0
+              ? reviewPool.filter((n) => recoveryPool.includes(n))
+              : recoveryPool)
+          : recoveryPool,
+      );
+      if (recoveryBase === null) continue;
+      const question = buildRecoveryQuestion(recoveryBase, random, i);
       if (question) questions.push(question);
       continue;
     }
     questions.push(buildCheckoutQuestion(remaining, i));
   }
   return questions;
+}
+
+/** モードごとに、出題に使える残り点のプール。 */
+function poolFor(
+  mode: TrainingMode,
+  pools: { checkoutPool: number[]; setupPool: number[]; recoveryPool: number[] },
+): number[] {
+  switch (mode) {
+    case 'checkout':
+      return pools.checkoutPool;
+    case 'setup':
+      return pools.setupPool;
+    case 'recovery':
+      return pools.recoveryPool;
+    case 'mixed':
+      return [...pools.checkoutPool, ...pools.setupPool, ...pools.recoveryPool];
+  }
+}
+
+/**
+ * その設定で 1 問でも出題できるか。
+ * UI は開始前にこれを見て、出題できない範囲を伝える。
+ */
+export function canGenerateQuestions(settings: TrainingSettings): boolean {
+  return (
+    poolFor(settings.mode, {
+      checkoutPool: checkoutCandidates(settings.checkoutRange),
+      setupPool: setupCandidates(settings.setupRange),
+      recoveryPool: recoveryCandidates(settings.checkoutRange),
+    }).length > 0
+  );
 }
 
 /** SVG ボードでの回答に使える全セグメント（MISS を除く）。 */

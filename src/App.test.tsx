@@ -147,6 +147,59 @@ describe('CHECKOUT 画面', () => {
   });
 });
 
+describe('PR #1 レビュー指摘の回帰テスト', () => {
+  it('「次のビジットへ」で残り点が進むと、入力欄も追従する', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckout(user);
+
+    // 103 → T20 で 43 残り、3 投使い切ってビジット終了。
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-miss'));
+    await user.click(screen.getByTestId('segment-miss'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('43');
+
+    await user.click(screen.getByTestId('next-visit-button'));
+    // 入力欄が古い 103 のままだと、確定でビジットが巻き戻ってしまう。
+    expect(screen.getByTestId('score-input')).toHaveValue(43);
+
+    await user.click(screen.getByTestId('score-input-apply'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('43');
+  });
+
+  it('セッション開始後に出題数を変えても、進行中のセッションは影響を受けない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-training'));
+    await user.click(screen.getByTestId('start-training'));
+    expect(screen.getByTestId('training-progress')).toHaveTextContent('1 / 10 問目');
+
+    await user.click(screen.getByRole('button', { name: '詳細設定' }));
+    await user.click(screen.getByRole('button', { name: '30問' }));
+
+    // 進行中のセッションは開始時の設定（10 問）のまま。
+    expect(screen.getByTestId('training-progress')).toHaveTextContent('1 / 10 問目');
+  });
+
+  it('出題できない設定では開始できず、理由を表示する', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-training'));
+    await user.click(screen.getByTestId('training-mode-recovery'));
+    await user.click(screen.getByRole('button', { name: '詳細設定' }));
+
+    const min = screen.getByLabelText('CHECKOUT 最小値');
+    const max = screen.getByLabelText('CHECKOUT 最大値');
+    await user.clear(min);
+    await user.type(min, '2');
+    await user.clear(max);
+    await user.type(max, '3');
+
+    expect(screen.getByTestId('training-unusable')).toBeInTheDocument();
+    expect(screen.getByTestId('start-training')).toBeDisabled();
+  });
+});
+
 describe('SETUP 画面', () => {
   it('305 で T20 → T20 → S18 を最上位に出し、残り 167 を示す', async () => {
     const user = userEvent.setup();

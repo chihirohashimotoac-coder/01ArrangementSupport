@@ -330,3 +330,19 @@
     grid-column: 1 / -1;
   }
 }
+
+.training__unusable {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.training__start:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

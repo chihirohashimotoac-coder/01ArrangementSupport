@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_TRAINING_SETTINGS,
+  canBuildRecoveryQuestion,
+  canGenerateQuestions,
   checkoutCandidates,
   generateQuestions,
+  recoveryCandidates,
   setupCandidates,
 } from './questions';
 import { gradeAnswer, isDiscouraged, leftBogey } from './grade';
@@ -55,6 +58,62 @@ describe('出題対象', () => {
     expect(checkoutCandidates({ min: 110, max: 100 })).toEqual(
       checkoutCandidates({ min: 100, max: 110 }),
     );
+  });
+});
+
+describe('RECOVERY の出題可否（PR #1 レビュー指摘の回帰テスト）', () => {
+  it('1 投目がシングルの残り点では RECOVERY を作れない', () => {
+    // 3 の基準ルートは S1 + D1 なので、外す先が同じ的になり問題にならない。
+    expect(canBuildRecoveryQuestion(3)).toBe(false);
+  });
+
+  it('外した後の残りが 2 未満になる残り点では作れない', () => {
+    // 2 の基準ルートは D1。S1 へ外すと 1 残りで Bust になる。
+    expect(canBuildRecoveryQuestion(2)).toBe(false);
+  });
+
+  it('1 投目がトリプルなら作れる', () => {
+    expect(canBuildRecoveryQuestion(103)).toBe(true);
+    expect(canBuildRecoveryQuestion(122)).toBe(true);
+  });
+
+  it('2〜3 の範囲では RECOVERY の出題対象が 0 件になる', () => {
+    expect(recoveryCandidates({ min: 2, max: 3 })).toEqual([]);
+    expect(canGenerateQuestions({
+      ...DEFAULT_TRAINING_SETTINGS,
+      mode: 'recovery',
+      checkoutRange: { min: 2, max: 3 },
+    })).toBe(false);
+  });
+
+  it('出題できない範囲では、空回りせずに空の出題列を返す', () => {
+    const questions = generateQuestions({
+      settings: {
+        ...DEFAULT_TRAINING_SETTINGS,
+        mode: 'recovery',
+        checkoutRange: { min: 2, max: 3 },
+        questionCount: 10,
+      },
+      seed: 1,
+    });
+    expect(questions).toEqual([]);
+  });
+
+  it('十分な範囲があれば、要求した問題数を満たす', () => {
+    const questions = generateQuestions({
+      settings: { ...DEFAULT_TRAINING_SETTINGS, mode: 'recovery', questionCount: 20 },
+      seed: 4,
+    });
+    expect(questions).toHaveLength(20);
+    for (const question of questions) {
+      expect(question.kind).toBe('recovery');
+      expect(question.remaining).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('他のモードは出題できる設定として扱われる', () => {
+    expect(canGenerateQuestions(DEFAULT_TRAINING_SETTINGS)).toBe(true);
+    expect(canGenerateQuestions({ ...DEFAULT_TRAINING_SETTINGS, mode: 'setup' })).toBe(true);
   });
 });
 

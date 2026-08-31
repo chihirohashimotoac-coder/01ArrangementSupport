@@ -15,6 +15,19 @@ export interface ScoreInputProps {
 export function ScoreInput({ label, min, max, value, onCommit, presets }: ScoreInputProps) {
   const [draft, setDraft] = useState(String(value));
   const [error, setError] = useState<string | null>(null);
+  const [lastValue, setLastValue] = useState(value);
+
+  /*
+   * 外から value が変わったとき（「次のビジットへ」で残り点が進んだ場合など）は
+   * 入力欄も追従させる。追従しないと、古い残り点が表示されたままになり、
+   * そのまま確定するとビジットが巻き戻ってしまう。
+   * effect ではなくレンダー中に調整する（React 公式の推奨パターン）。
+   */
+  if (value !== lastValue) {
+    setLastValue(value);
+    setDraft(String(value));
+    setError(null);
+  }
 
   const commit = (raw: string) => {
     const parsed = Number(raw);
