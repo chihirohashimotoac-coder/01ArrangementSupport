@@ -444,6 +444,38 @@ describe('v1.1 入力 UX（LEFT 即時反映）', () => {
     expect(screen.getByTestId('status-left')).toHaveTextContent('61');
   });
 
+  it('範囲外へ書き換えたら、前の残り点の候補を残さない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '170');
+    expect(screen.getByTestId('status-left')).toHaveTextContent('170');
+
+    // 170 を 171 へ書き換える。途中で 17 が有効になるが、
+    // 入力欄が 171 のまま 17 の候補を出したままにはしない。
+    await user.clear(screen.getByTestId('score-input'));
+    await user.type(screen.getByTestId('score-input'), '171');
+
+    expect(screen.getByTestId('score-input')).toHaveValue('171');
+    expect(screen.queryByTestId('standard-route')).toBeNull();
+    expect(screen.getByTestId('practice-idle')).toBeInTheDocument();
+  });
+
+  it('選択状態のまま範囲外を打ち込んでも、前の候補を残さない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupWith(user, '305');
+    expect(screen.getByTestId('status-left')).toHaveTextContent('305');
+
+    // タップで全選択 → 100 を打つ。SETUP の範囲外なので候補は消える。
+    await user.tab();
+    await user.click(screen.getByTestId('score-input'));
+    await user.keyboard('100');
+
+    expect(screen.getByTestId('score-input')).toHaveValue('100');
+    expect(screen.queryByTestId('standard-route')).toBeNull();
+    expect(screen.getByTestId('practice-idle')).toBeInTheDocument();
+  });
+
   it('プリセットを押すと確定操作なしで反映される', async () => {
     const user = userEvent.setup();
     render(<App />);

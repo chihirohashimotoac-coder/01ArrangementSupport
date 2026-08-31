@@ -49,18 +49,16 @@ export function ScoreInput({ label, min, max, value, onChange, presets }: ScoreI
     return parsed;
   };
 
-  /** 入力のたびに呼ばれる。有効になった瞬間だけ親へ伝える。 */
+  /** 入力のたびに呼ばれる。有効な値になった時点で即座に親へ伝える。 */
   const handleInput = (raw: string) => {
     setDraft(raw);
-    if (raw.trim() === '') {
-      setError(null);
-      setLastValue(null);
-      onChange(null);
-      return;
-    }
+    setError(null); // エラーは入力を終えた（blur した）ときだけ出す。
+    /*
+     * 空欄も範囲外も、候補を出さない「未入力」として親へ伝える。
+     * ここで前の値を残すと、入力欄が 171 なのに途中値 17 の候補が出たままになり、
+     * 実戦で別の残り点のルートを読んでしまう。範囲外では計算しない、が仕様。
+     */
     const parsed = parse(raw);
-    if (parsed === null) return; // 入力途中とみなし、画面は今の状態のまま保つ。
-    setError(null);
     setLastValue(parsed);
     onChange(parsed);
   };
