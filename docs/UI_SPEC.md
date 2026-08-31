@@ -27,6 +27,24 @@
 `LEFT`（3rem の大きな数字）と `DARTS`（残り本数 + ピップ表示）。
 BUST / CHECKOUT! の状態表示と、補足メッセージ（ノーテン警告、TON トラップ警告など）。
 
+### Safe Area（iOS の PWA）
+
+ホーム画面から起動した iOS の PWA は `apple-mobile-web-app-status-bar-style: black-translucent`
+で表示する。暗い配色との一体感を保つためにこの設定は変えない。
+その代わり、Web コンテンツがステータスバー（時計・電波・バッテリー・Dynamic Island）や
+ホームインジケーターの下まで広がるので、**アプリ全体の余白**として
+`env(safe-area-inset-top / right / bottom / left)` を `.app` の 4 辺の padding に足す。
+
+- header だけに margin を足すような場当たり的な対応はしない。
+- 横画面ではノッチが左右に来るため、left / right も必ず考慮する。
+- `env()` は通常のブラウザや Android で 0 になるので、そちらの見た目は変わらない。
+  非対応ブラウザでも余白が消えないよう、ショートハンドの `padding` を先に宣言してから
+  4 辺を上書きする。
+- `index.html` の `viewport-fit=cover` が前提。これが無いと inset は常に 0 になる。
+
+構造は `src/App.safeArea.test.ts`（CSS の宣言の形）と `e2e/app.spec.ts`
+（通常ブラウザでの算出値と横スクロールの有無）で回帰テストしている。
+
 ## 3. CHECKOUT / SETUP 画面
 
 上から順に:
