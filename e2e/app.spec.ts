@@ -1,9 +1,20 @@
 import { expect, test, type Page } from '@playwright/test';
 
+/** LEFT を入力する。確定ボタンはないので、入力しただけで反映される。 */
 async function setLeft(page: Page, value: number) {
-  const input = page.getByTestId('score-input');
-  await input.fill(String(value));
-  await page.getByTestId('score-input-apply').click();
+  await page.getByTestId('score-input').fill(String(value));
+  await expect(page.getByTestId('status-left')).toBeVisible();
+}
+
+/** CHECKOUT を開いて LEFT を入れる。初期状態は空欄なので毎回必要。 */
+async function openCheckout(page: Page, value: number) {
+  await page.getByTestId('nav-checkout').click();
+  await setLeft(page, value);
+}
+
+async function openSetup(page: Page, value: number) {
+  await page.getByTestId('nav-setup').click();
+  await setLeft(page, value);
 }
 
 test.beforeEach(async ({ page }) => {
@@ -18,7 +29,7 @@ test('アプリが起動し、3 つのモードが並ぶ', async ({ page }) => {
 });
 
 test('CHECKOUT 103 で基準ルートと理由を確認できる', async ({ page }) => {
-  await page.getByTestId('nav-checkout').click();
+  await openCheckout(page, 103);
 
   await expect(page.getByTestId('status-left')).toHaveText('103');
   await expect(page.getByTestId('status-darts')).toHaveText('3');
@@ -35,7 +46,7 @@ test('CHECKOUT 103 で基準ルートと理由を確認できる', async ({ page
 });
 
 test('OTHER ROUTES の理由は開閉できる（progressive disclosure）', async ({ page }) => {
-  await page.getByTestId('nav-checkout').click();
+  await openCheckout(page, 103);
   // 開閉でボタン名が変わるため、カードを固定してからボタンを取る。
   const card = page.getByTestId(/^route-/).first();
   const toggle = card.locator('button[aria-controls]');
@@ -50,15 +61,22 @@ test('OTHER ROUTES の理由は開閉できる（progressive disclosure）', asy
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 });
 
-test('「すべて表示」で合法な追加候補を出せる', async ({ page }) => {
-  await page.getByTestId('nav-checkout').click();
-  const before = await page.getByTestId(/^route-/).count();
-  await page.getByTestId('show-all-routes').click();
-  expect(await page.getByTestId(/^route-/).count()).toBeGreaterThan(before);
+test('「すべて表示」は 40 件で打ち切らず、ボタンの件数と一致する', async ({ page }) => {
+  await openCheckout(page, 130);
+
+  const button = page.getByTestId('show-all-routes');
+  const label = (await button.textContent()) ?? '';
+  const total = Number(/(\d+)\s*件/.exec(label)?.[1]);
+  expect(total).toBeGreaterThan(40);
+
+  await button.click();
+  // AUD-P2-001: 以前は 40 件で黙って打ち切られていた。
+  expect(await page.getByTestId('other-routes').locator('> *').count()).toBe(total);
+  await expect(page.getByTestId('show-all-routes')).toContainText('上位 5 件');
 });
 
 test('1 投ごとのリカバリーが追従する', async ({ page }) => {
-  await page.getByTestId('nav-checkout').click();
+  await openCheckout(page, 103);
 
   // T19 を狙って S19 に落ちた場合。
   await page.getByTestId('segment-s19-outer').click();
@@ -70,7 +88,7 @@ test('1 投ごとのリカバリーが追従する', async ({ page }) => {
 });
 
 test('Undo で 1 投戻せる', async ({ page }) => {
-  await page.getByTestId('nav-checkout').click();
+  await openCheckout(page, 103);
   await page.getByTestId('segment-s19-outer').click();
   await expect(page.getByTestId('status-left')).toHaveText('84');
   await page.getByTestId('undo-button').click();
@@ -79,7 +97,7 @@ test('Undo で 1 投戻せる', async ({ page }) => {
 });
 
 test('Bust するとビジット開始時の残りへ戻る', async ({ page }) => {
-  await page.getByTestId('nav-checkout').click();
+  await openCheckout(page, 103);
   await page.getByTestId('segment-t19').click();
   await expect(page.getByTestId('status-left')).toHaveText('46');
   await page.getByTestId('segment-t20').click();
@@ -90,8 +108,7 @@ test('Bust するとビジット開始時の残りへ戻る', async ({ page }) =
 });
 
 test('122 では T18 始動が基準ルートになる', async ({ page }) => {
-  await page.getByTestId('nav-checkout').click();
-  await setLeft(page, 122);
+  await openCheckout(page, 122);
   const standard = page.getByTestId('standard-route');
   await expect(standard).toContainText('T18');
   await expect(page.getByTestId('standard-route-headline')).toContainText('104');
@@ -99,12 +116,12 @@ test('122 では T18 始動が基準ルートになる', async ({ page }) => {
 
 test('Bogey を入れると理由を示して候補を出さない', async ({ page }) => {
   await page.getByTestId('nav-checkout').click();
-  await setLeft(page, 169);
+  await page.getByTestId('score-input').fill('169');
   await expect(page.getByTestId('no-routes')).toContainText('ノーテン');
 });
 
 test('SETUP 305 は T20 → T20 → S18 で 167 残しを提案する', async ({ page }) => {
-  await page.getByTestId('nav-setup').click();
+  await openSetup(page, 305);
   await expect(page.getByTestId('status-left')).toHaveText('305');
   const best = page.getByTestId('standard-route');
   await expect(best).toContainText('S18');
@@ -112,8 +129,7 @@ test('SETUP 305 は T20 → T20 → S18 で 167 残しを提案する', async ({
 });
 
 test('SETUP 269 でとりあえず TON の罠を警告する', async ({ page }) => {
-  await page.getByTestId('nav-setup').click();
-  await setLeft(page, 269);
+  await openSetup(page, 269);
   await expect(page.getByTestId('status-note')).toContainText('169');
 });
 
@@ -160,4 +176,53 @@ test('MY ROUTE の設定がリロード後も残る', async ({ page }) => {
   await page.reload();
   await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('preferred-doubles')).not.toContainText('D16');
+});
+
+test('LEFT は空欄から始まり、入力するだけで候補が出る', async ({ page }) => {
+  await page.getByTestId('nav-checkout').click();
+  await expect(page.getByTestId('score-input')).toHaveValue('');
+  await expect(page.getByTestId('practice-idle')).toBeVisible();
+  await expect(page.getByTestId('standard-route')).toHaveCount(0);
+  // 「セット」ボタンは廃止した。
+  await expect(page.getByTestId('score-input-apply')).toHaveCount(0);
+
+  await page.getByTestId('score-input').fill('103');
+  await expect(page.getByTestId('standard-route')).toContainText('T19');
+
+  // 空欄へ戻すと未入力状態に戻る。
+  await page.getByTestId('score-input').fill('');
+  await expect(page.getByTestId('practice-idle')).toBeVisible();
+  await expect(page.getByTestId('standard-route')).toHaveCount(0);
+});
+
+test('LEFT をタップすると現在値が全選択され、そのまま置き換えられる', async ({ page }) => {
+  await openCheckout(page, 103);
+
+  const input = page.getByTestId('score-input');
+  await input.blur();
+  await input.click();
+
+  // focus した時点で現在値が全選択されている。
+  expect(
+    await input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd]),
+  ).toEqual([0, 3]);
+
+  // Backspace で 3 桁消さずに、次の数字がそのまま置き換わる。
+  await page.keyboard.type('61');
+  await expect(input).toHaveValue('61');
+  await expect(page.getByTestId('status-left')).toHaveText('61');
+});
+
+test('プリセットを押すと確定操作なしで反映される', async ({ page }) => {
+  await page.getByTestId('nav-checkout').click();
+  await page.getByRole('button', { name: '122', exact: true }).click();
+  await expect(page.getByTestId('score-input')).toHaveValue('122');
+  await expect(page.getByTestId('standard-route')).toContainText('T18');
+});
+
+test('CHECKOUT の LEFT を SETUP へ持ち越さない', async ({ page }) => {
+  await openCheckout(page, 103);
+  await page.getByTestId('nav-setup').click();
+  await expect(page.getByTestId('score-input')).toHaveValue('');
+  await expect(page.getByTestId('practice-idle')).toBeVisible();
 });

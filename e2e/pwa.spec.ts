@@ -32,6 +32,7 @@ test('SPA フォールバック（404.html）が用意されている', async ({
 test('Service Worker が登録され、オフラインでも表示できる', async ({ page, context }) => {
   await page.goto('/');
   await page.getByTestId('nav-checkout').click();
+  await page.getByTestId('score-input').fill('103');
   await expect(page.getByTestId('status-left')).toHaveText('103');
 
   // Service Worker のプリキャッシュが終わるまで待つ。
@@ -45,6 +46,7 @@ test('Service Worker が登録され、オフラインでも表示できる', as
   await page.reload();
   await expect(page.getByTestId('app-title')).toBeVisible();
   await page.getByTestId('nav-checkout').click();
+  await page.getByTestId('score-input').fill('103');
   await expect(page.getByTestId('status-left')).toHaveText('103');
   await context.setOffline(false);
 });
@@ -52,6 +54,7 @@ test('Service Worker が登録され、オフラインでも表示できる', as
 test('主要な操作対象にアクセシブルな名前がある', async ({ page }) => {
   await page.goto('/');
   await page.getByTestId('nav-checkout').click();
+  await page.getByTestId('score-input').fill('103');
 
   await expect(page.getByRole('group', { name: /ダーツボード/ })).toBeVisible();
   await expect(page.getByTestId('segment-t20')).toHaveAttribute('aria-label', /トリプル20/);
@@ -61,6 +64,7 @@ test('主要な操作対象にアクセシブルな名前がある', async ({ pa
 test('キーボードだけで盤面を操作できる', async ({ page }) => {
   await page.goto('/');
   await page.getByTestId('nav-checkout').click();
+  await page.getByTestId('score-input').fill('103');
 
   await page.getByTestId('segment-s19-outer').focus();
   await page.keyboard.press('Enter');

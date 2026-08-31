@@ -1,40 +1,81 @@
 .score-input {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/*
+ * 残り点の入力はこの画面の主操作なので、一目で「ここへ数字を入れる」と
+ * 分かる大きさにしている（モバイルでは横幅いっぱい）。
+ */
+.score-input__field {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 4.25rem;
+  padding: 0.5rem 0.9rem;
+  background: var(--chip);
+  border: 2px solid var(--border-strong);
+  border-radius: 0.85rem;
+}
+
+.score-input__field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.score-input__labels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  cursor: pointer;
 }
 
 .score-input__label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 800;
-  letter-spacing: 0.1em;
-  color: var(--text-dim);
-}
-
-.score-input__label input {
-  font-family: inherit;
-  font-size: 1.5rem;
-  font-weight: 800;
-  width: 6rem;
-  min-height: 2.75rem;
-  padding: 0.25rem 0.5rem;
+  letter-spacing: 0.12em;
   color: var(--text);
-  background: var(--chip);
-  border: 1px solid var(--border-strong);
-  border-radius: 0.5rem;
 }
 
-.score-input__label input:focus-visible,
-.score-input button:focus-visible {
-  outline: 3px solid var(--focus-ring);
-  outline-offset: 2px;
+.score-input__range {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
-.score-input__apply,
+.score-input__input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 2.25rem;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: right;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  padding: 0.1rem 0;
+}
+
+.score-input__input::placeholder {
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+/* 枠全体が :focus-within で光るので、入力欄そのものの outline は出さない。 */
+.score-input__input:focus,
+.score-input__input:focus-visible {
+  outline: none;
+}
+
+.score-input__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
 .score-input__presets button {
   font-family: inherit;
   font-size: 0.85rem;
@@ -48,14 +89,12 @@
   cursor: pointer;
 }
 
-.score-input__presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+.score-input__presets button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .score-input__error {
-  flex-basis: 100%;
   margin: 0;
   font-size: 0.8rem;
   font-weight: 700;

@@ -95,8 +95,9 @@ export default function App() {
 
       <main className="app__main">
         {tab === 'home' && <HomePage onSelect={setTab} />}
-        {tab === 'checkout' && <PracticePage mode="checkout" />}
-        {tab === 'setup' && <PracticePage mode="setup" />}
+        {/* key を分けて、モードを切り替えたら残り点を持ち越さず未入力から始める。 */}
+        {tab === 'checkout' && <PracticePage key="checkout" mode="checkout" />}
+        {tab === 'setup' && <PracticePage key="setup" mode="setup" />}
         {tab === 'training' && <TrainingPage />}
         {tab === 'settings' && <SettingsPage />}
       </main>
