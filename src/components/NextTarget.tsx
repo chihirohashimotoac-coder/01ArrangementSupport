@@ -29,11 +29,11 @@ export function NextTarget({
 }: NextTargetProps) {
   const message =
     status === 'bust'
-      ? 'BUST — このビジットの得点は無効です。次のビジットへ進んでください。'
+      ? 'BUST — この3投の得点は無効です。次の3投へ進んでください。'
       : status === 'checkout'
         ? 'CHECKOUT! 上がりました。'
         : dartsLeft === 0
-          ? '3 投を使い切りました。次のビジットへ進んでください。'
+          ? '3 投を使い切りました。次の3投へ進んでください。'
           : null;
 
   return (
