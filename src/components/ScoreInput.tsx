@@ -4,7 +4,7 @@ import './ScoreInput.css';
 export interface ScoreInputProps {
   /** 見出し（「残り点 LEFT」）。 */
   readonly label: string;
-  /** 見出しの右に添える短い補足（「2〜170・このビジットで上がる」）。 */
+  /** 見出しの右に添える短い補足（「2〜170・この3投で上がる」）。 */
   readonly hint?: string;
   readonly min: number;
   readonly max: number;
@@ -55,7 +55,7 @@ export function ScoreInput({
   const editedRef = useRef(false);
 
   /*
-   * 外から value が変わったとき（「次のビジットへ」で残り点が進んだ場合など）は
+   * 外から value が変わったとき（「次の3投へ」で残り点が進んだ場合など）は
    * 入力欄も追従させる。追従しないと、古い残り点が表示されたままになる。
    * effect ではなくレンダー中に調整する（React 公式の推奨パターン）。
    */

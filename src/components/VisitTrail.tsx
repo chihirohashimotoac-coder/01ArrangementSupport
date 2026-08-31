@@ -8,7 +8,7 @@ export interface VisitTrailProps {
 }
 
 /**
- * このビジットで実際に投げた 3 投の記録と、ビジット単位のやり直し操作。
+ * 実際に投げたこの 3 投の記録と、3 投単位のやり直し操作。
  *
  * 「1投戻す」はここではなく盤面直下（NextTarget）に置く。誤タップの訂正は
  * 盤面を見たまま行う操作なので、盤面から離すと探しに行くことになる。
@@ -18,7 +18,7 @@ export function VisitTrail({ visit, onNextVisit, onReset }: VisitTrailProps) {
 
   return (
     <div className="visit-trail" data-testid="visit-trail">
-      <ol className="visit-trail__list" aria-label="このビジットの記録">
+      <ol className="visit-trail__list" aria-label="この3投の記録">
         {[0, 1, 2].map((index) => {
           const thrown = visit.thrown[index];
           return (
@@ -36,7 +36,7 @@ export function VisitTrail({ visit, onNextVisit, onReset }: VisitTrailProps) {
       </ol>
       <div className="visit-trail__actions">
         <button type="button" data-testid="next-visit-button" onClick={onNextVisit} disabled={!finished}>
-          次のビジットへ
+          次の3投へ
         </button>
         <button type="button" data-testid="reset-button" onClick={onReset}>
           最初から

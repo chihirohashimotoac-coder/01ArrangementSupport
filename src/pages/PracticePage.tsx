@@ -27,13 +27,13 @@ const COPY: Record<PracticeMode, ModeCopy> = {
   checkout: {
     min: 2,
     max: MAX_CHECKOUT,
-    hint: `2〜${MAX_CHECKOUT}・このビジットで上がる`,
+    hint: `2〜${MAX_CHECKOUT}・この3投で上がる`,
     placeholder: '例 103',
   },
   setup: {
     min: 171,
     max: MAX_SETUP_REMAINING,
-    hint: `171〜${MAX_SETUP_REMAINING}・次のビジットへ整える`,
+    hint: `171〜${MAX_SETUP_REMAINING}・次の3投へ整える`,
     placeholder: '例 302',
   },
 };
@@ -236,7 +236,7 @@ export function PracticePage({ mode }: PracticePageProps) {
   const statusNote = (() => {
     if (visit === null || suggestion === null) return null;
     if (visit.status === 'bust') {
-      return `Bust です。このビジットの得点は無効になり、${visit.visitStartRemaining} へ戻ります。`;
+      return `Bust です。この3投の得点は無効になり、${visit.visitStartRemaining} へ戻ります。`;
     }
     if (visit.status === 'checkout') return 'チェックアウト成立です。';
     if (suggestion.unavailableReason) return suggestion.unavailableReason;
@@ -324,7 +324,7 @@ export function PracticePage({ mode }: PracticePageProps) {
             disabled={visit.status !== 'in-progress' || visit.dartsLeft === 0}
             disabledReason={
               visit.status === 'bust'
-                ? 'Bust しました。「次のビジットへ」を押してください。'
+                ? 'Bust しました。「次の3投へ」を押してください。'
                 : visit.status === 'checkout'
                   ? '上がりました。'
                   : '3 投を使い切りました。'
@@ -363,8 +363,8 @@ export function PracticePage({ mode }: PracticePageProps) {
             setVisibleCount(INITIAL_ROUTE_COUNT);
             setFocusedDartId(null);
             /*
-             * 別の残り点へ書き換えたら、新しいビジットとして入力し直す。
-             * 前のビジットの着弾が残ったままだと、別の残り点の候補を読んでしまう。
+             * 別の残り点へ書き換えたら、新しい3投として入力し直す。
+             * 前の3投の着弾が残ったままだと、別の残り点の候補を読んでしまう。
              */
             setRecoveryOpen(false);
             if (value === null) clear();
