@@ -331,6 +331,74 @@ test('v1.2: 入力途中では画面が動かず、Enter で答えへ移動す�
     .toBeGreaterThan(0);
 });
 
+test('v1.2: 盤面より下のルートチップから開いても、盤面が見える位置へ移動する', async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await openCheckout(page, 103);
+
+  // OTHER ROUTES は盤面（実戦入力）より下にある。
+  const card = page.getByTestId(/^route-/).first();
+  await card.scrollIntoViewIfNeeded();
+  await card.locator('.route-card__dart').first().click();
+
+  const board = page.getByTestId('dartboard');
+  await expect(board).toBeVisible();
+  // 開いた盤面が viewport の上へ出てしまっていない。
+  expect(
+    await board.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.bottom > 0 && rect.top < window.innerHeight;
+    }),
+  ).toBe(true);
+  await expect(page.locator('[data-focused="true"]').first()).toBeVisible();
+});
+
+test('v1.2: 盤面が開いているときは、チップを押しても画面を動かさない', async ({ page }) => {
+  await openCheckout(page, 103);
+  await openRecovery(page);
+  // Playwright 自身のクリック前スクロールと区別するため、呼び出し回数で見る。
+  await page.evaluate(() => {
+    const w = window as unknown as { __scrolls: number };
+    w.__scrolls = 0;
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function patched(...args: unknown[]) {
+      w.__scrolls += 1;
+      return (original as (...a: unknown[]) => void).apply(this, args);
+    };
+  });
+
+  await page.getByTestId('standard-route').locator('.route-card__dart').first().click();
+  await expect(page.locator('[data-focused="true"]').first()).toBeVisible();
+  await page.waitForTimeout(400);
+
+  expect(await page.evaluate(() => (window as unknown as { __scrolls: number }).__scrolls)).toBe(0);
+});
+
+test('v1.2: LEFT の blur で予約された移動は、実戦入力を開いた時点で取り消す', async ({ page }) => {
+  await page.getByTestId('nav-checkout').click();
+  await page.evaluate(() => {
+    const w = window as unknown as { __scrolls: number };
+    w.__scrolls = 0;
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function patched(...args: unknown[]) {
+      w.__scrolls += 1;
+      return (original as (...a: unknown[]) => void).apply(this, args);
+    };
+  });
+
+  await page.getByTestId('score-input').click();
+  await page.keyboard.type('103');
+  await expect(page.getByTestId('standard-route')).toBeVisible();
+
+  // 入力欄から実戦入力ボタンへ移ると blur → click の順に起きる。
+  await page.getByTestId('recovery-toggle').click();
+  await expect(page.getByTestId('dartboard')).toBeVisible();
+
+  // 予約されていた 250ms 後の移動は起きない。
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => (window as unknown as { __scrolls: number }).__scrolls)).toBe(0);
+  await expect(page.getByTestId('dartboard')).toBeVisible();
+});
+
 test('v1.2: TRAINING は採点後にだけ結果の直下へ「次の問題」を出す', async ({ page }) => {
   await page.getByTestId('nav-training').click();
   await page.getByTestId('start-training').click();

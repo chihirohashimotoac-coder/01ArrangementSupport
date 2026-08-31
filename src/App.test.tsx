@@ -887,3 +887,135 @@ describe('v1.2 UX（答えを先に見せる）', () => {
     expect(screen.getAllByRole('button', { name: '次の問題' })).toHaveLength(1);
   });
 });
+
+describe('v1.2 レビュー指摘の回帰テスト', () => {
+  /** ルートカードの n 投目のチップ。 */
+  function chipOf(card: HTMLElement, index: number) {
+    return within(card).getByRole('button', { name: new RegExp(`^${index} 投目`) });
+  }
+
+  /** 直近の scrollIntoView が盤面を含む領域（＝実戦入力）へ向いていたか。 */
+  function scrolledToRecovery(spy: { mock: { contexts: unknown[] } }) {
+    const target = spy.mock.contexts.at(-1) as HTMLElement | undefined;
+    return target !== undefined && target.contains(screen.getByTestId('dartboard'));
+  }
+
+  it('STANDARD のチップを押すと、盤面を開いてその位置まで移動する', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+    scrollIntoView.mockClear();
+
+    await user.click(chipOf(screen.getByTestId('standard-route'), 1));
+
+    expect(screen.getByTestId('dartboard')).toBeInTheDocument();
+    expect(screen.getByTestId('segment-t19')).toHaveAttribute('data-focused', 'true');
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(scrolledToRecovery(scrollIntoView)).toBe(true);
+  });
+
+  it('OTHER ROUTES のチップからでも、盤面まで移動する', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+    scrollIntoView.mockClear();
+
+    // 盤面より下にあるカード。開いた盤面が viewport の上へ出てしまわないこと。
+    const other = screen.getAllByTestId(/^route-/)[0];
+    await user.click(chipOf(other, 1));
+
+    expect(screen.getByTestId('dartboard')).toBeInTheDocument();
+    expect(scrolledToRecovery(scrollIntoView)).toBe(true);
+  });
+
+  it('MY ROUTE のチップからでも、盤面まで移動する', async () => {
+    window.localStorage.setItem(
+      'oas.preferences.v1',
+      JSON.stringify({ version: 1, preferredDoubles: ['D16'] }),
+    );
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+    scrollIntoView.mockClear();
+
+    await user.click(chipOf(screen.getByTestId('my-route'), 1));
+
+    expect(screen.getByTestId('dartboard')).toBeInTheDocument();
+    expect(scrolledToRecovery(scrollIntoView)).toBe(true);
+  });
+
+  it('SETUP の候補チップからでも、盤面まで移動する', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupWith(user, '302');
+    scrollIntoView.mockClear();
+
+    const other = screen.getByTestId('setup-routes').firstElementChild as HTMLElement;
+    await user.click(chipOf(other, 1));
+
+    expect(screen.getByTestId('dartboard')).toBeInTheDocument();
+    expect(scrolledToRecovery(scrollIntoView)).toBe(true);
+  });
+
+  it('盤面がすでに開いているときは、チップを押しても画面を動かさない', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+    await openRecovery(user);
+    scrollIntoView.mockClear();
+
+    await user.click(chipOf(screen.getByTestId('standard-route'), 3));
+    expect(screen.getByTestId('segment-d20')).toHaveAttribute('data-focused', 'true');
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('blur で予約された移動は、「実際の着弾を入力」を押した時点で取り消す', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckout(user);
+    await user.type(screen.getByTestId('score-input'), '103');
+
+    // 入力欄から実戦入力ボタンへ移ると blur → click の順に起きる。
+    await user.click(screen.getByTestId('recovery-toggle'));
+    expect(screen.getByTestId('dartboard')).toBeInTheDocument();
+
+    // 予約されていた 250ms 後の移動は起きない（開いた盤面から画面が動かない）。
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(screen.getByTestId('dartboard')).toBeInTheDocument();
+  });
+
+  it('blur で予約された移動は、ルートチップを押した時点で取り消す', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckout(user);
+    await user.type(screen.getByTestId('score-input'), '103');
+
+    await user.click(chipOf(screen.getByTestId('standard-route'), 1));
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrolledToRecovery(scrollIntoView)).toBe(true);
+
+    // 答えの先頭へ戻す移動が後から割り込まない。
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it('Enter / Done による「答えへ移動」自体は残っている', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckout(user);
+
+    await user.type(screen.getByTestId('score-input'), '103{Enter}');
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    const target = scrollIntoView.mock.contexts.at(-1) as HTMLElement;
+    expect(target.contains(screen.getByTestId('standard-route'))).toBe(true);
+  });
+});

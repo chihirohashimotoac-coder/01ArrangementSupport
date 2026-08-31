@@ -138,7 +138,10 @@ export function PracticePage({ mode }: PracticePageProps) {
   );
 
   const resultRef = useRef<HTMLDivElement | null>(null);
+  const recoveryRef = useRef<HTMLElement | null>(null);
   const scrollTimer = useRef<number | null>(null);
+  /** 実戦入力を開いたあと、描画が済んでから盤面まで移動するか。 */
+  const scrollToRecovery = useRef(false);
 
   useEffect(
     () => () => {
@@ -148,6 +151,24 @@ export function PracticePage({ mode }: PracticePageProps) {
   );
 
   /**
+   * 予約されている「答えへの移動」を取り消す。
+   *
+   * LEFT を書き換えたあとの blur でも入力完了として移動を予約するが、
+   * その 250ms のあいだにユーザーが実戦入力を開いたりルートのチップを押したら、
+   * ユーザー自身が選んだ行き先を優先する。iPhone では
+   * 「LEFT 入力 → keyboard 表示中に『実際の着弾を入力』をタップ」で
+   * blur → click の順に起きるため、click 側で必ず取り消す。
+   */
+  const cancelPendingScroll = useCallback(() => {
+    if (scrollTimer.current === null) return;
+    window.clearTimeout(scrollTimer.current);
+    scrollTimer.current = null;
+  }, []);
+
+  const scrollBehavior = (): ScrollBehavior =>
+    (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false) ? 'auto' : 'smooth';
+
+  /**
    * 入力を終えた（Enter / Done）ときだけ、答えの位置へ移動する。
    *
    * 入力途中では絶対に動かさない。103 を打つ途中の "10" もそれ自体は合法な
@@ -155,15 +176,23 @@ export function PracticePage({ mode }: PracticePageProps) {
    * 移動先は StatusBar ではなく、実際の答えである STANDARD / BEST の先頭。
    */
   const handleCommit = useCallback(() => {
-    if (scrollTimer.current !== null) window.clearTimeout(scrollTimer.current);
+    cancelPendingScroll();
     scrollTimer.current = window.setTimeout(() => {
       scrollTimer.current = null;
-      const target = resultRef.current;
-      if (!target) return;
-      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-      target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+      resultRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
     }, KEYBOARD_SETTLE_MS);
-  }, []);
+  }, [cancelPendingScroll]);
+
+  /*
+   * ルートのチップから実戦入力を開いたときだけ、盤面が見える位置まで移動する。
+   * 開いた直後は DOM がまだ無いので、描画が終わる effect まで待つ。
+   * すでに開いている（盤面が見えている）ときは動かさない。
+   */
+  useEffect(() => {
+    if (!recoveryOpen || !scrollToRecovery.current) return;
+    scrollToRecovery.current = false;
+    recoveryRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+  }, [recoveryOpen]);
 
   /** MY ROUTE は得意ダブルを優先し、基準ルート加点を外して並べ替える。 */
   const myRoute = useMemo(() => {
@@ -221,11 +250,24 @@ export function PracticePage({ mode }: PracticePageProps) {
     reasons: readonly { code: string; polarity: RouteReasonView['polarity']; label: string; summary: string; detail: string | null }[],
   ): RouteReasonView[] => reasons.map((reason) => ({ ...reason }));
 
-  /** ルートのチップを押したら盤面で位置を確認できるよう、たたんでいれば開く。 */
-  const focusDart = useCallback((dartId: string) => {
-    setFocusedDartId(dartId);
-    setRecoveryOpen(true);
-  }, []);
+  /**
+   * ルートのチップを押したら、盤面でその位置を確認できるようにする。
+   *
+   * チップは MY ROUTE や OTHER ROUTES など盤面より下のカードにもあるので、
+   * たたんだ状態から開いた場合は盤面まで移動しないと、開いた盤面が
+   * viewport の上へ出てしまい「押したのに何も起きない」ように見える。
+   */
+  const focusDart = useCallback(
+    (dartId: string) => {
+      cancelPendingScroll();
+      setFocusedDartId(dartId);
+      setRecoveryOpen((open) => {
+        if (!open) scrollToRecovery.current = true;
+        return true;
+      });
+    },
+    [cancelPendingScroll],
+  );
 
   const copy = COPY[mode];
 
@@ -238,7 +280,11 @@ export function PracticePage({ mode }: PracticePageProps) {
         data-testid="recovery-toggle"
         aria-expanded={recoveryOpen}
         aria-controls="practice-recovery"
-        onClick={() => setRecoveryOpen((open) => !open)}
+        onClick={() => {
+          // ユーザー自身が行き先を決めたので、予約されている移動は捨てる。
+          cancelPendingScroll();
+          setRecoveryOpen((open) => !open);
+        }}
       >
         <span className="practice__recovery-toggle-label">
           {recoveryOpen ? '実際の着弾の入力を閉じる' : '実際の着弾を入力'}
@@ -249,7 +295,12 @@ export function PracticePage({ mode }: PracticePageProps) {
       </button>
 
       {recoveryOpen && (
-        <section className="practice__board" id="practice-recovery" aria-label="実戦入力">
+        <section
+          className="practice__board"
+          id="practice-recovery"
+          ref={recoveryRef}
+          aria-label="実戦入力"
+        >
           <StatusBar
             remaining={visit.remaining}
             dartsLeft={visit.dartsLeft}
