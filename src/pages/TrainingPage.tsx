@@ -371,6 +371,11 @@ export function TrainingPage() {
             >
               1投戻す
             </button>
+            {/*
+              「次の問題」は採点結果の直下だけに置く（v1.2）。
+              回答前から押せる場所に同じボタンがあると、結果を読み終えたあとに
+              どちらを押すのか迷ううえ、上下に離れた 2 か所を探すことになる。
+            */}
             <button
               type="button"
               className="training__submit"
@@ -379,14 +384,6 @@ export function TrainingPage() {
               disabled={result !== null || answer.length === 0}
             >
               回答する
-            </button>
-            <button
-              type="button"
-              data-testid="training-next"
-              onClick={goNext}
-              disabled={result === null}
-            >
-              次の問題
             </button>
           </div>
 
@@ -446,6 +443,18 @@ export function TrainingPage() {
                 />
               )}
             </section>
+          )}
+
+          {/* 結果を読み終えた位置から、探さずに次へ進める。 */}
+          {result && (
+            <button
+              type="button"
+              className="training__next"
+              data-testid="training-next"
+              onClick={goNext}
+            >
+              次の問題
+            </button>
           )}
         </>
       )}

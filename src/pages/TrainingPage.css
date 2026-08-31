@@ -189,9 +189,10 @@
   font-weight: 800;
 }
 
+/* v1.2: 「次の問題」を結果直下へ移したので、ここは 1投戻す / 回答する の 2 つ。 */
 .training__actions {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 0.4rem;
 }
 
@@ -204,6 +205,28 @@
   background: var(--accent) !important;
   border-color: var(--accent) !important;
   color: var(--accent-contrast) !important;
+}
+
+/*
+ * 採点結果を読み終えた位置で、そのまま次へ進めるようにする。
+ * 回答前は出さない（自動確定・自動進行はしない、という方針は変えない）。
+ */
+.training__next {
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 0.65rem;
+  min-height: 3.25rem;
+  cursor: pointer;
+}
+
+.training__next:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .training__result {

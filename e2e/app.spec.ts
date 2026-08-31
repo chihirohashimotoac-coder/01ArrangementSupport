@@ -3,7 +3,14 @@ import { expect, test, type Page } from '@playwright/test';
 /** LEFT を入力する。確定ボタンはないので、入力しただけで反映される。 */
 async function setLeft(page: Page, value: number) {
   await page.getByTestId('score-input').fill(String(value));
-  await expect(page.getByTestId('status-left')).toBeVisible();
+  // v1.2: 入力したら StatusBar ではなく答え（STANDARD / BEST）が出る。
+  await expect(page.getByTestId('standard-route')).toBeVisible();
+}
+
+/** 実戦入力（盤面）を開く。v1.2 では通常表示でたたまれている。 */
+async function openRecovery(page: Page) {
+  await page.getByTestId('recovery-toggle').click();
+  await expect(page.getByTestId('dartboard')).toBeVisible();
 }
 
 /** CHECKOUT を開いて LEFT を入れる。初期状態は空欄なので毎回必要。 */
@@ -31,8 +38,9 @@ test('アプリが起動し、3 つのモードが並ぶ', async ({ page }) => {
 test('CHECKOUT 103 で基準ルートと理由を確認できる', async ({ page }) => {
   await openCheckout(page, 103);
 
-  await expect(page.getByTestId('status-left')).toHaveText('103');
-  await expect(page.getByTestId('status-darts')).toHaveText('3');
+  // 答えより先に盤面を通過させない。
+  await expect(page.getByTestId('dartboard')).toHaveCount(0);
+  await expect(page.getByTestId('status-bar')).toHaveCount(0);
 
   const standard = page.getByTestId('standard-route');
   await expect(standard).toContainText('T19');
@@ -77,6 +85,7 @@ test('「すべて表示」は 40 件で打ち切らず、ボタンの件数と�
 
 test('1 投ごとのリカバリーが追従する', async ({ page }) => {
   await openCheckout(page, 103);
+  await openRecovery(page);
 
   // T19 を狙って S19 に落ちた場合。
   await page.getByTestId('segment-s19-outer').click();
@@ -89,6 +98,7 @@ test('1 投ごとのリカバリーが追従する', async ({ page }) => {
 
 test('Undo で 1 投戻せる', async ({ page }) => {
   await openCheckout(page, 103);
+  await openRecovery(page);
   await page.getByTestId('segment-s19-outer').click();
   await expect(page.getByTestId('status-left')).toHaveText('84');
   await page.getByTestId('undo-button').click();
@@ -98,6 +108,7 @@ test('Undo で 1 投戻せる', async ({ page }) => {
 
 test('Bust するとビジット開始時の残りへ戻る', async ({ page }) => {
   await openCheckout(page, 103);
+  await openRecovery(page);
   await page.getByTestId('segment-t19').click();
   await expect(page.getByTestId('status-left')).toHaveText('46');
   await page.getByTestId('segment-t20').click();
@@ -122,7 +133,7 @@ test('Bogey を入れると理由を示して候補を出さない', async ({ pa
 
 test('SETUP 305 は T20 → T20 → S18 で 167 残しを提案する', async ({ page }) => {
   await openSetup(page, 305);
-  await expect(page.getByTestId('status-left')).toHaveText('305');
+  await expect(page.getByTestId('score-input')).toHaveValue('305');
   const best = page.getByTestId('standard-route');
   await expect(best).toContainText('S18');
   await expect(best).toContainText('残り 167');
@@ -210,14 +221,203 @@ test('LEFT をタップすると現在値が全選択され、そのまま置き
   // Backspace で 3 桁消さずに、次の数字がそのまま置き換わる。
   await page.keyboard.type('61');
   await expect(input).toHaveValue('61');
-  await expect(page.getByTestId('status-left')).toHaveText('61');
+  await expect(page.getByTestId('standard-route')).toContainText('T15');
 });
 
-test('プリセットを押すと確定操作なしで反映される', async ({ page }) => {
+test('LEFT プリセットは廃止されている（CHECKOUT / SETUP）', async ({ page }) => {
   await page.getByTestId('nav-checkout').click();
-  await page.getByRole('button', { name: '122', exact: true }).click();
-  await expect(page.getByTestId('score-input')).toHaveValue('122');
+  for (const preset of ['170', '167', '164', '161', '160', '122', '103', '61', '46', '40']) {
+    await expect(page.getByRole('button', { name: preset, exact: true })).toHaveCount(0);
+  }
+  await expect(page.locator('.score-input__presets')).toHaveCount(0);
+
+  // プリセットが無くても、直接入力すれば答えが出る。
+  await page.getByTestId('score-input').fill('122');
   await expect(page.getByTestId('standard-route')).toContainText('T18');
+
+  await page.getByTestId('nav-setup').click();
+  for (const preset of ['350', '340', '309', '305', '302', '275', '271', '269', '235', '231']) {
+    await expect(page.getByRole('button', { name: preset, exact: true })).toHaveCount(0);
+  }
+  await expect(page.locator('.score-input__presets')).toHaveCount(0);
+
+  await page.getByTestId('score-input').fill('302');
+  await expect(page.getByTestId('standard-route')).toContainText('S18');
+});
+
+test('v1.2: 答えが先、盤面は「実際の着弾を入力」で開く', async ({ page }) => {
+  await page.getByTestId('nav-checkout').click();
+
+  // 未入力時はプリセットの無い、入力欄だけのシンプルな画面。
+  await expect(page.getByTestId('score-input')).toHaveAttribute('placeholder', '例 103');
+  await expect(page.getByText('残り点 LEFT')).toBeVisible();
+
+  await page.getByTestId('score-input').fill('103');
+  const standard = page.getByTestId('standard-route');
+  await expect(standard).toContainText('T19');
+  await expect(page.getByTestId('dartboard')).toHaveCount(0);
+
+  // 答えは盤面を経由せず、スクロールなしで viewport に入る。
+  expect(
+    await standard.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.top >= 0 && rect.top < window.innerHeight;
+    }),
+  ).toBe(true);
+
+  const toggle = page.getByTestId('recovery-toggle');
+  await expect(toggle).toContainText('実際の着弾を入力');
+  await toggle.click();
+  await expect(page.getByTestId('dartboard')).toBeVisible();
+
+  // 閉じられる。
+  await toggle.click();
+  await expect(page.getByTestId('dartboard')).toHaveCount(0);
+});
+
+test('v1.2: 着弾を入れると盤面の直下に NEXT と 1投戻す が出る', async ({ page }) => {
+  await openCheckout(page, 103);
+  await openRecovery(page);
+
+  const undo = page.getByTestId('undo-button');
+  await expect(undo).toBeDisabled();
+
+  await page.getByTestId('segment-s19-outer').click();
+
+  const next = page.getByTestId('recovery-next');
+  await expect(next.getByTestId('next-remaining')).toHaveText('84');
+  await expect(next.getByTestId('next-darts')).toHaveText('2');
+  await expect(page.getByTestId('recovery-next-route')).toContainText('NEXT');
+
+  // 盤面と NEXT が一緒に見える（大きくスクロールしないと読めない、を防ぐ）。
+  const boardBottom = await page
+    .getByTestId('dartboard')
+    .evaluate((el) => el.getBoundingClientRect().bottom);
+  const nextTop = await next.evaluate((el) => el.getBoundingClientRect().top);
+  expect(nextTop - boardBottom).toBeLessThan(80);
+
+  // Undo は盤面のそば。押せば 1 投戻る。
+  await expect(page.getByRole('button', { name: '1投戻す' })).toHaveCount(1);
+  await undo.click();
+  await expect(page.getByTestId('status-left')).toHaveText('103');
+});
+
+test('v1.2: 入力途中では画面が動かず、Enter で答えへ移動する', async ({ page }) => {
+  await page.getByTestId('nav-checkout').click();
+  await page.evaluate(() => {
+    const w = window as unknown as { __scrolls: number };
+    w.__scrolls = 0;
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function patched(...args: unknown[]) {
+      w.__scrolls += 1;
+      return (original as (...a: unknown[]) => void).apply(this, args);
+    };
+  });
+
+  const input = page.getByTestId('score-input');
+  await input.click();
+  // 1 → 10 → 103。10 の時点で合法な CHECKOUT 値になるが、画面は動かさない。
+  await page.keyboard.type('103');
+  await expect(page.getByTestId('standard-route')).toBeVisible();
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => (window as unknown as { __scrolls: number }).__scrolls)).toBe(0);
+
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(
+      async () => page.evaluate(() => (window as unknown as { __scrolls: number }).__scrolls),
+      { timeout: 3000 },
+    )
+    .toBeGreaterThan(0);
+});
+
+test('v1.2: 盤面より下のルートチップから開いても、盤面が見える位置へ移動する', async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await openCheckout(page, 103);
+
+  // OTHER ROUTES は盤面（実戦入力）より下にある。
+  const card = page.getByTestId(/^route-/).first();
+  await card.scrollIntoViewIfNeeded();
+  await card.locator('.route-card__dart').first().click();
+
+  const board = page.getByTestId('dartboard');
+  await expect(board).toBeVisible();
+  // 開いた盤面が viewport の上へ出てしまっていない。
+  expect(
+    await board.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.bottom > 0 && rect.top < window.innerHeight;
+    }),
+  ).toBe(true);
+  await expect(page.locator('[data-focused="true"]').first()).toBeVisible();
+});
+
+test('v1.2: 盤面が開いているときは、チップを押しても画面を動かさない', async ({ page }) => {
+  await openCheckout(page, 103);
+  await openRecovery(page);
+  // Playwright 自身のクリック前スクロールと区別するため、呼び出し回数で見る。
+  await page.evaluate(() => {
+    const w = window as unknown as { __scrolls: number };
+    w.__scrolls = 0;
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function patched(...args: unknown[]) {
+      w.__scrolls += 1;
+      return (original as (...a: unknown[]) => void).apply(this, args);
+    };
+  });
+
+  await page.getByTestId('standard-route').locator('.route-card__dart').first().click();
+  await expect(page.locator('[data-focused="true"]').first()).toBeVisible();
+  await page.waitForTimeout(400);
+
+  expect(await page.evaluate(() => (window as unknown as { __scrolls: number }).__scrolls)).toBe(0);
+});
+
+test('v1.2: LEFT の blur で予約された移動は、実戦入力を開いた時点で取り消す', async ({ page }) => {
+  await page.getByTestId('nav-checkout').click();
+  await page.evaluate(() => {
+    const w = window as unknown as { __scrolls: number };
+    w.__scrolls = 0;
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function patched(...args: unknown[]) {
+      w.__scrolls += 1;
+      return (original as (...a: unknown[]) => void).apply(this, args);
+    };
+  });
+
+  await page.getByTestId('score-input').click();
+  await page.keyboard.type('103');
+  await expect(page.getByTestId('standard-route')).toBeVisible();
+
+  // 入力欄から実戦入力ボタンへ移ると blur → click の順に起きる。
+  await page.getByTestId('recovery-toggle').click();
+  await expect(page.getByTestId('dartboard')).toBeVisible();
+
+  // 予約されていた 250ms 後の移動は起きない。
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => (window as unknown as { __scrolls: number }).__scrolls)).toBe(0);
+  await expect(page.getByTestId('dartboard')).toBeVisible();
+});
+
+test('v1.2: TRAINING は採点後にだけ結果の直下へ「次の問題」を出す', async ({ page }) => {
+  await page.getByTestId('nav-training').click();
+  await page.getByTestId('start-training').click();
+
+  await expect(page.getByTestId('training-next')).toHaveCount(0);
+
+  await page.getByTestId('segment-t20').click();
+  await page.getByTestId('training-submit').click();
+
+  await expect(page.getByTestId('training-result')).toBeVisible();
+  await expect(page.getByRole('button', { name: '次の問題' })).toHaveCount(1);
+
+  const resultBottom = await page
+    .getByTestId('training-result')
+    .evaluate((el) => el.getBoundingClientRect().bottom);
+  const nextTop = await page
+    .getByTestId('training-next')
+    .evaluate((el) => el.getBoundingClientRect().top);
+  expect(nextTop - resultBottom).toBeLessThan(40);
 });
 
 test('CHECKOUT の LEFT を SETUP へ持ち越さない', async ({ page }) => {
@@ -238,15 +438,37 @@ test('Safe Area の余白は通常ブラウザの見た目を変えない', asyn
   expect(padding).toEqual(['12px', '12px', '24px', '12px']);
 
   // 縦・横どちらでも横スクロールを生まないこと（横画面のノッチ対応で崩れないかの確認）。
+  // 320px は小さめの iPhone SE 相当。v1.2 のレイアウトはここでも崩さない。
   for (const size of [
     { width: 393, height: 852 },
     { width: 852, height: 393 },
+    { width: 320, height: 568 },
   ]) {
     await page.setViewportSize(size);
     const overflows = await page.evaluate(
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
     );
     expect(overflows, `${size.width}x${size.height} で横スクロールが出ている`).toBe(false);
+  }
+});
+
+test('320px でも CHECKOUT / SETUP の主要部が横にはみ出さない', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+
+  for (const [nav, value] of [
+    ['nav-checkout', '103'],
+    ['nav-setup', '302'],
+  ] as const) {
+    await page.getByTestId(nav).click();
+    await page.getByTestId('score-input').fill(value);
+    await expect(page.getByTestId('standard-route')).toBeVisible();
+    await page.getByTestId('recovery-toggle').click();
+    await expect(page.getByTestId('dartboard')).toBeVisible();
+
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(overflows, `${nav} の 320px で横スクロールが出ている`).toBe(false);
   }
 });
 
