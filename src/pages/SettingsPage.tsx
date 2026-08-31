@@ -87,7 +87,7 @@ export function SettingsPage() {
       <section className="settings__section">
         <h2>基準ルートについて</h2>
         <p className="settings__note" data-testid="standard-route-note">
-          STANDARD（基準ルート）は、PDC で頻出する実戦的なアレンジをベースにしています。
+          STANDARD（基準ルート）は、実戦で使われる標準的なアレンジをまとめたものです。
           MY ROUTE では、設定した得意ダブルを考慮した候補を表示します。
         </p>
       </section>

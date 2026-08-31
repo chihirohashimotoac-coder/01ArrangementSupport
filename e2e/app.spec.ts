@@ -237,9 +237,11 @@ test('設定画面は基準ルートをユーザー向けの言葉で説明す�
   await page.getByTestId('nav-settings').click();
   await expect(page.getByRole('heading', { name: '基準ルートについて' })).toBeVisible();
   await expect(page.getByTestId('standard-route-note')).toContainText(
-    'PDC で頻出する実戦的なアレンジ',
+    '実戦で使われる標準的なアレンジ',
   );
   const settings = page.locator('.settings');
   await expect(settings).not.toContainText('添付');
   await expect(settings).not.toContainText('human-approved-v1');
+  // APPROVALS.md A-1: 一次資料が確認できていないため、出典は主張しない。
+  await expect(settings).not.toContainText('PDC');
 });

@@ -575,6 +575,8 @@ describe('v1.1 ユーザー向け文言', () => {
     for (const phrase of ['添付', '第1候補', 'human-approved-v1', '123 件', '一次資料', 'Excel']) {
       expect(text).not.toContain(phrase);
     }
+    // 出典（PDC）は主張しない。APPROVALS.md A-1。
+    expect(text).not.toContain('PDC');
   });
 
   it('設定画面に基準ルートのユーザー向け説明が出る', async () => {
@@ -584,7 +586,11 @@ describe('v1.1 ユーザー向け文言', () => {
 
     expect(screen.getByRole('heading', { name: '基準ルートについて' })).toBeInTheDocument();
     const note = screen.getByTestId('standard-route-note').textContent ?? '';
-    expect(note).toContain('PDC で頻出する実戦的なアレンジ');
-    expect(note).not.toContain('公式');
+    expect(note).toContain('実戦で使われる標準的なアレンジ');
+    expect(note).toContain('MY ROUTE');
+    // APPROVALS.md A-1: 一次資料が確認できていないため、出典は主張しない。
+    for (const phrase of ['PDC', '公式']) {
+      expect(note).not.toContain(phrase);
+    }
   });
 });
