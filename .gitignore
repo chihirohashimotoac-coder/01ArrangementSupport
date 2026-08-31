@@ -1,0 +1,21 @@
+node_modules
+dist
+dev-dist
+coverage
+
+# Playwright
+playwright-report
+test-results
+blob-report
+playwright/.cache
+
+# ログ・エディタ
+*.log
+npm-debug.log*
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# 一次資料（添付Excel等）はリポジトリに含めない場合ここに追記する。
+# 現状 data/source/ は README のみを追跡する。
