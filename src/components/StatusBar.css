@@ -87,3 +87,13 @@
   line-height: 1.5;
   color: var(--text-dim);
 }
+
+.status-bar {
+  background: linear-gradient(135deg, var(--surface-elevated), var(--surface));
+  border-color: var(--border-strong);
+  border-radius: 0.9rem;
+  box-shadow: var(--inner-highlight), var(--shadow-sm);
+}
+.status-bar__caption { color: var(--text-secondary); }
+.status-bar__value { font-weight: 840; letter-spacing: -0.04em; }
+.status-bar__pips span[data-filled='true'] { box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 45%, transparent); }

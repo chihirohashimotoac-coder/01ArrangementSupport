@@ -85,3 +85,44 @@
   font-weight: 700;
   color: var(--negative);
 }
+
+/* v1.3 premium primary-input treatment. */
+.score-input { gap: 0.65rem; }
+.score-input__labels { justify-content: space-between; column-gap: 0.75rem; }
+.score-input__label { font-size: 0.7rem; letter-spacing: 0.16em; color: var(--text-secondary); }
+.score-input__hint { color: var(--text-dim); }
+.score-input__field {
+  position: relative;
+  min-height: 5rem;
+  padding: 0.35rem 1rem;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface-elevated) 94%, var(--accent) 6%), var(--surface-alt));
+  border: 1px solid var(--border-strong);
+  border-radius: 1rem;
+  box-shadow: var(--inner-highlight), var(--shadow-sm);
+}
+.score-input__field::after {
+  content: '';
+  position: absolute;
+  inset: auto 15% -2.5rem;
+  height: 3rem;
+  border-radius: 50%;
+  background: var(--accent);
+  filter: blur(2.3rem);
+  opacity: 0.1;
+  pointer-events: none;
+}
+.score-input__field:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--inner-highlight), 0 0 0 3px var(--accent-soft), var(--shadow-md);
+}
+.score-input__input {
+  position: relative;
+  z-index: 1;
+  font-size: clamp(2.75rem, 14vw, 4.25rem);
+  font-weight: 820;
+  letter-spacing: -0.035em;
+  color: var(--text);
+}
+.score-input__input::placeholder { color: var(--text-dim); opacity: 0.62; }

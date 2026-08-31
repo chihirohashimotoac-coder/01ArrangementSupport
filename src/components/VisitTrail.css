@@ -76,3 +76,17 @@
   outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
+
+.visit-trail { padding-top: 0.2rem; }
+.visit-trail__list li {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border-radius: 0.65rem;
+  box-shadow: var(--inner-highlight);
+}
+.visit-trail__list li[data-filled='true'] { background: var(--surface-alt); border-color: var(--accent); }
+.visit-trail__actions button { background: var(--surface); border-radius: 0.65rem; box-shadow: var(--inner-highlight); }
+.visit-trail__actions button:first-child:not(:disabled) {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+}

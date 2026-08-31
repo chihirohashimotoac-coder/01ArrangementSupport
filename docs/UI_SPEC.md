@@ -61,7 +61,7 @@ CHECKOUT / SETUP では**実戦入力を開いているあいだだけ**出す�
 1. **残り点の入力（LEFT）** — この画面の主操作。`inputMode="numeric"` の大きな入力欄
    （数字は 2rem 以上、モバイルでは横幅いっぱい、`:focus-within` で枠を強調）と、
    `残り点 LEFT` ラベル + 短い補足（`2〜170・この3投で上がる` /
-   `171〜350・次の3投へ整える`）。
+   `171〜350・次の3投に向けて整える`）。
    **確定ボタンもプリセットも置かない**（詳細は `docs/SPEC.md` 3-1）。
    初期状態は空欄で、`例 103` / `例 302` の placeholder だけを出す。
 2. **STANDARD（CHECKOUT）／ BEST（SETUP）** — 基準ルート／最善のセットアップ。
@@ -131,8 +131,13 @@ CHECKOUT / SETUP では**実戦入力を開いているあいだだけ**出す�
 
 ## 6. 配色
 
-暗い背景を既定にする（屋内・ダーツバーでの視認性）。
-`src/index.css` の CSS 変数で一元管理する。盤面の色は実際のダーツボードに合わせる。
+Dark を既定にし、Settings で Light / Dark を明示的に選択できる。選択は既存の
+preferences storage に保存し、再読み込み・PWA 再起動後も維持する。System 選択肢は置かない。
+テーマ変更時は document の color scheme と `theme-color` も同期する。
+
+色・surface・border・shadow・focus は `src/index.css` の semantic CSS token で一元管理し、
+各コンポーネントへテーマ固有色を直書きしない。Light は cool gray / blue-white、Dark は
+deep navy / graphite を基調とし、盤面の色は実際のダーツボードに合わせる。
 
 ## 7. アクセシビリティ
 

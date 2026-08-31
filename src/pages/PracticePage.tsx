@@ -33,7 +33,7 @@ const COPY: Record<PracticeMode, ModeCopy> = {
   setup: {
     min: 171,
     max: MAX_SETUP_REMAINING,
-    hint: `171〜${MAX_SETUP_REMAINING}・次の3投へ整える`,
+    hint: `171〜${MAX_SETUP_REMAINING}・次の3投に向けて整える`,
     placeholder: '例 302',
   },
 };

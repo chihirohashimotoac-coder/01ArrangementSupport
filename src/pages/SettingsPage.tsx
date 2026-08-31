@@ -1,6 +1,8 @@
 import { usePreferences } from '../hooks/usePreferences';
 import { SELECTABLE_FINISH_TARGETS } from '../storage/preferences';
 import { DOUBLE_QUALITY } from '../data/rankingRules';
+import type { KeyboardEvent } from 'react';
+import type { Theme } from '../storage/preferences';
 import './SettingsPage.css';
 
 /**
@@ -9,7 +11,17 @@ import './SettingsPage.css';
  * ここで選んだ得意ダブルは MY ROUTE の並びにだけ反映され、
  * STANDARD（基準ルート）の並びは変わらない。
  */
-export function SettingsPage() {
+export interface SettingsPageProps {
+  readonly theme: Theme;
+  readonly onThemeChange: (theme: Theme) => void;
+}
+
+const THEMES: ReadonlyArray<{ id: Theme; label: string; description: string }> = [
+  { id: 'light', label: 'Light', description: '明るく端正な表示' },
+  { id: 'dark', label: 'Dark', description: '暗所で見やすい表示' },
+];
+
+export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
   const { preferences, setPreferredDoubles } = usePreferences();
   const selected = preferences.preferredDoubles;
 
@@ -27,8 +39,45 @@ export function SettingsPage() {
     setPreferredDoubles(next);
   };
 
+  const moveTheme = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    event.preventDefault();
+    const delta = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1;
+    const next = THEMES[(index + delta + THEMES.length) % THEMES.length];
+    onThemeChange(next.id);
+    document.getElementById(`theme-${next.id}`)?.focus();
+  };
+
   return (
     <div className="settings">
+      <section className="settings__section settings__section--theme">
+        <div>
+          <h2>APPEARANCE</h2>
+          <p className="settings__section-title">テーマ</p>
+          <p className="settings__note">利用環境に合わせて画面の明るさを選べます。</p>
+        </div>
+        <div className="settings__theme" role="radiogroup" aria-label="カラーテーマ">
+          {THEMES.map((option, index) => (
+            <button
+              key={option.id}
+              id={`theme-${option.id}`}
+              type="button"
+              role="radio"
+              aria-checked={theme === option.id}
+              data-testid={`theme-${option.id}`}
+              onClick={() => onThemeChange(option.id)}
+              onKeyDown={(event) => moveTheme(event, index)}
+            >
+              <span className={`settings__theme-swatch settings__theme-swatch--${option.id}`} />
+              <span>
+                <strong>{option.label}</strong>
+                <small>{option.description}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section className="settings__section">
         <h2>MY ROUTE — 得意ダブル</h2>
         <p className="settings__note">

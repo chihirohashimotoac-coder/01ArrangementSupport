@@ -115,3 +115,8 @@
   font-weight: 700;
   text-align: center;
 }
+
+.dartboard__svg {
+  filter: drop-shadow(0 18px 26px color-mix(in srgb, var(--background-deep) 44%, transparent));
+}
+.dartboard__backdrop { filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 10%, transparent)); }

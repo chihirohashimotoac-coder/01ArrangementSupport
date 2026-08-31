@@ -10,18 +10,23 @@ import { readJson, writeJson } from './localJson';
 
 export const PREFERENCES_KEY = 'oas.preferences.v1';
 
+export type Theme = 'light' | 'dark';
+
 export interface Preferences {
   readonly version: 1;
   /** MY ROUTE の得意ダブル（順位順）。BULL も指定できる。 */
   readonly preferredDoubles: readonly string[];
   /** SETUP で続けて狙う主目標。 */
   readonly setupMainTarget: string;
+  /** 画面テーマ。端末の設定とは独立してユーザーが明示的に選ぶ。 */
+  readonly theme: Theme;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
   version: 1,
   preferredDoubles: ['D16', 'D20', 'D8', 'D10', 'D18'],
   setupMainTarget: DEFAULT_SETUP_MAIN_TARGET,
+  theme: 'dark',
 };
 
 /** MY ROUTE の得意ダブルとして選べるセグメント。 */
@@ -41,7 +46,8 @@ function sanitize(input: Preferences): Preferences {
   const mainTarget = findDart(input.setupMainTarget)
     ? input.setupMainTarget
     : DEFAULT_SETUP_MAIN_TARGET;
-  return { version: 1, preferredDoubles, setupMainTarget: mainTarget };
+  const theme: Theme = input.theme === 'light' ? 'light' : 'dark';
+  return { version: 1, preferredDoubles, setupMainTarget: mainTarget, theme };
 }
 
 export function loadPreferences(): Preferences {

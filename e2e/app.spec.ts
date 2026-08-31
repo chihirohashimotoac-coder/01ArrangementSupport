@@ -189,6 +189,46 @@ test('MY ROUTE の設定がリロード後も残る', async ({ page }) => {
   await expect(page.getByTestId('preferred-doubles')).not.toContainText('D16');
 });
 
+test('Light / Dark テーマを切り替え、リロード後も復元する', async ({ page }) => {
+  await page.getByTestId('nav-settings').click();
+  await expect(page.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
+
+  await page.getByTestId('theme-light').click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#edf4fb');
+
+  for (const destination of ['nav-checkout', 'nav-setup', 'nav-training', 'app-title'] as const) {
+    await page.getByTestId(destination).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  }
+
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.getByTestId('nav-settings').click();
+  await expect(page.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
+
+  await page.getByTestId('theme-dark').click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#07111f');
+});
+
+test('ユーザー向けUIに「ビジット」を表示しない', async ({ page }) => {
+  await expect(page.locator('body')).not.toContainText('ビジット');
+
+  await openCheckout(page, 103);
+  await openRecovery(page);
+  await expect(page.locator('body')).not.toContainText('ビジット');
+
+  await page.getByTestId('nav-setup').click();
+  await page.getByTestId('score-input').fill('302');
+  await expect(page.locator('body')).not.toContainText('ビジット');
+
+  await page.getByTestId('nav-training').click();
+  await expect(page.locator('body')).not.toContainText('ビジット');
+  await page.getByTestId('nav-settings').click();
+  await expect(page.locator('body')).not.toContainText('ビジット');
+});
+
 test('LEFT は空欄から始まり、入力するだけで候補が出る', async ({ page }) => {
   await page.getByTestId('nav-checkout').click();
   await expect(page.getByTestId('score-input')).toHaveValue('');

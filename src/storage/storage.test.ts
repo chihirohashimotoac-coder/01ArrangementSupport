@@ -47,6 +47,27 @@ describe('設定の保存', () => {
     expect(loadPreferences().preferredDoubles).toEqual(['D20', 'BULL']);
   });
 
+  it('選択したテーマを読み戻せる', () => {
+    savePreferences({ ...DEFAULT_PREFERENCES, theme: 'light' });
+    expect(loadPreferences().theme).toBe('light');
+  });
+
+  it('旧形式の設定には既定の Dark テーマを補う', () => {
+    window.localStorage.setItem(
+      PREFERENCES_KEY,
+      JSON.stringify({ version: 1, preferredDoubles: ['D20'], setupMainTarget: 'T20' }),
+    );
+    expect(loadPreferences().theme).toBe('dark');
+  });
+
+  it('未知のテーマ値は Dark に戻す', () => {
+    window.localStorage.setItem(
+      PREFERENCES_KEY,
+      JSON.stringify({ ...DEFAULT_PREFERENCES, theme: 'system' }),
+    );
+    expect(loadPreferences().theme).toBe('dark');
+  });
+
   it('存在しないセグメントは捨てる', () => {
     savePreferences({ ...DEFAULT_PREFERENCES, preferredDoubles: ['D20', 'D99', 'T20', 'SB'] });
     expect(loadPreferences().preferredDoubles).toEqual(['D20']);
