@@ -543,43 +543,25 @@ const RELAX_LEVELS: readonly RelaxLevel[] = [
 /** ここまでは直近履歴の除外窓（5 問 / 3 問）を保ったままの relax。 */
 const LAST_STRICT_HISTORY_LEVEL = 2;
 
-/** 設定に従って出題列を作る。同じ seed からは常に同じ並びになる。 */
-export function generateQuestions(options: GenerateOptions): TrainingQuestion[] {
-  return generateQuestionsWithReport(options).questions;
-}
-
-export function generateQuestionsWithReport(options: GenerateOptions): {
-  questions: TrainingQuestion[];
-  report: SamplingReport;
-} {
-  const { settings, seed } = options;
-  const count = settings.questionCount ?? options.count ?? 10;
-  const random = createRandom(seed);
-  const pools = buildPools(settings);
-  const availableKinds = kindsWithCandidates(settings.mode, pools);
-
-  const emptyReport: SamplingReport = {
-    requested: count,
-    generated: 0,
-    relaxCount: 0,
-    quotaNormalizedCount: 0,
-    reviewPlaced: 0,
-    trivialCount: 0,
-    directOneDartCount: 0,
-    modeDistribution: {},
-    formatDistribution: {},
-    difficultyDistribution: {},
-    categoryDistribution: {},
-    maxSameModeRun: 0,
-  };
-
-  if (availableKinds.length === 0 || count <= 0) {
-    return { questions: [], report: emptyReport };
-  }
-
-  const all = candidatesOf(pools);
-  if (all.length === 0) return { questions: [], report: emptyReport };
-
+/**
+ * slot（各問のわく）を先に決める。
+ *
+ *  1. 種別の並び（MIXED は mode bag）
+ *  2. 種別ごとの quota → カテゴリ / 形式 / 難易度の希望
+ *  3. 出題順の制約（HARD の連続・1 問目・最後の 2 問）
+ *  4. 復習枠の位置
+ *
+ * 候補の選択はここでは行わない（quota と並びの決定だけを担う）。
+ */
+function planSlots(input: {
+  readonly settings: TrainingSettings;
+  readonly count: number;
+  readonly all: readonly Candidate[];
+  readonly availableKinds: readonly TrainingKind[];
+  readonly reviewTargets: readonly ReviewTarget[];
+  readonly random: RandomSource;
+}): { slots: Slot[]; quotaNormalizedCount: number } {
+  const { settings, count, all, availableKinds, reviewTargets, random } = input;
   let quotaNormalizedCount = 0;
 
   // --- 1. 種別の並び --------------------------------------------------------
@@ -732,7 +714,6 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
   repairSlotOrder(slots, all, count);
 
   // --- 3. review slot ------------------------------------------------------
-  const reviewTargets = normalizeReviewTargets(options.reviewTargets);
   const wantedReview = settings.reviewWeakFirst && reviewTargets.length > 0 ? reviewQuota(count) : 0;
   if (wantedReview > 0) {
     for (let r = 0; r < Math.min(wantedReview, count); r += 1) {
@@ -740,6 +721,57 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
       slots[index].review = true;
     }
   }
+
+  return { slots, quotaNormalizedCount };
+}
+
+/** 設定に従って出題列を作る。同じ seed からは常に同じ並びになる。 */
+export function generateQuestions(options: GenerateOptions): TrainingQuestion[] {
+  return generateQuestionsWithReport(options).questions;
+}
+
+export function generateQuestionsWithReport(options: GenerateOptions): {
+  questions: TrainingQuestion[];
+  report: SamplingReport;
+} {
+  const { settings, seed } = options;
+  const count = settings.questionCount ?? options.count ?? 10;
+  const random = createRandom(seed);
+  const pools = buildPools(settings);
+  const availableKinds = kindsWithCandidates(settings.mode, pools);
+
+  const emptyReport: SamplingReport = {
+    requested: count,
+    generated: 0,
+    relaxCount: 0,
+    quotaNormalizedCount: 0,
+    reviewPlaced: 0,
+    trivialCount: 0,
+    directOneDartCount: 0,
+    modeDistribution: {},
+    formatDistribution: {},
+    difficultyDistribution: {},
+    categoryDistribution: {},
+    maxSameModeRun: 0,
+  };
+
+  if (availableKinds.length === 0 || count <= 0) {
+    return { questions: [], report: emptyReport };
+  }
+
+  const all = candidatesOf(pools);
+  if (all.length === 0) return { questions: [], report: emptyReport };
+
+  const reviewTargets = normalizeReviewTargets(options.reviewTargets);
+  const { slots, quotaNormalizedCount } = planSlots({
+    settings,
+    count,
+    all,
+    availableKinds,
+    reviewTargets,
+    random,
+  });
+
 
   // --- 4. 選択 -------------------------------------------------------------
   const buckets = createBucketIndex(all, random);
