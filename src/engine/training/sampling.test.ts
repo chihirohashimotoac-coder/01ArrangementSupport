@@ -36,6 +36,29 @@ function duplicateWithin(questions: readonly TrainingQuestion[], window: number)
   return count;
 }
 
+/** 出題順の制約（HARD 3 連続・1 問目 HARD・末尾 2 問の HARD）の違反。 */
+function orderingProblemsOf(questions: readonly TrainingQuestion[]): string[] {
+  const difficulties = questions.map((question) => question.difficulty);
+  const problems: string[] = [];
+  let run = 0;
+  let longest = 0;
+  for (const difficulty of difficulties) {
+    run = difficulty === 'hard' ? run + 1 : 0;
+    longest = Math.max(longest, run);
+  }
+  if (longest > 2) problems.push('HARD 3 連続');
+  if (difficulties.length >= 10) {
+    if (difficulties[0] === 'hard') problems.push('1 問目が HARD');
+    if (
+      difficulties[difficulties.length - 1] !== 'hard' &&
+      difficulties[difficulties.length - 2] !== 'hard'
+    ) {
+      problems.push('末尾 2 問に HARD 無し');
+    }
+  }
+  return problems;
+}
+
 function maxRunOf(values: readonly string[]): number {
   let best = 0;
   let run = 0;
@@ -128,6 +151,62 @@ describe('SETUP セッションの構成', () => {
       expect(report.quotaNormalizedCount).toBeGreaterThan(0);
     }
   });
+
+  it('狭い出題範囲の seed 33 は adjustment 8 / full 2 になる（独立監査 F-006 回帰）', () => {
+    // 出題順の制約と形式 quota が同時に効く並びで、3 投フルの枠が
+    // 「同じカテゴリの 1 投調整」へ差し替えられていた（9 / 1）。
+    // 171〜182 では 3 投フル候補 12 件がすべて HARD なので、
+    // その枠が 1 問目へ来ると「1 問目は HARD にしない」と衝突する。
+    const questions = generateQuestions({
+      settings: settingsOf({
+        mode: 'setup',
+        questionCount: 10,
+        setupRange: { min: 171, max: 182 },
+        reviewWeakFirst: false,
+      }),
+      seed: 33,
+    });
+
+    expect(questions.filter((question) => question.format === 'setup-full')).toHaveLength(2);
+    expect(questions.filter((question) => question.format === 'setup-adjustment')).toHaveLength(8);
+    // 形式を保ったまま出題順の制約も満たす。
+    expect(orderingProblemsOf(questions)).toEqual([]);
+  });
+
+  it.each([
+    { label: 'review off', reviewWeakFirst: false },
+    { label: 'review on', reviewWeakFirst: true },
+  ])(
+    '狭い出題範囲 171〜182 の 10 問は 1,000 seeds すべてで 8 / 2 を保つ（$label）',
+    ({ reviewWeakFirst }) => {
+      const formatViolations: string[] = [];
+      const orderingBroken: string[] = [];
+
+      for (let seed = 0; seed < 1000; seed += 1) {
+        const questions = generateQuestions({
+          settings: settingsOf({
+            mode: 'setup',
+            questionCount: 10,
+            setupRange: { min: 171, max: 182 },
+            reviewWeakFirst,
+          }),
+          seed,
+        });
+        const full = questions.filter((question) => question.format === 'setup-full').length;
+        const adjustment = questions.filter(
+          (question) => question.format === 'setup-adjustment',
+        ).length;
+        if (full !== 2 || adjustment !== 8) {
+          formatViolations.push(`seed=${seed}: adjustment ${adjustment} / full ${full}`);
+        }
+        const ordering = orderingProblemsOf(questions);
+        if (ordering.length > 0) orderingBroken.push(`seed=${seed}: ${ordering.join(',')}`);
+      }
+
+      expect(formatViolations.slice(0, 5)).toEqual([]);
+      expect(orderingBroken.slice(0, 5)).toEqual([]);
+    },
+  );
 
   it('10 問で 9 カテゴリすべてが出る', () => {
     const questions = generateQuestions({
