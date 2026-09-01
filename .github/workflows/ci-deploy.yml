@@ -51,6 +51,11 @@ jobs:
       - name: Unit tests
         run: npm run test
 
+      # TRAINING の大量品質監査（10 万問 × 各モード）。
+      # 通常の unit test は高速に保ち、統計監査はここで回す。
+      - name: TRAINING statistical audit
+        run: npm run audit:training
+
       # E2E はルートパス（base = /）のビルドに対して実行する
       - name: Build (for E2E)
         run: npm run build

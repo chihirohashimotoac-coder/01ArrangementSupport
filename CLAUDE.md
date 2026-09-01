@@ -40,6 +40,7 @@ Claude Code はこのリポジトリの**主実装担当**です。
 | `src/data/standardCheckoutRoutes.generated.ts` | **手編集禁止**（`npm run import:checkout` で再生成） |
 | `src/data/lowStandardRoutes.ts` | v1 承認済み。導出ルールの変更は **Human Approval Required** |
 | `src/data/setupReferenceCases.ts` | 添付資料の記録。**書き換えず、矛盾は報告する** |
+| `src/engine/training/**` | TRAINING 専用。教育設計は `docs/TRAINING_DESIGN.md` |
 | `data/source/*.xlsx` | 一次資料。**変更禁止** |
 
 ## 3-1. 承認済みの戦術方針
@@ -66,6 +67,9 @@ SEGMENT_DIFFICULTY・SETUP の重み・GRADE_THRESHOLDS など）が記録され
   （そうしないと vitest の既定タイムアウト 5 秒を超える）。
 - engine の変更では、必ず添付資料由来の回帰テスト（122 / 302〜309 / 231〜235 / 271〜275）が
   通ることを確認する。
+- TRAINING の 10 万問規模の統計監査は `npm run audit:training` に分離してある。
+  通常の `npm run test` へ大量生成を戻さない（高速な決定論的回帰として保つ）。
+  監査用のコードを production bundle へ混ぜない（`scripts/` 側に置く）。
 - ランキングの重みを触ったら、`基準ルートが 2〜170 すべてで第 1 候補になる` テストが
   通ることを必ず確認する。
 
