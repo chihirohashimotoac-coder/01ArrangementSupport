@@ -481,6 +481,79 @@ function auditReviewComposition(seeds: number): {
   return { cases };
 }
 
+/**
+ * 狭い出題範囲の SETUP スイープ（独立監査 F-006）。
+ *
+ * 171〜182 は 3 投フル候補 12 件がすべて同じカテゴリ・すべて HARD なので、
+ * 「1 問目は HARD にしない」と 80/20 の形式 quota が正面から衝突する。
+ * 候補不足ではないので、どちらも満たせなければ実装側の不具合として扱う。
+ */
+function auditNarrowRangeSweep(seeds: number): {
+  cases: Array<{
+    label: string;
+    checked: number;
+    formatViolations: number;
+    orderingViolations: number;
+    examples: string[];
+  }>;
+} {
+  const ranges = [
+    { label: 'SETUP 171-182 / 10 問', min: 171, max: 182, count: 10 },
+    { label: 'SETUP 171-182 / 30 問', min: 171, max: 182, count: 30 },
+    { label: 'SETUP 302-309 / 10 問', min: 302, max: 309, count: 10 },
+  ];
+
+  const cases = ranges.flatMap((range) =>
+    [false, true].map((reviewWeakFirst) => {
+      const label = `${range.label} / review ${reviewWeakFirst ? 'on' : 'off'}`;
+      let formatViolations = 0;
+      let orderingBroken = 0;
+      const examples: string[] = [];
+      const sessions = range.count === 30 ? Math.max(100, Math.round(seeds / 5)) : seeds;
+
+      for (let seed = 0; seed < sessions; seed += 1) {
+        const questions = generateQuestions({
+          settings: {
+            ...DEFAULT_TRAINING_SETTINGS,
+            mode: 'setup',
+            questionCount: range.count,
+            setupRange: { min: range.min, max: range.max },
+            reviewWeakFirst,
+          },
+          seed,
+          reviewTargets: reviewWeakFirst ? [range.min] : undefined,
+        });
+
+        const full = questions.filter((question) => question.format === 'setup-full').length;
+        const wantedFull = setupFullCount(questions.length);
+        if (full !== wantedFull) {
+          formatViolations += 1;
+          if (examples.length < 5) {
+            examples.push(`seed=${seed}: full ${full} / 期待 ${wantedFull}`);
+          }
+        }
+        const ordering = orderingViolationsOf(questions);
+        if (ordering.hardTriple || ordering.firstHard || ordering.noFinalHard) {
+          orderingBroken += 1;
+          if (examples.length < 5) {
+            examples.push(`seed=${seed}: ${questions.map((q) => q.difficulty[0]).join('')}`);
+          }
+        }
+      }
+
+      return {
+        label,
+        checked: sessions,
+        formatViolations,
+        orderingViolations: orderingBroken,
+        examples,
+      };
+    }),
+  );
+
+  return { cases };
+}
+
 function ratio(counter: Counter, key: string, total: number): number {
   return total === 0 ? 0 : (counter[key] ?? 0) / total;
 }
@@ -630,6 +703,26 @@ function main(): void {
   if (ordering.firstHard !== 0) failures.push(`ordering sweep: 1 問目が HARD = ${ordering.firstHard}`);
   if (ordering.noFinalHard !== 0) {
     failures.push(`ordering sweep: 末尾 2 問に HARD 無し = ${ordering.noFinalHard}`);
+  }
+
+  // --- 狭い出題範囲のスイープ（独立監査 F-006） ------------------------------
+  const narrowSeeds = Math.max(1_000, Math.min(10_000, Math.round(perMode / 10)));
+  const narrow = auditNarrowRangeSweep(narrowSeeds);
+  console.log(`\n=== 狭い出題範囲スイープ（最大 ${narrowSeeds} seeds） ===`);
+  for (const item of narrow.cases) {
+    console.log(
+      `${item.label.padEnd(34)}: ${String(item.checked).padStart(5)} セッション / ` +
+        `形式 quota 違反 ${item.formatViolations} / 出題順違反 ${item.orderingViolations}`,
+    );
+    if (item.examples.length > 0) {
+      console.log(`  違反例                        : ${item.examples.join(' | ')}`);
+    }
+    if (item.formatViolations !== 0) {
+      failures.push(`narrow(${item.label}): SETUP 形式 quota 違反 = ${item.formatViolations}`);
+    }
+    if (item.orderingViolations !== 0) {
+      failures.push(`narrow(${item.label}): 出題順違反 = ${item.orderingViolations}`);
+    }
   }
 
   // --- 復習を有効にしたときの構成と効果（独立監査 F-002） ---------------------
