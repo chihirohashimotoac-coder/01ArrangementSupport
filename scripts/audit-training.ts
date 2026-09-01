@@ -14,7 +14,12 @@ import {
   DEFAULT_TRAINING_SETTINGS,
   type TrainingSettings,
 } from '../src/engine/training/questions';
-import { generateQuestionsWithReport } from '../src/engine/training/sampling';
+import {
+  generateQuestions,
+  generateQuestionsWithReport,
+  setupCategoryQuota,
+  setupFullCount,
+} from '../src/engine/training/sampling';
 import { gradeAnswer } from '../src/engine/training/grade';
 import { recommendedAnswerOf } from '../src/engine/training/feedback';
 import { contextKeyOf, type TrainingKind, type TrainingQuestion } from '../src/engine/training/model';
@@ -51,6 +56,16 @@ interface ModeAudit {
   setupAdjustment: number;
   setupFull: number;
   setupBogeyAvoidance: number;
+  /** 出題順の制約（本仕様 28 節）の違反セッション数。 */
+  hardTripleSessions: number;
+  firstHardSessions: number;
+  noFinalHardSessions: number;
+  /** 出題構成の quota 違反セッション数。 */
+  formatQuotaViolations: number;
+  categoryQuotaViolations: number;
+  trivialOverCapSessions: number;
+  maxTrivialOverCap: number;
+  directOverCapSessions: number;
   setupRecommendedLeave: Counter;
   /** 160 を推奨した問題の内訳（30% 超過時の原因分析に使う）。 */
   setupLeave160ByCategory: Counter;
@@ -84,6 +99,14 @@ function emptyAudit(mode: string): ModeAudit {
     setupAdjustment: 0,
     setupFull: 0,
     setupBogeyAvoidance: 0,
+    hardTripleSessions: 0,
+    firstHardSessions: 0,
+    noFinalHardSessions: 0,
+    formatQuotaViolations: 0,
+    categoryQuotaViolations: 0,
+    trivialOverCapSessions: 0,
+    maxTrivialOverCap: 0,
+    directOverCapSessions: 0,
     setupRecommendedLeave: {},
     setupLeave160ByCategory: {},
     setupLeave160ByFormat: {},
@@ -159,9 +182,93 @@ function verifyProblem(question: TrainingQuestion) {
   return value;
 }
 
+/** trivial の上限（本仕様 47 節）。 */
+function trivialCapOf(count: number): number {
+  if (count === 10) return 2;
+  if (count === 30) return 6;
+  return Math.max(1, Math.round(count * 0.2));
+}
+
+function directCapOf(count: number): number {
+  if (count === 10) return 1;
+  if (count === 30) return 3;
+  return Math.max(1, Math.round(count * 0.1));
+}
+
+/**
+ * 出題順の制約を、slot 計画ではなく **実際に選ばれた question.difficulty** で数える。
+ * quota の緩和が入っても結果として守られていることを確認するため。
+ */
+function orderingViolationsOf(
+  questions: readonly TrainingQuestion[],
+): { hardTriple: boolean; firstHard: boolean; noFinalHard: boolean } {
+  const difficulties = questions.map((question) => question.difficulty);
+  const count = difficulties.length;
+  let run = 0;
+  let longest = 0;
+  for (const difficulty of difficulties) {
+    run = difficulty === 'hard' ? run + 1 : 0;
+    longest = Math.max(longest, run);
+  }
+  const endpointsApply = count >= 10;
+  return {
+    hardTriple: longest > 2,
+    firstHard: endpointsApply && difficulties[0] === 'hard',
+    noFinalHard:
+      endpointsApply &&
+      difficulties[count - 1] !== 'hard' &&
+      difficulties[count - 2] !== 'hard',
+  };
+}
+
+/** SETUP の形式・カテゴリ quota を、そのセッションが満たしているか。 */
+function setupQuotaViolationsOf(
+  questions: readonly TrainingQuestion[],
+): { format: boolean; category: boolean } {
+  const setup = questions.filter((question) => question.kind === 'setup');
+  if (setup.length === 0) return { format: false, category: false };
+
+  const full = setup.filter((question) => question.format === 'setup-full').length;
+  const wantedFull = setupFullCount(setup.length);
+  const quota = setupCategoryQuota(setup.length);
+  const counts: Counter = {};
+  for (const question of setup) bump(counts, question.primaryCategory);
+
+  return {
+    format: full !== wantedFull,
+    category: Object.entries(quota).some(([key, value]) => (counts[key] ?? 0) !== value),
+  };
+}
+
 function auditSession(audit: ModeAudit, questions: readonly TrainingQuestion[]): void {
   audit.sessions += 1;
   audit.generated += questions.length;
+
+  const ordering = orderingViolationsOf(questions);
+  if (ordering.hardTriple) audit.hardTripleSessions += 1;
+  if (ordering.firstHard) audit.firstHardSessions += 1;
+  if (ordering.noFinalHard) audit.noFinalHardSessions += 1;
+
+  const quota = setupQuotaViolationsOf(questions);
+  if (quota.format) audit.formatQuotaViolations += 1;
+  if (quota.category) audit.categoryQuotaViolations += 1;
+
+  const trivialOver =
+    questions.filter((question) => question.trivial).length - trivialCapOf(questions.length);
+  if (trivialOver > 0) {
+    audit.trivialOverCapSessions += 1;
+    audit.maxTrivialOverCap = Math.max(audit.maxTrivialOverCap, trivialOver);
+  }
+  // 1 投上がりの上限は CHECKOUT の規定（本仕様 47 節）。
+  // RECOVERY の「1 本で上がれる」は EASY 難易度 quota そのものなので数えない。
+  if (
+    questions.filter(
+      (question) =>
+        question.kind === 'checkout' && question.learningTags.includes('direct-finish'),
+    ).length > directCapOf(questions.length)
+  ) {
+    audit.directOverCapSessions += 1;
+  }
 
   let identicalRun = 0;
   let modeRun = 0;
@@ -260,6 +367,120 @@ function runMode(
   return audit;
 }
 
+/**
+ * 出題順の制約を、10 問セッションで広く走査する。
+ *
+ * 独立監査は MIXED 10 問 / 10,000 seeds で HARD 3 連続 41 件・
+ * 末尾 HARD 欠落 20 件を再現した。通常の session size（30 問）だけでは
+ * 10 問固有の端点ルールを十分に踏まない。
+ */
+function auditOrderingSweep(seeds: number): {
+  checked: number;
+  hardTriple: number;
+  firstHard: number;
+  noFinalHard: number;
+  examples: string[];
+} {
+  const result = { checked: 0, hardTriple: 0, firstHard: 0, noFinalHard: 0, examples: [] as string[] };
+  for (const mode of ['checkout', 'setup', 'recovery', 'mixed'] as const) {
+    for (let seed = 1; seed <= seeds; seed += 1) {
+      const questions = generateQuestions({
+        settings: {
+          ...DEFAULT_TRAINING_SETTINGS,
+          mode,
+          questionCount: 10,
+          reviewWeakFirst: false,
+        },
+        seed,
+      });
+      result.checked += 1;
+      const ordering = orderingViolationsOf(questions);
+      if (ordering.hardTriple) result.hardTriple += 1;
+      if (ordering.firstHard) result.firstHard += 1;
+      if (ordering.noFinalHard) result.noFinalHard += 1;
+      if (
+        (ordering.hardTriple || ordering.firstHard || ordering.noFinalHard) &&
+        result.examples.length < 5
+      ) {
+        result.examples.push(`${mode}/seed=${seed}: ${questions.map((q) => q.difficulty[0]).join('')}`);
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * 復習を有効にしたときの出題構成と、苦手問題の露出。
+ *
+ * 独立監査 F-002 は、復習枠が形式・カテゴリを無視して slot を置き換え、
+ * SETUP の 80/20 と A〜I の quota を壊すことを示した。
+ */
+function auditReviewComposition(seeds: number): {
+  cases: Array<{
+    label: string;
+    formatViolations: number;
+    categoryViolations: number;
+    baseline: number;
+    reviewed: number;
+    antiRepeatViolations: number;
+  }>;
+} {
+  const setupTarget = (problemKey: string) => ({
+    kind: 'setup' as const,
+    problemKey,
+    startRemaining: 302,
+    primaryCategory: 'setup-302-309' as const,
+    learningTags: ['bogey-avoidance', 'digits-0147'],
+    weight: 100,
+  });
+  const FULL = 'setup|v2|full|start=302|darts=3';
+  const ADJUST = 'setup|v2|adjust|start=302|ctx=T20,T20|current=182|darts=1';
+
+  const specs = [
+    { label: 'SETUP 10 / full weak', mode: 'setup' as const, count: 10, targets: [setupTarget(FULL)], keys: [FULL] },
+    { label: 'SETUP 10 / adjust weak', mode: 'setup' as const, count: 10, targets: [setupTarget(ADJUST)], keys: [ADJUST] },
+    { label: 'SETUP 30 / 複数 weak', mode: 'setup' as const, count: 30, targets: [setupTarget(FULL), setupTarget(ADJUST)], keys: [FULL, ADJUST] },
+    { label: 'CHECKOUT 10 / legacy 122', mode: 'checkout' as const, count: 10, targets: [122], keys: ['checkout|v2|left=122|darts=3'] },
+  ];
+
+  const cases = specs.map((spec) => {
+    let formatViolations = 0;
+    let categoryViolations = 0;
+    let baseline = 0;
+    let reviewed = 0;
+    let antiRepeatViolations = 0;
+
+    for (let seed = 1; seed <= seeds; seed += 1) {
+      const withReview = generateQuestions({
+        settings: { ...DEFAULT_TRAINING_SETTINGS, mode: spec.mode, questionCount: spec.count, reviewWeakFirst: true },
+        seed,
+        reviewTargets: spec.targets,
+      });
+      const without = generateQuestions({
+        settings: { ...DEFAULT_TRAINING_SETTINGS, mode: spec.mode, questionCount: spec.count, reviewWeakFirst: false },
+        seed,
+      });
+
+      const quota = setupQuotaViolationsOf(withReview);
+      if (quota.format) formatViolations += 1;
+      if (quota.category) categoryViolations += 1;
+
+      const keys: string[] = [];
+      for (const question of withReview) {
+        if (keys.slice(-5).includes(question.problemKey)) antiRepeatViolations += 1;
+        keys.push(question.problemKey);
+      }
+
+      baseline += without.filter((question) => spec.keys.includes(question.problemKey)).length;
+      reviewed += withReview.filter((question) => spec.keys.includes(question.problemKey)).length;
+    }
+
+    return { label: spec.label, formatViolations, categoryViolations, baseline, reviewed, antiRepeatViolations };
+  });
+
+  return { cases };
+}
+
 function ratio(counter: Counter, key: string, total: number): number {
   return total === 0 ? 0 : (counter[key] ?? 0) / total;
 }
@@ -298,6 +519,16 @@ function main(): void {
     console.log(`Mode distribution               : ${JSON.stringify(audit.modeDistribution)}`);
     console.log(`Format distribution             : ${JSON.stringify(audit.format)}`);
     console.log(`Category distribution           : ${JSON.stringify(audit.category)}`);
+    console.log(`HARD 3 連続セッション            : ${audit.hardTripleSessions}`);
+    console.log(`1 問目が HARD のセッション        : ${audit.firstHardSessions}`);
+    console.log(`末尾 2 問に HARD 無しセッション    : ${audit.noFinalHardSessions}`);
+    console.log(`SETUP 形式 quota 違反            : ${audit.formatQuotaViolations}`);
+    console.log(`SETUP カテゴリ quota 違反         : ${audit.categoryQuotaViolations}`);
+    console.log(
+      `trivial 上限超過セッション         : ${audit.trivialOverCapSessions}` +
+        ` (最大 +${audit.maxTrivialOverCap} 問, ${((audit.trivialOverCapSessions / Math.max(audit.sessions, 1)) * 100).toFixed(3)}%)`,
+    );
+    console.log(`1 投上がり上限超過セッション        : ${audit.directOverCapSessions}`);
     console.log(`Invalid questions               : ${audit.invalidQuestions}`);
     console.log(`Grader mismatch                 : ${audit.graderMismatch}`);
     console.log(`NaN                             : ${audit.nan}`);
@@ -354,6 +585,75 @@ function main(): void {
     if (audit.recoveryUnsolvable !== 0) failures.push(`${audit.mode}: RECOVERY unsolvable !== 0`);
     if (audit.mode === 'mixed' && audit.maxSameModeRun > 2) {
       failures.push(`${audit.mode}: max same-mode run > 2`);
+    }
+    // 出題順の制約（本仕様 28 節 / 独立監査 F-001）。
+    if (audit.hardTripleSessions !== 0) {
+      failures.push(`${audit.mode}: HARD 3 連続 = ${audit.hardTripleSessions}`);
+    }
+    if (audit.firstHardSessions !== 0) {
+      failures.push(`${audit.mode}: 1 問目が HARD = ${audit.firstHardSessions}`);
+    }
+    if (audit.noFinalHardSessions !== 0) {
+      failures.push(`${audit.mode}: 末尾 2 問に HARD 無し = ${audit.noFinalHardSessions}`);
+    }
+    // 出題構成の quota（本仕様 5・20 節 / 独立監査 F-002）。
+    if (audit.formatQuotaViolations !== 0) {
+      failures.push(`${audit.mode}: SETUP 形式 quota 違反 = ${audit.formatQuotaViolations}`);
+    }
+    if (audit.categoryQuotaViolations !== 0) {
+      failures.push(`${audit.mode}: SETUP カテゴリ quota 違反 = ${audit.categoryQuotaViolations}`);
+    }
+    // trivial 上限（本仕様 47 節）は厳密に守る。1 件でも超過すれば失敗。
+    if (audit.trivialOverCapSessions !== 0) {
+      failures.push(
+        `${audit.mode}: trivial 上限超過 = ${audit.trivialOverCapSessions} セッション` +
+          ` (最大 +${audit.maxTrivialOverCap} 問)`,
+      );
+    }
+    if (audit.directOverCapSessions !== 0) {
+      failures.push(`${audit.mode}: 1 投上がり上限超過 = ${audit.directOverCapSessions}`);
+    }
+  }
+
+  // --- 10 問セッションの出題順スイープ（本仕様 28 節 / 独立監査 F-001） --------
+  const orderingSeeds = Math.max(500, Math.min(10_000, Math.round(perMode / 10)));
+  const ordering = auditOrderingSweep(orderingSeeds);
+  console.log(`\n=== 出題順スイープ（10 問 × ${orderingSeeds} seeds × 4 モード） ===`);
+  console.log(`Sessions checked                : ${ordering.checked}`);
+  console.log(`HARD 3 連続                      : ${ordering.hardTriple}`);
+  console.log(`1 問目が HARD                    : ${ordering.firstHard}`);
+  console.log(`末尾 2 問に HARD 無し             : ${ordering.noFinalHard}`);
+  if (ordering.examples.length > 0) {
+    console.log(`違反例                          : ${ordering.examples.join(' | ')}`);
+  }
+  if (ordering.hardTriple !== 0) failures.push(`ordering sweep: HARD 3 連続 = ${ordering.hardTriple}`);
+  if (ordering.firstHard !== 0) failures.push(`ordering sweep: 1 問目が HARD = ${ordering.firstHard}`);
+  if (ordering.noFinalHard !== 0) {
+    failures.push(`ordering sweep: 末尾 2 問に HARD 無し = ${ordering.noFinalHard}`);
+  }
+
+  // --- 復習を有効にしたときの構成と効果（独立監査 F-002） ---------------------
+  const reviewSeeds = Math.max(50, Math.min(200, Math.round(perMode / 500)));
+  const review = auditReviewComposition(reviewSeeds);
+  console.log(`\n=== 復習の構成と効果（${reviewSeeds} seeds） ===`);
+  for (const item of review.cases) {
+    console.log(
+      `${item.label.padEnd(26)}: format違反 ${item.formatViolations} / category違反 ${item.categoryViolations}` +
+        ` / anti-repeat違反 ${item.antiRepeatViolations} / 露出 ${item.baseline} -> ${item.reviewed}`,
+    );
+    if (item.formatViolations !== 0) {
+      failures.push(`review(${item.label}): SETUP 形式 quota 違反 = ${item.formatViolations}`);
+    }
+    if (item.categoryViolations !== 0) {
+      failures.push(`review(${item.label}): SETUP カテゴリ quota 違反 = ${item.categoryViolations}`);
+    }
+    if (item.antiRepeatViolations !== 0) {
+      failures.push(`review(${item.label}): 直近 5 問の重複 = ${item.antiRepeatViolations}`);
+    }
+    if (item.reviewed <= item.baseline) {
+      failures.push(
+        `review(${item.label}): 苦手問題の露出が増えていない (${item.baseline} -> ${item.reviewed})`,
+      );
     }
   }
 
