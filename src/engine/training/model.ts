@@ -81,7 +81,26 @@ export const LEARNING_TAGS = {
   tripleRequired: 'triple-required',
   directFinish: 'direct-finish',
   trivial: 'trivial',
+  /** 残り 1 投の調整問題であること。 */
+  lastDartAdjustment: 'last-dart-adjustment',
+  /** そのまま 20 を続けるとノーテン / 170 超えになる。 */
+  avoidBogeyOnLastDart: 'avoid-bogey-on-last-dart',
+  /** 20 から 18 へずらすのが正解。 */
+  shift20To18: 'shift-20-to-18',
+  /** 20 から 19 へずらすのが正解。 */
+  shift20To19: 'shift-20-to-19',
 } as const;
+
+/**
+ * 「ラスト 1 投の現在残りから、どこへずらすか」を表す学習単位。
+ *
+ * 開始残り（302 だから S18）ではなく **現在残り**（182 だから S18）で
+ * 苦手を認識できるようにするためのキー。problemKey が問題 instance の識別子なのに対し、
+ * こちらは複数の context にまたがる「技術」の識別子になる。
+ */
+export function lastDartConceptKeyOf(currentRemaining: number, targetDartId: string): string {
+  return `setup-last-dart|current=${currentRemaining}|target=${targetDartId}`;
+}
 
 /**
  * 「ここまでに実際に入った 1 投」。
@@ -129,9 +148,15 @@ export interface TrainingQuestion {
   readonly trivial: boolean;
 }
 
-/** 同じ状況を指すキー（残り点・現在残りの近接出題を避けるために使う）。 */
+/**
+ * 同じ状況を指すキー（近接出題を避けるために使う）。
+ *
+ * 開始残りは含めない。302 → T20 → T20 → 現在 182 と
+ * 222 → S20 → S20 → 現在 182 は、**残り 1 投の判断としては同じ問題**なので、
+ * 続けて出しても新しい練習にならない。
+ */
 export function contextKeyOf(question: TrainingQuestion): string {
-  return `${question.kind}|${question.startRemaining}|${question.currentRemaining}`;
+  return `${question.kind}|${question.currentRemaining}|${question.dartsAvailable}`;
 }
 
 export function checkoutProblemKey(left: number, darts: number): string {

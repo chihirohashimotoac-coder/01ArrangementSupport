@@ -12,6 +12,7 @@
 import { formatRoute, requireDart, type Dart } from '../../domain/dart';
 import { DARTS_PER_VISIT } from '../../domain/checkoutRules';
 import { rankCheckoutRoutes } from '../ranking/checkoutRanking';
+import { rankSetupRoutes } from '../setup/enumerate';
 import {
   checkoutDifferenceJa,
   describeLeaveJa,
@@ -75,20 +76,36 @@ export function recommendedAnswerOf(question: TrainingQuestion): readonly Dart[]
   return relaxed.length > 0 ? relaxed[0].darts : [];
 }
 
-/** SETUP 1 投調整で、推奨以外にも成立する回答（上位のみ）。 */
+/**
+ * SETUP 1 投調整で、推奨以外にも成立する回答（上位のみ）。
+ *
+ * 並び順は既存の SETUP ランキング（`rankSetupRoutes`）に従う。
+ * 得点順に並べると「T20 → 残り 122」が先頭に来てしまい、
+ * 「最後の 1 投は細かくずらして整える」という教材の意図から離れる。
+ */
 export function alternativeAdjustments(
   question: TrainingQuestion,
   recommendedId: string,
   limit = 3,
 ): readonly string[] {
   if (question.format !== 'setup-adjustment') return [];
-  return adjustmentOutcomes(question.currentRemaining)
-    .filter(
-      (outcome) => outcome.verdict === 'checkoutable' && outcome.dart.id !== recommendedId,
-    )
-    .sort((a, b) => b.dart.score - a.dart.score || a.dart.id.localeCompare(b.dart.id))
-    .slice(0, limit)
-    .map((outcome) => `${outcome.dart.id} → 残り ${outcome.leave}`);
+
+  const leaveOf = new Map(
+    adjustmentOutcomes(question.currentRemaining)
+      .filter((outcome) => outcome.verdict === 'checkoutable')
+      .map((outcome) => [outcome.dart.id, outcome.leave]),
+  );
+
+  const texts: string[] = [];
+  for (const route of rankSetupRoutes(question.currentRemaining, 1)) {
+    const dart = route.darts[0];
+    if (dart === undefined || dart.id === recommendedId) continue;
+    const leave = leaveOf.get(dart.id);
+    if (leave === undefined) continue;
+    texts.push(`${dart.id} → 残り ${leave}`);
+    if (texts.length >= limit) break;
+  }
+  return texts;
 }
 
 function outcomeOfAnswer(question: TrainingQuestion, result: GradeResult): string {

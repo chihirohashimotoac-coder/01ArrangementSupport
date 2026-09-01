@@ -193,6 +193,156 @@ describe('SETUP 1 投調整の候補 invariant', () => {
   });
 });
 
+/**
+ * ラスト 1 投の「現在残りから逆算する」判断。
+ *
+ * 302 だから S18、という開始残り依存の暗記にしないため、
+ * ここでは現在残りを主語にして固定する。
+ */
+describe('ラスト 1 投の 3 投目調整（現在残りからの逆算）', () => {
+  /** その現在残りを作る出題候補（context は問わない）。 */
+  function questionAt(current: number): TrainingQuestion {
+    const candidate = setupAdjustmentCandidates(FULL_RANGE).find(
+      (item) => item.currentRemaining === current,
+    );
+    if (!candidate) throw new Error(`現在残り ${current} の 1 投調整候補がありません`);
+    return buildSetupAdjustmentQuestion(candidate, 0);
+  }
+
+  const SHIFT_CASES = [
+    { current: 182, keepLeave: 162, shift: 'S18', shiftLeave: 164 },
+    { current: 183, keepLeave: 163, shift: 'S19', shiftLeave: 164 },
+    { current: 185, keepLeave: 165, shift: 'S18', shiftLeave: 167 },
+    { current: 186, keepLeave: 166, shift: 'S19', shiftLeave: 167 },
+    { current: 188, keepLeave: 168, shift: 'S18', shiftLeave: 170 },
+    { current: 189, keepLeave: 169, shift: 'S19', shiftLeave: 170 },
+  ] as const;
+
+  it.each(SHIFT_CASES.map((c) => [c.current, c.keepLeave, c.shift, c.shiftLeave] as const))(
+    '%i は 20 を続けると %i のノーテン、%s へずらすと %i',
+    (current, keepLeave, shift, shiftLeave) => {
+      const question = questionAt(current);
+
+      const kept = gradeAnswer(question, parseRoute(['S20']));
+      expect(kept.leave).toBe(keepLeave);
+      expect(isBogey(keepLeave)).toBe(true);
+      expect(kept.ruleValid).toBe(true);
+      expect(kept.learningCorrect).toBe(false);
+      expect(kept.failureCode).toBe('LEAVES_BOGEY');
+
+      const shifted = gradeAnswer(question, parseRoute([shift]));
+      expect(shifted.leave).toBe(shiftLeave);
+      expect(isCheckoutable(shiftLeave, 3)).toBe(true);
+      expect(shifted.ruleValid).toBe(true);
+      expect(shifted.learningCorrect).toBe(true);
+
+      // 推奨解答そのものが「ずらす側」であること。
+      expect(recommendedAdjustment(current)?.id).toBe(shift);
+      expect(question.expectedAnswer).toEqual([shift]);
+    },
+  );
+
+  it.each([
+    [184, 164],
+    [187, 167],
+  ])('%i は 20 のままで %i を作れるので、18 / 19 へずらさせない', (current, leave) => {
+    const question = questionAt(current);
+    const kept = gradeAnswer(question, parseRoute(['S20']));
+    expect(kept.leave).toBe(leave);
+    expect(kept.learningCorrect).toBe(true);
+    expect(recommendedAdjustment(current)?.id).toBe('S20');
+    expect(question.expectedAnswer).toEqual(['S20']);
+  });
+
+  it('302〜309 と現在残りの対応が一致する', () => {
+    const expected = [
+      [302, 182, 'S18'],
+      [303, 183, 'S19'],
+      [304, 184, 'S20'],
+      [305, 185, 'S18'],
+      [306, 186, 'S19'],
+      [307, 187, 'S20'],
+      [308, 188, 'S18'],
+      [309, 189, 'S19'],
+    ] as const;
+    const violations: string[] = [];
+    for (const [start, current, target] of expected) {
+      const candidate = findAdjustment(start, ['T20', 'T20']);
+      if (candidate.currentRemaining !== current) violations.push(`${start}: current`);
+      if (candidate.recommended.id !== target) violations.push(`${start}: target`);
+      if (recommendedAdjustment(current)?.id !== target) violations.push(`${start}: by-current`);
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('同じ判断を複数の context で反復できる', () => {
+    // 「302 だから S18」ではなく「182 だから S18」を学べること。
+    for (const { current, shift } of SHIFT_CASES) {
+      const contexts = setupAdjustmentCandidates(FULL_RANGE).filter(
+        (item) => item.currentRemaining === current,
+      );
+      expect(contexts.length).toBeGreaterThan(1);
+      expect(new Set(contexts.map((item) => item.startRemaining)).size).toBeGreaterThan(1);
+      expect(contexts.every((item) => item.recommended.id === shift)).toBe(true);
+      // 現在残りを学習単位にするタグが、context をまたいで共通であること。
+      const concept = `setup-last-dart|current=${current}|target=${shift}`;
+      expect(contexts.every((item) => item.learningTags.includes(concept))).toBe(true);
+    }
+  });
+
+  it('20 からずらす技術としてタグが付く', () => {
+    for (const { current, shift } of SHIFT_CASES) {
+      const candidate = setupAdjustmentCandidates(FULL_RANGE).find(
+        (item) => item.currentRemaining === current,
+      )!;
+      expect(candidate.learningTags).toContain('last-dart-adjustment');
+      expect(candidate.learningTags).toContain('avoid-bogey-on-last-dart');
+      expect(candidate.learningTags).toContain(
+        shift === 'S18' ? 'shift-20-to-18' : 'shift-20-to-19',
+      );
+    }
+    // 184 / 187 は「ずらす」教材ではないのでタグを付けない。
+    for (const current of [184, 187]) {
+      const candidate = setupAdjustmentCandidates(FULL_RANGE).find(
+        (item) => item.currentRemaining === current,
+      )!;
+      expect(candidate.learningTags).not.toContain('avoid-bogey-on-last-dart');
+      expect(candidate.learningTags).not.toContain('shift-20-to-18');
+      expect(candidate.learningTags).not.toContain('shift-20-to-19');
+    }
+  });
+
+  it.each(SHIFT_CASES.map((c) => [c.current, c.keepLeave, c.shift, c.shiftLeave] as const))(
+    '%i で S20 を選ぶと「%i が残るため %s へずらす」と示す',
+    (current, keepLeave, shift, shiftLeave) => {
+      const question = questionAt(current);
+      const answer = parseRoute(['S20']);
+      const feedback = buildFeedback(question, answer, gradeAnswer(question, answer));
+
+      expect(feedback.answerOutcomeJa).toContain(String(keepLeave));
+      expect(feedback.recommendedDartIds).toEqual([shift]);
+      expect(feedback.recommendedOutcomeJa).toContain(String(shiftLeave));
+      expect(feedback.differenceJa).toContain('20 を狙うと');
+      expect(feedback.differenceJa).toContain(String(keepLeave));
+      expect(feedback.differenceJa).toContain(shift.replace('S', ''));
+      expect(feedback.differenceJa).toContain(String(shiftLeave));
+    },
+  );
+
+  it('推奨以外でも、上がれる残りを作れば正解になる', () => {
+    // 182 は S15 → 167 でも次のラウンドで上がれる。
+    const question = questionAt(182);
+    const result = gradeAnswer(question, parseRoute(['S15']));
+    expect(result.leave).toBe(167);
+    expect(result.learningCorrect).toBe(true);
+
+    // ただし推奨として提示するのはシングルのずらしを優先する。
+    const answer = parseRoute(['S20']);
+    const feedback = buildFeedback(question, answer, gradeAnswer(question, answer));
+    expect(feedback.alternativeTexts[0]).toBe('S15 → 残り 167');
+  });
+});
+
 describe('SETUP 3 投フル', () => {
   const full = setupFullCandidates(FULL_RANGE);
 

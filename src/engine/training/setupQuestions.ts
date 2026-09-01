@@ -28,6 +28,7 @@ import { canReachTenpai, rankSetupRoutes } from '../setup/enumerate';
 import { isTonTrap } from '../setup/leaveQuality';
 import {
   LEARNING_TAGS,
+  lastDartConceptKeyOf,
   type ContextualThrow,
   type SetupCategory,
   type TrainingDifficulty,
@@ -257,7 +258,12 @@ function difficultyOfSetupCategory(
   return 'medium';
 }
 
+/** 既定の得点ターゲット（20 のシングル）をそのまま続けた場合の結果。 */
+const DEFAULT_SCORING_TARGET = 'S20';
+
 function tagsOfAdjustment(candidate: {
+  currentRemaining: number;
+  recommended: Dart;
   outcomes: readonly AdjustmentOutcome[];
   recommendedLeave: number;
   continuationLeave: number | null;
@@ -283,6 +289,26 @@ function tagsOfAdjustment(candidate: {
     tags.add(LEARNING_TAGS.digits0147);
   }
   tags.add(LEARNING_TAGS.thirdDartAdjust);
+  tags.add(LEARNING_TAGS.lastDartAdjustment);
+
+  // 「現在残りから逆算する」技術そのものを学習単位にする。
+  // 302 を間違えた、ではなく「182 からの 3 投目調整が苦手」と分かるようにする。
+  tags.add(lastDartConceptKeyOf(candidate.currentRemaining, candidate.recommended.id));
+
+  // そのまま 20 を続けたらどうなるか。この比較が 3 投目調整の教材そのもの。
+  const keepScoring = candidate.outcomes.find(
+    (outcome) => outcome.dart.id === DEFAULT_SCORING_TARGET,
+  );
+  if (
+    keepScoring !== undefined &&
+    keepScoring.verdict !== 'checkoutable' &&
+    candidate.recommended.id !== DEFAULT_SCORING_TARGET &&
+    leaveVerdictOf(candidate.recommendedLeave) === 'checkoutable'
+  ) {
+    tags.add(LEARNING_TAGS.avoidBogeyOnLastDart);
+    if (candidate.recommended.id === 'S18') tags.add(LEARNING_TAGS.shift20To18);
+    if (candidate.recommended.id === 'S19') tags.add(LEARNING_TAGS.shift20To19);
+  }
   if (candidate.category === 'setup-ton-trap') tags.add(LEARNING_TAGS.tonTrap);
   if (candidate.category === 'setup-landing-95-105') tags.add(LEARNING_TAGS.landing95to105);
   if (candidate.category === 'setup-sbull') tags.add(LEARNING_TAGS.sbullAdjust);
@@ -375,6 +401,8 @@ export function setupAdjustmentCandidates(range: {
         primaryCategory: category,
         difficulty: difficultyOfSetupCategory(category, 'setup-adjustment'),
         learningTags: tagsOfAdjustment({
+          currentRemaining: current,
+          recommended,
           outcomes,
           recommendedLeave,
           continuationLeave,
