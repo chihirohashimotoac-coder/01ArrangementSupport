@@ -75,6 +75,11 @@
 - anti-repeat（同じ問題は直近 5 問、同じ状況は直近 3 問）
 - reviewWeakFirst で、間違えた問題そのものがカテゴリ一致の別問題より先に出ること
 - reviewWeakFirst でも同じ問題を連打しないこと
+- reviewWeakFirst を有効にしても SETUP の 8/2・24/6 と A〜I の quota が崩れないこと
+  （full のみ / adjustment のみ / 複数 weak のそれぞれで確認する）
+- 出題順の制約（HARD 3 連続なし・1 問目 EASY か MEDIUM・最後の 2 問のどちらかが HARD）を
+  **実際に選ばれた `question.difficulty`** で確認すること。独立監査で再現した
+  MIXED seed 1 / seed 703 を固定ケースとして持つこと
 - 狭い出題範囲（SETUP 171〜182）でも 3 投フルの比率を保つこと
 - 候補が 1 件しかない設定でも無限ループしないこと
 - 無限モードの chunk 境界で直近履歴を引き継ぐこと
@@ -144,7 +149,25 @@ MIXED の同一種別の最大連続        : 2
 RECOVERY の解なし / grader 不一致 : 0
 NaN / undefined                   : 0
 復習対象が 1 件でも 直前と同じ 0・3 連続 0
+
+HARD 3 連続セッション              : 0
+1 問目が HARD のセッション          : 0
+末尾 2 問に HARD 無しセッション      : 0
+SETUP の形式 quota 違反            : 0
+SETUP のカテゴリ quota 違反         : 0
+復習有効時の形式 / カテゴリ quota 違反 : 0
+復習有効時の苦手問題の露出          : 復習なしより増える
+trivial 上限超過                   : 0
+1 投上がり上限超過                  : 0
 ```
+
+出題順は 10 問セッション × 10,000 seeds × 4 モードの専用スイープでも確認する
+（通常の session size は 30 問なので、10 問固有の端点ルールを踏まないため）。
+
+RECOVERY の EASY（1 本で上がれる）は定義上 trivial なので、難易度 quota が
+trivial 上限を圧迫する。希望難易度が出題順の制約で使えないときに
+**quota を使い切った難易度を選び直さない**（`DifficultyConstraint` の budget 段階）ことで、
+難易度 quota と trivial 上限の両方を厳密に満たす。
 
 SETUP の推奨残りが 160 になる割合は **hard failure にせず WARNING + 原因分析**とする
 （`docs/TRAINING_DESIGN.md` §9）。
@@ -174,6 +197,6 @@ vitest の既定タイムアウト（5 秒）を超えます。違反を配列�
 
 ## 7. 現在の規模
 
-- ユニット / コンポーネント: **15 ファイル / 460 テスト**
+- ユニット / コンポーネント: **15 ファイル / 466 テスト**
 - E2E: **45 テスト × 2 プロジェクト = 90**
 - 統計監査: `npm run audit:training`（各モード 10 万問、約 25 秒）
