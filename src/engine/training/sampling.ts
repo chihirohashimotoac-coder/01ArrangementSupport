@@ -502,14 +502,28 @@ interface Ring {
 /**
  * bucket ごとに 1 度だけ shuffle し、cursor を進めながら配る。
  * 同じ bucket を何度引いても順に一巡するので、乱数の引き直しが要らない。
+ *
+ * `priority` を渡すと、shuffle したうえで優先度の高い順に安定ソートする。
+ * 復習 bucket で「間違えた問題そのもの」を、同じカテゴリの別問題より先に配るために使う。
  */
 function createBucketIndex(all: readonly Candidate[], random: RandomSource) {
   const rings = new Map<string, Ring>();
   return {
-    ring(key: string, filter: (candidate: Candidate) => boolean): Ring {
+    ring(
+      key: string,
+      filter: (candidate: Candidate) => boolean,
+      priority?: (candidate: Candidate) => number,
+    ): Ring {
       const existing = rings.get(key);
       if (existing) return existing;
-      const ring: Ring = { items: shuffled(all.filter(filter), random), cursor: 0 };
+      let items = shuffled(all.filter(filter), random);
+      if (priority) {
+        const rank = new Map(items.map((item, index) => [item, index]));
+        items = [...items].sort(
+          (a, b) => priority(b) - priority(a) || (rank.get(a) ?? 0) - (rank.get(b) ?? 0),
+        );
+      }
+      const ring: Ring = { items, cursor: 0 };
       rings.set(key, ring);
       return ring;
     },
@@ -655,6 +669,45 @@ function planSlots(input: {
         all.filter((c) => c.kind === 'setup' && c.format === 'setup-full').map((c) => c.category),
       );
       const wantedFull = Math.min(setupFullCount(kindCount), kindCount);
+
+      // 狭い出題範囲では、3 投フルを出せるカテゴリの枠が足りないことがある。
+      // full 候補が十分あるのに形式比を落とさないよう、
+      // full を出せないカテゴリの枠を決定論的に譲る（quota 再配分として数える）。
+      const fullCapacityOf = (category: SetupCategory): number =>
+        all.filter(
+          (c) => c.kind === 'setup' && c.format === 'setup-full' && c.category === category,
+        ).length;
+      const eligibleCount = (): number =>
+        categorySlots.filter((category) => fullCategories.has(category)).length;
+      const donors = SETUP_CATEGORY_PRIORITY.filter((category) => !fullCategories.has(category));
+      // 譲る側は「枠数が多い」カテゴリから、受け取る側は「full 候補が多い」カテゴリから。
+      const receivers = SETUP_CATEGORY_PRIORITY.filter((category) =>
+        fullCategories.has(category),
+      ).sort(
+        (a, b) => fullCapacityOf(b) - fullCapacityOf(a) || String(a).localeCompare(String(b)),
+      );
+      while (eligibleCount() < wantedFull && receivers.length > 0) {
+        const counts = new Map<SetupCategory, number>();
+        for (const category of categorySlots) {
+          counts.set(category, (counts.get(category) ?? 0) + 1);
+        }
+        const donor = donors
+          .filter((category) => (counts.get(category) ?? 0) > 0)
+          .sort(
+            (a, b) =>
+              (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || String(a).localeCompare(String(b)),
+          )[0];
+        if (donor === undefined) break;
+        const receiver = receivers.find(
+          (category) => fullCapacityOf(category) > (counts.get(category) ?? 0),
+        );
+        if (receiver === undefined) break;
+        const at = categorySlots.lastIndexOf(donor);
+        if (at < 0) break;
+        categorySlots[at] = receiver;
+        quotaNormalizedCount += 1;
+      }
+
       const eligible = categorySlots
         .map((category, i) => ({ category, i }))
         .filter((item) => fullCategories.has(item.category));
@@ -836,20 +889,31 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
 
     /** 候補集合を、条件の強い順に用意する。 */
     const ringChain: Ring[] = [];
-    /** ring ごとに許す relax の上限（復習枠でも anti-repeat は外さない）。 */
+    /** ring ごとに許す relax の範囲（復習枠でも anti-repeat は外さない）。 */
     const ringMaxLevel: number[] = [];
-    const pushRing = (ring: Ring, maxLevel = RELAX_LEVELS.length - 1): void => {
+    const ringMinLevel: number[] = [];
+    const pushRing = (ring: Ring, maxLevel = RELAX_LEVELS.length - 1, minLevel = 0): void => {
       ringChain.push(ring);
       ringMaxLevel.push(maxLevel);
+      ringMinLevel.push(minLevel);
     };
 
     if (slot.review) {
-      const reviewRing = buckets.ring(`review|${slot.kind}`, (candidate) => {
-        if (candidate.kind !== slot.kind) return false;
-        return reviewScoreOf(candidate, reviewTargets) > 0;
-      });
+      // 間違えた問題そのもの（problemKey 一致）を、同じカテゴリ・同じタグの
+      // 別問題より先に配る。score をふるい分けだけに使うと、
+      // 復習枠が「関連しているだけの問題」で埋まってしまう。
+      const reviewRing = buckets.ring(
+        `review|${slot.kind}`,
+        (candidate) =>
+          candidate.kind === slot.kind && reviewScoreOf(candidate, reviewTargets) > 0,
+        (candidate) => reviewScoreOf(candidate, reviewTargets),
+      );
       // 復習枠でも「直近 5 問に同じ問題」「直近 3 問に同じ状況」は外さない（本仕様 31 節）。
-      if (reviewRing.items.length > 0) pushRing(reviewRing, LAST_STRICT_HISTORY_LEVEL);
+      // 逆に難易度 quota と trivial 上限は見ない。復習枠は「その問題をもう一度出す」ための
+      // 枠なので、難易度が合う別問題を先に選んでしまうと目的を果たせない。
+      if (reviewRing.items.length > 0) {
+        pushRing(reviewRing, LAST_STRICT_HISTORY_LEVEL, LAST_STRICT_HISTORY_LEVEL);
+      }
     }
     if (slot.category !== null && slot.format !== null) {
       pushRing(
@@ -885,6 +949,7 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
       if (ring.items.length === 0) continue;
       for (const enforceOrdering of [true, false]) {
         for (const [levelIndex, level] of RELAX_LEVELS.entries()) {
+          if (levelIndex < ringMinLevel[ringIndex]) continue;
           if (levelIndex > ringMaxLevel[ringIndex]) break;
           for (let step = 0; step < ring.items.length; step += 1) {
             const candidate = ring.items[(ring.cursor + step) % ring.items.length];

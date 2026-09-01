@@ -108,6 +108,27 @@ describe('SETUP セッションの構成', () => {
     expect(report.formatDistribution['setup-full']).toBe(6);
   });
 
+  it('狭い出題範囲でも 3 投フルの比率を保つ', () => {
+    // Codex レビュー指摘の回帰テスト。
+    // 171〜182 は 3 投フル候補 12 件がすべて同じカテゴリにあり、
+    // そのカテゴリの枠が 1 つしかないため 9 / 1 になっていた。
+    for (const seed of [1, 2, 3]) {
+      const { report } = generateQuestionsWithReport({
+        settings: settingsOf({
+          mode: 'setup',
+          questionCount: 10,
+          setupRange: { min: 171, max: 182 },
+          reviewWeakFirst: false,
+        }),
+        seed,
+      });
+      expect(report.formatDistribution['setup-full']).toBe(2);
+      expect(report.formatDistribution['setup-adjustment']).toBe(8);
+      // 枠を譲ったことは report に残る。
+      expect(report.quotaNormalizedCount).toBeGreaterThan(0);
+    }
+  });
+
   it('10 問で 9 カテゴリすべてが出る', () => {
     const questions = generateQuestions({
       settings: settingsOf({ mode: 'setup', questionCount: 10, reviewWeakFirst: false }),
@@ -295,6 +316,30 @@ describe('reviewWeakFirst', () => {
     });
     expect(report.reviewPlaced).toBeGreaterThan(0);
     expect(questions.some((q) => q.startRemaining === 122)).toBe(true);
+  });
+
+  it('間違えた問題そのものを、同じカテゴリの別問題より先に出す', () => {
+    // Codex レビュー指摘の回帰テスト。
+    // 完全一致（problemKey）と、カテゴリ・タグだけ一致する候補を同じ bucket へ
+    // 入れていたため、復習枠が「関連しているだけの問題」で埋まっていた。
+    const target = {
+      kind: 'setup' as const,
+      problemKey: 'setup|v2|adjust|start=226|ctx=S20,S20|current=186|darts=1',
+      startRemaining: 226,
+      primaryCategory: 'setup-digits-0147' as const,
+      learningTags: ['bogey-avoidance', 'third-dart-adjust'],
+      weight: 100,
+    };
+    for (const seed of [1, 2, 3, 7, 42]) {
+      const questions = generateQuestions({
+        settings: settingsOf({ mode: 'setup', questionCount: 10, reviewWeakFirst: true }),
+        seed,
+        reviewTargets: [target],
+      });
+      expect(questions.some((q) => q.problemKey === target.problemKey)).toBe(true);
+      // 復習枠でも同じ問題を連打しない。
+      expect(duplicateWithin(questions, 5)).toBe(0);
+    }
   });
 
   it('reviewWeakFirst を切ると復習枠を使わない', () => {
