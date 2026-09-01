@@ -243,11 +243,10 @@ function categorizeAdjustment(input: {
 /** カテゴリから難易度を決める（本仕様 21 節）。 */
 function difficultyOfSetupCategory(
   category: SetupCategory,
-  trivial: boolean,
   format: 'setup-adjustment' | 'setup-full',
 ): TrainingDifficulty {
   if (format === 'setup-full') return category === 'setup-basics' ? 'medium' : 'hard';
-  if (category === 'setup-basics' || trivial) return 'easy';
+  if (category === 'setup-basics') return 'easy';
   if (
     category === 'setup-ton-trap' ||
     category === 'setup-landing-95-105' ||
@@ -341,8 +340,6 @@ export function setupAdjustmentCandidates(range: {
       const continuationLeave =
         continuation === null ? null : current - continuation.score;
       const recommendedLeave = current - recommended.score;
-      const trivial =
-        continuationLeave !== null && leaveVerdictOf(continuationLeave) === 'checkoutable';
 
       const category = categorizeAdjustment({
         startRemaining: start,
@@ -354,6 +351,14 @@ export function setupAdjustmentCandidates(range: {
         outcomes,
         continuationLeave,
       });
+
+      // trivial は「継続の的でも上がれる」かつ「ノーテン・170 超えの判断が要らない」
+      // 場合だけ（本仕様 47 節）。後者は基礎確認カテゴリの定義そのものなので、
+      // 判断を要する問題を trivial として数えない。
+      const trivial =
+        category === 'setup-basics' &&
+        continuationLeave !== null &&
+        leaveVerdictOf(continuationLeave) === 'checkoutable';
 
       candidates.push({
         format: 'setup-adjustment',
@@ -368,7 +373,7 @@ export function setupAdjustmentCandidates(range: {
         continuation,
         continuationLeave,
         primaryCategory: category,
-        difficulty: difficultyOfSetupCategory(category, trivial, 'setup-adjustment'),
+        difficulty: difficultyOfSetupCategory(category, 'setup-adjustment'),
         learningTags: tagsOfAdjustment({
           outcomes,
           recommendedLeave,
@@ -424,7 +429,7 @@ export function setupFullCandidates(range: {
       recommended,
       recommendedLeave,
       primaryCategory: category,
-      difficulty: difficultyOfSetupCategory(category, false, 'setup-full'),
+      difficulty: difficultyOfSetupCategory(category, 'setup-full'),
       learningTags: [...tags].sort(),
       trivial: false,
     });

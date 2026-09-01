@@ -10,6 +10,7 @@ import {
   setupFullCount,
 } from './sampling';
 import { contextKeyOf, type TrainingQuestion } from './model';
+import { setupAdjustmentCandidates } from './setupQuestions';
 
 function settingsOf(overrides: Partial<TrainingSettings>): TrainingSettings {
   return { ...DEFAULT_TRAINING_SETTINGS, ...overrides };
@@ -113,6 +114,37 @@ describe('SETUP セッションの構成', () => {
       seed: 31,
     });
     expect(new Set(questions.map((q) => q.primaryCategory)).size).toBe(9);
+  });
+
+  it('trivial（判断が要らない問題）は上限を超えない', () => {
+    for (const [count, cap] of [
+      [10, 2],
+      [30, 6],
+    ] as const) {
+      for (const seed of [1, 7, 20260901]) {
+        const questions = generateQuestions({
+          settings: settingsOf({ mode: 'setup', questionCount: count, reviewWeakFirst: false }),
+          seed,
+        });
+        expect(questions.filter((q) => q.trivial).length).toBeLessThanOrEqual(cap);
+      }
+    }
+  });
+
+  it('継続の的でも上がれて、かつノーテン判断が要らない問題だけを trivial とする', () => {
+    // 302 は継続（S20）で 162 のノーテンになるので trivial ではない。
+    // 304 は継続（S20）で 164 になるが、166 などノーテンを選べるので判断が要る。
+    const candidates = setupAdjustmentCandidates({ min: 171, max: 350 });
+    const trivial = candidates.filter((candidate) => candidate.trivial);
+    expect(trivial.length).toBeGreaterThan(0);
+    expect(trivial.every((candidate) => candidate.primaryCategory === 'setup-basics')).toBe(true);
+    expect(
+      trivial.every((candidate) =>
+        candidate.outcomes.every(
+          (outcome) => outcome.verdict === 'checkoutable' || outcome.verdict === 'bust',
+        ),
+      ),
+    ).toBe(true);
   });
 
   it('30 問のカテゴリ配分が quota と一致する', () => {
