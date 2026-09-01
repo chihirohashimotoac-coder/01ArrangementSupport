@@ -1,14 +1,18 @@
 /**
  * TRAINING の採点。
  *
- * 方針（本プロンプト 25 節）:
- *  - 数学的に成立するルートを単純に「不正解」にしない。
- *  - 成立するなら推奨度 S / A / B / C を付け、C でも「正解ではあるが非推奨」とする。
- *  - 非推奨の理由を必ず表示できるようにする。
- *  - 順番まで含めて別ルートとして扱う（26 節）。
+ * v1.3 では採点概念を 2 つに分ける（本仕様 7 節）。
+ *
+ *   ruleValid       … ルール上その回答が成立するか（合法か）
+ *   learningCorrect … 学習目的として正解か
+ *
+ * CHECKOUT / RECOVERY では「合法な Double Out が完成した」= 両方 true。
+ * SETUP では、合法に投げられても残りが Bogey / 170 超えなら
+ * ruleValid = true / learningCorrect = false とする。
+ * 主 UI の正答率は learningCorrect で数える（本仕様 8 節）。
  */
 import { formatRoute, isFinishingDart, routeTotal, type Dart } from '../../domain/dart';
-import { applyDart, isBogey } from '../../domain/checkoutRules';
+import { applyDart } from '../../domain/checkoutRules';
 import type { RouteGrade } from '../../data/rankingRules';
 import {
   evaluateCheckoutRoute,
@@ -20,22 +24,37 @@ import {
   rankSetupRoutes,
   type RankedSetupRoute,
 } from '../setup/enumerate';
-import type { TrainingQuestion } from './questions';
+import { leaveVerdictOf, type LeaveVerdict } from './setupQuestions';
+import type { TrainingQuestion } from './model';
 
-/** 回答が成立しなかった理由。 */
-export type InvalidReason =
+/** 回答が成立しなかった / 学習目的を満たさなかった理由。 */
+export type FailureCode =
   | 'EMPTY'
   | 'TOO_MANY_DARTS'
   | 'BUST'
   | 'NOT_DOUBLE_FINISH'
   | 'TOTAL_MISMATCH'
-  | 'NOT_FINISHED';
+  | 'NOT_FINISHED'
+  | 'LEAVES_BOGEY'
+  | 'LEAVE_ABOVE_CHECKOUT_RANGE';
+
+/** ルール上そもそも成立しない理由（ruleValid = false になるもの）。 */
+export const RULE_INVALID_CODES: readonly FailureCode[] = [
+  'EMPTY',
+  'TOO_MANY_DARTS',
+  'BUST',
+  'NOT_DOUBLE_FINISH',
+  'TOTAL_MISMATCH',
+  'NOT_FINISHED',
+];
 
 export interface GradeResult {
   /** ルールとして成立しているか。 */
-  readonly valid: boolean;
-  readonly invalidReason: InvalidReason | null;
-  readonly invalidMessageJa: string | null;
+  readonly ruleValid: boolean;
+  /** 学習目的として正解か（主 UI の正答率はこちらを使う）。 */
+  readonly learningCorrect: boolean;
+  readonly failureCode: FailureCode | null;
+  readonly failureMessageJa: string | null;
   /** 成立した場合の推奨度。 */
   readonly grade: RouteGrade | null;
   /** 回答ルートの評価（理由コードつき）。 */
@@ -48,22 +67,28 @@ export interface GradeResult {
   readonly answerText: string;
   /** 上がりに使ったダブル（統計用）。 */
   readonly finishDouble: string | null;
+  /** SETUP で回答後に残る点。 */
+  readonly leave: number | null;
+  readonly leaveVerdict: LeaveVerdict | null;
 }
 
-const INVALID_MESSAGES: Record<InvalidReason, string> = {
+const FAILURE_MESSAGES: Record<FailureCode, string> = {
   EMPTY: '1 投も選ばれていません。',
   TOO_MANY_DARTS: '使える本数を超えています。',
   BUST: 'このルートは途中で Bust します（マイナス、または 1 残し）。',
   NOT_DOUBLE_FINISH: '最後の 1 投がダブル / BULL ではないため、上がりになりません。',
   TOTAL_MISMATCH: '合計が残り点と一致しません。',
-  NOT_FINISHED: '3 本すべてを選んでください。',
+  NOT_FINISHED: '使える本数ぶんすべてを選んでください。',
+  LEAVES_BOGEY: 'ノーテンが残ります。次のラウンドで 3 本あっても上がれません。',
+  LEAVE_ABOVE_CHECKOUT_RANGE: '残りが 170 を超えます。次のラウンドでは上がれません。',
 };
 
-function invalid(reason: InvalidReason, answer: readonly Dart[]): GradeResult {
+function invalid(reason: FailureCode, answer: readonly Dart[]): GradeResult {
   return {
-    valid: false,
-    invalidReason: reason,
-    invalidMessageJa: INVALID_MESSAGES[reason],
+    ruleValid: false,
+    learningCorrect: false,
+    failureCode: reason,
+    failureMessageJa: FAILURE_MESSAGES[reason],
     grade: null,
     checkoutEvaluation: null,
     setupEvaluation: null,
@@ -71,6 +96,8 @@ function invalid(reason: InvalidReason, answer: readonly Dart[]): GradeResult {
     bestSetup: null,
     answerText: answer.length > 0 ? formatRoute(answer) : '（未回答）',
     finishDouble: null,
+    leave: null,
+    leaveVerdict: null,
   };
 }
 
@@ -82,7 +109,7 @@ function gradeCheckoutAnswer(
   if (answer.length === 0) return invalid('EMPTY', answer);
   if (answer.length > question.dartsAvailable) return invalid('TOO_MANY_DARTS', answer);
 
-  let remaining = question.remaining;
+  let remaining = question.currentRemaining;
   for (let i = 0; i < answer.length; i += 1) {
     const result = applyDart(remaining, answer[i]);
     if (result.outcome === 'bust') {
@@ -100,19 +127,25 @@ function gradeCheckoutAnswer(
   }
   if (remaining !== 0) {
     return invalid(
-      routeTotal(answer) === question.remaining ? 'NOT_DOUBLE_FINISH' : 'TOTAL_MISMATCH',
+      routeTotal(answer) === question.currentRemaining ? 'NOT_DOUBLE_FINISH' : 'TOTAL_MISMATCH',
       answer,
     );
   }
 
-  const evaluation = evaluateCheckoutRoute(question.remaining, question.dartsAvailable, answer);
-  const ranked = rankCheckoutRoutes(question.remaining, question.dartsAvailable);
+  const evaluation = evaluateCheckoutRoute(
+    question.currentRemaining,
+    question.dartsAvailable,
+    answer,
+  );
+  const ranked = rankCheckoutRoutes(question.currentRemaining, question.dartsAvailable);
   const finish = answer[answer.length - 1];
 
   return {
-    valid: true,
-    invalidReason: null,
-    invalidMessageJa: null,
+    ruleValid: true,
+    // 数学的に成立する上がりは、C ランクでも学習上の正解とする。
+    learningCorrect: true,
+    failureCode: null,
+    failureMessageJa: null,
     grade: evaluation?.grade ?? 'C',
     checkoutEvaluation: evaluation,
     setupEvaluation: null,
@@ -120,6 +153,8 @@ function gradeCheckoutAnswer(
     bestSetup: null,
     answerText: formatRoute(answer),
     finishDouble: isFinishingDart(finish) ? finish.id : null,
+    leave: 0,
+    leaveVerdict: null,
   };
 }
 
@@ -129,20 +164,37 @@ function gradeSetupAnswer(question: TrainingQuestion, answer: readonly Dart[]): 
   if (answer.length > question.dartsAvailable) return invalid('TOO_MANY_DARTS', answer);
   if (answer.length < question.dartsAvailable) return invalid('NOT_FINISHED', answer);
 
-  let remaining = question.remaining;
+  let remaining = question.currentRemaining;
   for (const dart of answer) {
     const result = applyDart(remaining, dart);
     if (result.outcome !== 'continue') return invalid('BUST', answer);
     remaining = result.remainingAfter;
   }
 
-  const evaluation = evaluateSetupRoute(question.remaining, question.dartsAvailable, answer);
-  const ranked = rankSetupRoutes(question.remaining, question.dartsAvailable, { maxRoutes: 1 });
+  const evaluation = evaluateSetupRoute(
+    question.currentRemaining,
+    question.dartsAvailable,
+    answer,
+  );
+  const ranked = rankSetupRoutes(question.currentRemaining, question.dartsAvailable, {
+    maxRoutes: 1,
+  });
+
+  const leave = remaining;
+  const verdict = leaveVerdictOf(leave);
+  const learningCorrect = verdict === 'checkoutable';
+  const failureCode: FailureCode | null = learningCorrect
+    ? null
+    : verdict === 'above-range'
+      ? 'LEAVE_ABOVE_CHECKOUT_RANGE'
+      : 'LEAVES_BOGEY';
 
   return {
-    valid: true,
-    invalidReason: null,
-    invalidMessageJa: null,
+    // ルール上は合法に投げ切れている。
+    ruleValid: true,
+    learningCorrect,
+    failureCode,
+    failureMessageJa: failureCode === null ? null : FAILURE_MESSAGES[failureCode],
     grade: evaluation?.grade ?? 'C',
     checkoutEvaluation: null,
     setupEvaluation: evaluation,
@@ -150,6 +202,8 @@ function gradeSetupAnswer(question: TrainingQuestion, answer: readonly Dart[]): 
     bestSetup: ranked.length > 0 ? ranked[0] : null,
     answerText: formatRoute(answer),
     finishDouble: null,
+    leave,
+    leaveVerdict: verdict,
   };
 }
 
@@ -160,17 +214,22 @@ export function gradeAnswer(question: TrainingQuestion, answer: readonly Dart[])
     : gradeCheckoutAnswer(question, answer);
 }
 
-/** 「正解」とみなすか（成立していれば正解、推奨度は別軸）。 */
+/** 主 UI の正答率で「正解」とみなすか。 */
 export function isCorrect(result: GradeResult): boolean {
-  return result.valid;
+  return result.learningCorrect;
 }
 
 /** 非推奨（C ランク）の選択か。 */
 export function isDiscouraged(result: GradeResult): boolean {
-  return result.valid && result.grade === 'C';
+  return result.ruleValid && result.grade === 'C';
 }
 
 /** SETUP 回答がノーテンを残したか。 */
 export function leftBogey(result: GradeResult): boolean {
-  return result.setupEvaluation !== null && isBogey(result.setupEvaluation.leave);
+  return result.leaveVerdict === 'bogey';
+}
+
+/** SETUP 回答が 170 超えを残したか。 */
+export function leftAboveCheckoutRange(result: GradeResult): boolean {
+  return result.leaveVerdict === 'above-range';
 }
