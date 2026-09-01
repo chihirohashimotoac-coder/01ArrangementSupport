@@ -322,23 +322,88 @@ describe('reviewWeakFirst', () => {
     // Codex レビュー指摘の回帰テスト。
     // 完全一致（problemKey）と、カテゴリ・タグだけ一致する候補を同じ bucket へ
     // 入れていたため、復習枠が「関連しているだけの問題」で埋まっていた。
+    // CHECKOUT の slot は形式・カテゴリの制約を持たないので、
+    // 互換な復習枠が必ず存在し、完全一致が毎回選ばれること自体を固定できる。
     const target = {
-      kind: 'setup' as const,
-      problemKey: 'setup|v2|adjust|start=226|ctx=S20,S20|current=186|darts=1',
-      startRemaining: 226,
-      primaryCategory: 'setup-digits-0147' as const,
-      learningTags: ['bogey-avoidance', 'third-dart-adjust'],
+      kind: 'checkout' as const,
+      problemKey: 'checkout|v2|left=122|darts=3',
+      startRemaining: 122,
+      primaryCategory: 'checkout-120-149' as const,
+      learningTags: ['two-dart-checkout'],
       weight: 100,
     };
     for (const seed of [1, 2, 3, 7, 42]) {
       const questions = generateQuestions({
-        settings: settingsOf({ mode: 'setup', questionCount: 10, reviewWeakFirst: true }),
+        settings: settingsOf({ mode: 'checkout', questionCount: 10, reviewWeakFirst: true }),
         seed,
         reviewTargets: [target],
       });
+      // 同じカテゴリ・同じタグの「関連しているだけの問題」ではなく、その問題そのものが出る。
       expect(questions.some((q) => q.problemKey === target.problemKey)).toBe(true);
       // 復習枠でも同じ問題を連打しない。
       expect(duplicateWithin(questions, 5)).toBe(0);
+    }
+  });
+
+  it('復習枠は SETUP の形式・カテゴリ quota を崩さない（F-002 回帰）', () => {
+    // 独立監査 F-002 の回帰テスト。
+    // 復習 ring を種別だけで絞っていたため、weak item が任意の slot を置き換え、
+    // 8/2 の Hybrid と A〜I の quota が壊れていた（FULL 62/80・ADJ 45/80 で違反）。
+    const setupTarget = (problemKey: string) => ({
+      kind: 'setup' as const,
+      problemKey,
+      startRemaining: 302,
+      primaryCategory: 'setup-302-309' as const,
+      learningTags: ['bogey-avoidance', 'digits-0147'],
+      weight: 100,
+    });
+    const FULL = 'setup|v2|full|start=302|darts=3';
+    const ADJUST = 'setup|v2|adjust|start=302|ctx=T20,T20|current=182|darts=1';
+
+    const cases: ReadonlyArray<{
+      label: string;
+      targets: ReadonlyArray<ReturnType<typeof setupTarget>>;
+      keys: readonly string[];
+    }> = [
+      { label: 'full のみ', targets: [setupTarget(FULL)], keys: [FULL] },
+      { label: 'adjustment のみ', targets: [setupTarget(ADJUST)], keys: [ADJUST] },
+      { label: '複数 weak', targets: [setupTarget(FULL), setupTarget(ADJUST)], keys: [FULL, ADJUST] },
+    ];
+
+    for (const { label, targets, keys } of cases) {
+      for (const count of [10, 30] as const) {
+        const wantFull = count === 10 ? 2 : 6;
+        let baseline = 0;
+        let reviewed = 0;
+        for (let seed = 1; seed <= 40; seed += 1) {
+          const withReview = generateQuestionsWithReport({
+            settings: settingsOf({ mode: 'setup', questionCount: count, reviewWeakFirst: true }),
+            seed,
+            reviewTargets: [...targets],
+          });
+          const without = generateQuestions({
+            settings: settingsOf({ mode: 'setup', questionCount: count, reviewWeakFirst: false }),
+            seed,
+          });
+
+          // 形式 quota（80 / 20）を維持する。
+          expect(withReview.report.formatDistribution['setup-full'], `${label}/${count}/${seed}`).toBe(
+            wantFull,
+          );
+          expect(withReview.report.formatDistribution['setup-adjustment']).toBe(count - wantFull);
+          // カテゴリ quota を維持する。
+          expect(countBy(withReview.questions.map((q) => q.primaryCategory))).toEqual(
+            setupCategoryQuota(count),
+          );
+          // anti-repeat を壊さない。
+          expect(duplicateWithin(withReview.questions, 5)).toBe(0);
+
+          baseline += without.filter((q) => keys.includes(q.problemKey)).length;
+          reviewed += withReview.questions.filter((q) => keys.includes(q.problemKey)).length;
+        }
+        // そのうえで苦手問題の露出は実際に増える。
+        expect(reviewed, `${label}/${count} の露出`).toBeGreaterThan(baseline);
+      }
     }
   });
 
@@ -382,6 +447,22 @@ describe('決定性と無限モード', () => {
 });
 
 describe('出題順の制約', () => {
+  /** 実際に選ばれた question.difficulty で違反を数える（slot 計画ではなく結果を見る）。 */
+  function orderingViolationsOf(questions: readonly TrainingQuestion[], count: number) {
+    const d = questions.map((q) => q.difficulty);
+    let hardRun = 0;
+    let longestHardRun = 0;
+    for (const item of d) {
+      hardRun = item === 'hard' ? hardRun + 1 : 0;
+      longestHardRun = Math.max(longestHardRun, hardRun);
+    }
+    return {
+      longestHardRun,
+      firstHard: d[0] === 'hard',
+      noFinalHard: count >= 10 && d[d.length - 1] !== 'hard' && d[d.length - 2] !== 'hard',
+    };
+  }
+
   it('1 問目は HARD にせず、最後の 2 問のどちらかは HARD にする', () => {
     for (const seed of [1, 2, 3, 11, 42]) {
       const questions = generateQuestions({
@@ -396,6 +477,22 @@ describe('出題順の制約', () => {
     }
   });
 
+  it.each([1, 703])(
+    'MIXED seed %i は HARD 3 連続も、末尾 2 問の HARD 欠落も起こさない（F-001 回帰）',
+    (seed) => {
+      // 独立監査 F-001 の再現 seed。
+      // 修正前: seed 1 は 5〜7 問目が HARD 3 連続、seed 703 は末尾 2 問が MEDIUM / MEDIUM。
+      const questions = generateQuestions({
+        settings: settingsOf({ mode: 'mixed', questionCount: 10, reviewWeakFirst: false }),
+        seed,
+      });
+      const result = orderingViolationsOf(questions, 10);
+      expect(result.longestHardRun).toBeLessThanOrEqual(2);
+      expect(result.firstHard).toBe(false);
+      expect(result.noFinalHard).toBe(false);
+    },
+  );
+
   it('HARD が 3 連続しない', () => {
     for (const mode of ['checkout', 'setup', 'recovery', 'mixed'] as const) {
       for (const seed of [1, 5, 9, 77, 2026]) {
@@ -403,14 +500,113 @@ describe('出題順の制約', () => {
           settings: settingsOf({ mode, questionCount: 30, reviewWeakFirst: false }),
           seed,
         });
-        // HARD だけを見る（EASY / MEDIUM の連続は制約しない）。
-        let run = 0;
-        let longest = 0;
-        for (const question of questions) {
-          run = question.difficulty === 'hard' ? run + 1 : 0;
-          longest = Math.max(longest, run);
+        expect(orderingViolationsOf(questions, 30).longestHardRun).toBeLessThanOrEqual(2);
+      }
+    }
+  });
+
+  it('全モードで出題順の制約が破れない（seed 走査）', () => {
+    // 監査は MIXED 10 問 / 10,000 seeds で 41 件の HARD 3 連続と
+    // 20 件の末尾 HARD 欠落を再現した。ここでは通常 suite を速く保つため
+    // seed 数を抑え、10 万問規模の走査は npm run audit:training が担う。
+    const violations: string[] = [];
+    for (const mode of ['checkout', 'setup', 'recovery', 'mixed'] as const) {
+      for (const count of [10, 30] as const) {
+        for (let seed = 1; seed <= 150; seed += 1) {
+          const questions = generateQuestions({
+            settings: settingsOf({ mode, questionCount: count, reviewWeakFirst: false }),
+            seed,
+          });
+          const result = orderingViolationsOf(questions, count);
+          if (result.longestHardRun > 2) violations.push(`${mode}/${count}/${seed}: hard run`);
+          if (result.firstHard) violations.push(`${mode}/${count}/${seed}: first hard`);
+          if (result.noFinalHard) violations.push(`${mode}/${count}/${seed}: no final hard`);
         }
-        expect(longest).toBeLessThanOrEqual(2);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('復習を有効にしても出題順の制約が破れない', () => {
+    const violations: string[] = [];
+    for (let seed = 1; seed <= 100; seed += 1) {
+      const questions = generateQuestions({
+        settings: settingsOf({ mode: 'mixed', questionCount: 10, reviewWeakFirst: true }),
+        seed,
+        reviewTargets: [122, 302],
+      });
+      const result = orderingViolationsOf(questions, 10);
+      if (result.longestHardRun > 2) violations.push(`${seed}: hard run`);
+      if (result.firstHard) violations.push(`${seed}: first hard`);
+      if (result.noFinalHard) violations.push(`${seed}: no final hard`);
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('trivial と 1 投上がりの上限を厳密に守る', () => {
+    for (const mode of ['checkout', 'setup', 'recovery', 'mixed'] as const) {
+      for (const [count, trivialCap, directCap] of [
+        [10, 2, 1],
+        [30, 6, 3],
+      ] as const) {
+        for (let seed = 1; seed <= 200; seed += 1) {
+          const { report } = generateQuestionsWithReport({
+            settings: settingsOf({ mode, questionCount: count, reviewWeakFirst: false }),
+            seed,
+          });
+          expect(report.trivialCount, `${mode}/${count}/${seed}`).toBeLessThanOrEqual(trivialCap);
+          expect(report.directOneDartCount).toBeLessThanOrEqual(directCap);
+        }
+      }
+    }
+  });
+
+  it('MIXED 30 問 seed 3307 は trivial 上限 6 を超えない（独立監査 追加指摘の回帰）', () => {
+    // 希望難易度が出題順の制約（1 問目 HARD 禁止 / HARD 3 連続禁止）で使えないとき、
+    // すでに quota を使い切った EASY を選び直していたため trivial が 7 件になっていた。
+    // EASY は RECOVERY と SETUP 基礎確認では定義上 trivial なので、上限を押し出す。
+    const { questions, report } = generateQuestionsWithReport({
+      settings: settingsOf({ mode: 'mixed', questionCount: 30, reviewWeakFirst: false }),
+      seed: 3307,
+    });
+    expect(report.trivialCount).toBeLessThanOrEqual(6);
+    expect(questions.filter((q) => q.trivial)).toHaveLength(report.trivialCount);
+    // 上限を守るために他の quota を崩していないこと。
+    expect(report.modeDistribution).toEqual({ checkout: 10, setup: 10, recovery: 10 });
+    expect(
+      countBy(questions.filter((q) => q.kind === 'setup').map((q) => q.primaryCategory)),
+    ).toEqual(setupCategoryQuota(10));
+    expect(report.formatDistribution['setup-full']).toBe(2);
+    expect(report.formatDistribution['setup-adjustment']).toBe(8);
+    expect(duplicateWithin(questions, 5)).toBe(0);
+  });
+
+  it('難易度 quota を、出題順の制約で希望が使えないときも超えない', () => {
+    // trivial 上限の根本原因だった「quota を使い切った難易度の選び直し」を直接固定する。
+    for (const mode of ['checkout', 'recovery'] as const) {
+      for (const count of [10, 30] as const) {
+        for (let seed = 1; seed <= 200; seed += 1) {
+          const { report } = generateQuestionsWithReport({
+            settings: settingsOf({ mode, questionCount: count, reviewWeakFirst: false }),
+            seed,
+          });
+          expect(report.difficultyDistribution, `${mode}/${count}/${seed}`).toEqual(
+            difficultyQuota(mode, count),
+          );
+        }
+      }
+    }
+    // MIXED では種別ごとに難易度 quota を満たす。
+    for (let seed = 1; seed <= 200; seed += 1) {
+      const questions = generateQuestions({
+        settings: settingsOf({ mode: 'mixed', questionCount: 30, reviewWeakFirst: false }),
+        seed,
+      });
+      for (const mode of ['checkout', 'recovery'] as const) {
+        const ofKind = questions.filter((q) => q.kind === mode);
+        expect(countBy(ofKind.map((q) => q.difficulty)), `mixed/${mode}/${seed}`).toEqual(
+          difficultyQuota(mode, ofKind.length),
+        );
       }
     }
   });

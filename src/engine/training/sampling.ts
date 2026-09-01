@@ -357,6 +357,33 @@ function expectedDifficultyOf(slot: Slot, all: readonly Candidate[]): TrainingDi
   );
 }
 
+/** 出題順の制約に違反している位置（先頭が最も手前）。 */
+function orderingViolations(
+  difficulties: readonly TrainingDifficulty[],
+  count: number,
+): Array<{ kind: 'run' | 'first' | 'final'; index: number }> {
+  const violations: Array<{ kind: 'run' | 'first' | 'final'; index: number }> = [];
+  const endpointsApply = count >= 10 && difficulties.length >= 3;
+
+  if (endpointsApply && difficulties[0] === 'hard') {
+    violations.push({ kind: 'first', index: 0 });
+  }
+  for (let i = 2; i < difficulties.length; i += 1) {
+    if (
+      difficulties[i] === 'hard' &&
+      difficulties[i - 1] === 'hard' &&
+      difficulties[i - 2] === 'hard'
+    ) {
+      violations.push({ kind: 'run', index: i });
+    }
+  }
+  const last = difficulties.length - 1;
+  if (endpointsApply && difficulties[last] !== 'hard' && difficulties[last - 1] !== 'hard') {
+    violations.push({ kind: 'final', index: last });
+  }
+  return violations;
+}
+
 /**
  * 出題順の制約（本仕様 28 節）を、選択の前に slot の並びで満たしておく。
  *
@@ -364,7 +391,11 @@ function expectedDifficultyOf(slot: Slot, all: readonly Candidate[]): TrainingDi
  *  - 1 問目は EASY か MEDIUM
  *  - 最後の 2 問のどちらかは HARD
  *
- * 入れ替えは同じ種別どうしに限る（MIXED の種別並びを壊さないため）。
+ * 入れ替えは同じ種別どうしに限る（MIXED の種別並び・カテゴリ quota・形式 quota を
+ * 壊さないため。slot ごと交換するので、種別内の (カテゴリ, 形式, 難易度) の多重集合は不変）。
+ *
+ * 1 回の前方走査では直せない。後ろの slot を前へ持ってくると、走査済みの位置に
+ * 新しい HARD 連続ができるため。違反が無くなるまで、交換後の並びを検証しながら繰り返す。
  */
 function repairSlotOrder(slots: Slot[], all: readonly Candidate[], count: number): void {
   const expected = slots.map((slot) => expectedDifficultyOf(slot, all));
@@ -374,48 +405,56 @@ function repairSlotOrder(slots: Slot[], all: readonly Candidate[], count: number
     [expected[i], expected[j]] = [expected[j], expected[i]];
   };
 
-  const findSwap = (
-    i: number,
-    want: (difficulty: TrainingDifficulty) => boolean,
-    from: number,
-    until = slots.length,
-  ): number => {
-    for (let j = from; j < until; j += 1) {
-      if (j === i) continue;
-      if (slots[j].kind !== slots[i].kind) continue;
-      if (want(expected[j])) return j;
-    }
-    // 前方に相手がいないときは後方も探す（末尾に固まった場合の救済）。
-    for (let j = Math.min(from, i) - 1; j >= 0; j -= 1) {
-      if (slots[j].kind !== slots[i].kind) continue;
-      if (want(expected[j])) return j;
-    }
-    return -1;
+  /** i と j を入れ替えたときの難易度列。 */
+  const withSwap = (i: number, j: number): TrainingDifficulty[] => {
+    const next = [...expected];
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
   };
 
-  const breakHardRuns = (): void => {
-    for (let i = 2; i < slots.length; i += 1) {
-      if (expected[i] !== 'hard' || expected[i - 1] !== 'hard' || expected[i - 2] !== 'hard') {
-        continue;
+  // 違反が無くなるまで繰り返す。1 回の交換で違反は必ず 1 つ以上減るように
+  // 「交換後の違反数が減る相手」だけを選ぶので、上限に当たる前に収束する。
+  const maxPasses = slots.length * slots.length + 1;
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    const violations = orderingViolations(expected, count);
+    if (violations.length === 0) return;
+
+    const before = violations.length;
+    let bestFrom = -1;
+    let bestTo = -1;
+
+    // 先頭の違反だけを見て諦めると、直せる別の違反まで残してしまう。
+    // すべての違反について、違反数が確実に減る交換を探す。
+    search: for (const target of violations) {
+      // HARD 3 連続は、3 つのどの位置を入れ替えても解ける。
+      // MIXED では種別ごとに交換相手が違うので、1 か所だけ見ると
+      // 「同じ種別に非 HARD の slot が無い」だけで詰んでしまう。
+      const anchors =
+        target.kind === 'run'
+          ? [target.index, target.index - 1, target.index - 2]
+          : [target.index];
+
+      for (const from of anchors) {
+        for (let j = 0; j < slots.length; j += 1) {
+          if (j === from) continue;
+          if (slots[j].kind !== slots[from].kind) continue;
+          // 交換しても難易度が変わらないなら意味がない。
+          if (expected[j] === expected[from]) continue;
+          // 最後の 2 問へ HARD を入れる違反だけは「HARD を持ってくる」方向。
+          if (target.kind === 'final' && expected[j] !== 'hard') continue;
+          if (target.kind !== 'final' && expected[j] === 'hard') continue;
+          if (orderingViolations(withSwap(from, j), count).length >= before) continue;
+          bestFrom = from;
+          bestTo = j;
+          break search;
+        }
       }
-      const j = findSwap(i, (difficulty) => difficulty !== 'hard', i + 1);
-      if (j >= 0) swap(i, j);
     }
-  };
 
-  breakHardRuns();
-
-  if (count >= 10 && slots.length >= 3) {
-    if (expected[0] === 'hard') {
-      const j = findSwap(0, (difficulty) => difficulty !== 'hard', 1);
-      if (j >= 0) swap(0, j);
-    }
-    const last = slots.length - 1;
-    if (expected[last] !== 'hard' && expected[last - 1] !== 'hard') {
-      const j = findSwap(last, (difficulty) => difficulty === 'hard', 0, last - 1);
-      if (j >= 0) swap(last, j);
-    }
-    breakHardRuns();
+    // どの違反も減らせない＝この quota の組み合わせでは実現できない並び。
+    // 無限に試さず、選択時の ordering フィルタへ委ねる。
+    if (bestFrom < 0) return;
+    swap(bestFrom, bestTo);
   }
 }
 
@@ -530,28 +569,39 @@ function createBucketIndex(all: readonly Candidate[], random: RandomSource) {
   };
 }
 
+/**
+ * 難易度の縛り方。
+ *  preferred: slot に割り当てた難易度そのもの
+ *  budget   : 種別の難易度 quota がまだ残っている難易度
+ *  any      : 制約なし
+ */
+type DifficultyConstraint = 'preferred' | 'budget' | 'any';
+
 interface RelaxLevel {
   readonly keyWindow: number;
   readonly contextWindow: number;
-  readonly caps: boolean;
-  readonly difficulty: boolean;
+  readonly difficulty: DifficultyConstraint;
 }
 
 /**
  * 条件を緩める順序。
  *
- * trivial 上限 → 難易度 quota → 直近履歴の除外窓 の順に外す（本仕様 49 節）。
- * 出題順の制約（HARD を 3 連続させない等）はこの表に入れず、
- * 同じ bucket の中で満たせなくなったときにだけ外す。
+ * 難易度は「希望 → quota 残 → 制約なし」の順に緩め、そのあと直近履歴の除外窓を縮める
+ * （本仕様 49 節）。希望が出題順の制約で弾かれたときに、quota を使い切った難易度を
+ * 選び直さないための段階。ここを飛ばすと EASY が quota を超え、
+ * EASY = trivial な RECOVERY / SETUP 基礎確認で trivial 上限を押し出す。
+ * 出題順の制約（HARD を 3 連続させない等）と trivial 上限はこの表に入れない。
+ * それぞれ「bucket を広げるより優先」「同じ bucket の中で先に緩める」という
+ * 別の優先度を持つため、選択ループ側で扱う。
  */
 const RELAX_LEVELS: readonly RelaxLevel[] = [
-  { keyWindow: 5, contextWindow: 3, caps: true, difficulty: true },
-  { keyWindow: 5, contextWindow: 3, caps: false, difficulty: true },
-  { keyWindow: 5, contextWindow: 3, caps: false, difficulty: false },
-  { keyWindow: 5, contextWindow: 1, caps: false, difficulty: false },
-  { keyWindow: 5, contextWindow: 0, caps: false, difficulty: false },
-  { keyWindow: 3, contextWindow: 0, caps: false, difficulty: false },
-  { keyWindow: 1, contextWindow: 0, caps: false, difficulty: false },
+  { keyWindow: 5, contextWindow: 3, difficulty: 'preferred' },
+  { keyWindow: 5, contextWindow: 3, difficulty: 'budget' },
+  { keyWindow: 5, contextWindow: 3, difficulty: 'any' },
+  { keyWindow: 5, contextWindow: 1, difficulty: 'any' },
+  { keyWindow: 5, contextWindow: 0, difficulty: 'any' },
+  { keyWindow: 3, contextWindow: 0, difficulty: 'any' },
+  { keyWindow: 1, contextWindow: 0, difficulty: 'any' },
 ];
 
 /** ここまでは直近履歴の除外窓（5 問 / 3 問）を保ったままの relax。 */
@@ -767,12 +817,49 @@ function planSlots(input: {
   repairSlotOrder(slots, all, count);
 
   // --- 3. review slot ------------------------------------------------------
+  //
+  // 復習枠は「計画した形式・カテゴリと両立する slot」へ置く。
+  // 種別だけ合わせて任意の slot を差し替えると、SETUP の 80/20 と A〜I の
+  // カテゴリ quota が壊れる（復習を有効にしたときだけ構成が変わってしまう）。
   const wantedReview = settings.reviewWeakFirst && reviewTargets.length > 0 ? reviewQuota(count) : 0;
   if (wantedReview > 0) {
+    const reviewable = all.filter((candidate) => reviewScoreOf(candidate, reviewTargets) > 0);
+
+    // 計画した形式もカテゴリも両立する slot だけを復習枠にする。
+    // 形式だけ合わせて別カテゴリの問題を差し込むと、A〜I の quota が崩れる。
+    const matches = (slot: Slot): boolean =>
+      reviewable.some(
+        (candidate) =>
+          candidate.kind === slot.kind &&
+          (slot.format === null || candidate.format === slot.format) &&
+          (slot.category === null || candidate.category === slot.category),
+      );
+
+    // 均等に散らした位置を起点に、近い順で両立する slot を探す。
+    const anchors: number[] = [];
     for (let r = 0; r < Math.min(wantedReview, count); r += 1) {
-      const index = Math.min(count - 1, Math.floor(((r + 0.5) * count) / wantedReview));
-      slots[index].review = true;
+      anchors.push(Math.min(count - 1, Math.floor(((r + 0.5) * count) / wantedReview)));
     }
+
+    const taken = new Set<number>();
+    for (const anchor of anchors) {
+      if (taken.size >= wantedReview) break;
+      for (let distance = 0; distance < count; distance += 1) {
+        const nearby = distance === 0 ? [anchor] : [anchor + distance, anchor - distance];
+        let claimed = false;
+        for (const index of nearby) {
+          if (index < 0 || index >= count || taken.has(index)) continue;
+          if (!matches(slots[index])) continue;
+          taken.add(index);
+          claimed = true;
+          break;
+        }
+        if (claimed) break;
+      }
+    }
+    // 両立する slot が quota より少ない場合は、復習枠を減らす。
+    // 苦手を出すために出題構成を崩さない、という優先順位にする。
+    for (const index of taken) slots[index].review = true;
   }
 
   return { slots, quotaNormalizedCount };
@@ -838,6 +925,27 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
   const maxTrivial = trivialCap(count);
   const maxDirect = directOneDartCap(count);
 
+  /**
+   * 種別ごとの難易度 quota の残数。
+   *
+   * CHECKOUT / RECOVERY は難易度そのものが quota なので、実際に選んだぶんを減らす。
+   * SETUP は難易度が (カテゴリ, 形式) から一意に決まるため、カテゴリ quota 側で決まる。
+   */
+  const difficultyBudget = new Map<TrainingKind, Record<TrainingDifficulty, number>>();
+  const slotsPerKind = new Map<TrainingKind, number>();
+  for (const slot of slots) {
+    slotsPerKind.set(slot.kind, (slotsPerKind.get(slot.kind) ?? 0) + 1);
+  }
+  for (const [kind, size] of slotsPerKind) {
+    if (kind === 'setup') continue;
+    difficultyBudget.set(kind, { ...difficultyQuota(kind, size) });
+  }
+
+  const budgetAllows = (candidate: Candidate): boolean => {
+    const budget = difficultyBudget.get(candidate.kind);
+    return budget === undefined || budget[candidate.difficulty] > 0;
+  };
+
   const orderingAllows = (candidate: Candidate, index: number): boolean => {
     // HARD を 3 連続させない。
     if (
@@ -902,10 +1010,17 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
       // 間違えた問題そのもの（problemKey 一致）を、同じカテゴリ・同じタグの
       // 別問題より先に配る。score をふるい分けだけに使うと、
       // 復習枠が「関連しているだけの問題」で埋まってしまう。
+      //
+      // ただし、計画した形式・カテゴリを無視して差し替えてはいけない。
+      // 「カテゴリまで一致」→「形式だけ一致」の順に絞った bucket を使い、
+      // SETUP の 80/20 とカテゴリ quota を保ったまま復習する。
       const reviewRing = buckets.ring(
-        `review|${slot.kind}`,
+        `review|${slot.kind}|${slot.format ?? '*'}|${slot.category ?? '*'}`,
         (candidate) =>
-          candidate.kind === slot.kind && reviewScoreOf(candidate, reviewTargets) > 0,
+          candidate.kind === slot.kind &&
+          (slot.format === null || candidate.format === slot.format) &&
+          (slot.category === null || candidate.category === slot.category) &&
+          reviewScoreOf(candidate, reviewTargets) > 0,
         (candidate) => reviewScoreOf(candidate, reviewTargets),
       );
       // 復習枠でも「直近 5 問に同じ問題」「直近 3 問に同じ状況」は外さない（本仕様 31 節）。
@@ -942,32 +1057,41 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
     let chosenRing: Ring | null = null;
     let usedRelax = 0;
 
-    // bucket を広げる（= quota を崩す）のは最後の手段なので、
-    // まず同じ bucket の中で条件を緩めきる。
-    // 出題順の制約は bucket ごとに 1 度だけ外す（外すより bucket を保つ方が大事ではない）。
-    outer: for (const [ringIndex, ring] of ringChain.entries()) {
-      if (ring.items.length === 0) continue;
-      for (const enforceOrdering of [true, false]) {
-        for (const [levelIndex, level] of RELAX_LEVELS.entries()) {
-          if (levelIndex < ringMinLevel[ringIndex]) continue;
-          if (levelIndex > ringMaxLevel[ringIndex]) break;
-          for (let step = 0; step < ring.items.length; step += 1) {
-            const candidate = ring.items[(ring.cursor + step) % ring.items.length];
-            if (!passesHistory(candidate, level)) continue;
-            if (enforceOrdering && !orderingAllows(candidate, index)) continue;
-            if (level.caps && !capsAllow(candidate)) continue;
-            if (
-              level.difficulty &&
-              slot.preferredDifficulty !== null &&
-              candidate.difficulty !== slot.preferredDifficulty
-            ) {
-              continue;
+    // 出題順の制約（HARD 3 連続・1 問目・最後の 2 問）は、slot 計画で満たしたうえで
+    // 選択時にも「実際に選ばれた難易度」で守る。bucket を広げる（= quota を崩す）より
+    // 優先度が高いので、まず ring chain 全体を ordering つきで走査する。
+    outer: for (const enforceOrdering of [true, false]) {
+      for (const [ringIndex, ring] of ringChain.entries()) {
+        if (ring.items.length === 0) continue;
+        for (const enforceCaps of [true, false]) {
+          for (const [levelIndex, level] of RELAX_LEVELS.entries()) {
+            if (levelIndex < ringMinLevel[ringIndex]) continue;
+            if (levelIndex > ringMaxLevel[ringIndex]) break;
+            for (let step = 0; step < ring.items.length; step += 1) {
+              const candidate = ring.items[(ring.cursor + step) % ring.items.length];
+              if (!passesHistory(candidate, level)) continue;
+              if (enforceOrdering && !orderingAllows(candidate, index)) continue;
+              if (enforceCaps && !capsAllow(candidate)) continue;
+              if (level.difficulty !== 'any') {
+                if (!budgetAllows(candidate)) continue;
+                if (
+                  level.difficulty === 'preferred' &&
+                  slot.preferredDifficulty !== null &&
+                  candidate.difficulty !== slot.preferredDifficulty
+                ) {
+                  continue;
+                }
+              }
+              chosen = candidate;
+              chosenRing = ring;
+              usedRelax =
+                levelIndex +
+                (enforceOrdering ? 0 : 1) +
+                (enforceCaps ? 0 : 1) +
+                (ringIndex > 0 ? 1 : 0);
+              ring.cursor = (ring.cursor + step + 1) % ring.items.length;
+              break outer;
             }
-            chosen = candidate;
-            chosenRing = ring;
-            usedRelax = levelIndex + (enforceOrdering ? 0 : 1) + (ringIndex > 0 ? 1 : 0);
-            ring.cursor = (ring.cursor + step + 1) % ring.items.length;
-            break outer;
           }
         }
       }
@@ -986,6 +1110,11 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
     }
     if (chosen === null) break;
     void chosenRing;
+
+    const budget = difficultyBudget.get(chosen.kind);
+    if (budget !== undefined && budget[chosen.difficulty] > 0) {
+      budget[chosen.difficulty] -= 1;
+    }
 
     if (usedRelax > 0) relaxCount += 1;
     if (slot.review && reviewScoreOf(chosen, reviewTargets) > 0) reviewPlaced += 1;
