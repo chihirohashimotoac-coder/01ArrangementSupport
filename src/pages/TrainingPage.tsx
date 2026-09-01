@@ -7,12 +7,13 @@ import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
 import {
   DEFAULT_TRAINING_SETTINGS,
   canGenerateQuestions,
-  generateQuestions,
   type TrainingMode,
   type TrainingQuestion,
   type TrainingSettings,
 } from '../engine/training/questions';
+import { generateQuestions, recentTailOf } from '../engine/training/sampling';
 import { gradeAnswer, type GradeResult } from '../engine/training/grade';
+import { buildFeedback, type TrainingFeedback } from '../engine/training/feedback';
 import type { LeaveTier } from '../engine/setup/leaveQuality';
 import {
   appendRecord,
@@ -21,6 +22,7 @@ import {
   loadHistory,
   reviewTargetsOf,
   type TrainingHistory,
+  type TrainingRecord,
 } from '../storage/trainingHistory';
 import './TrainingPage.css';
 
@@ -37,7 +39,7 @@ const LEAVE_TIER_LABEL: Record<LeaveTier, string> = {
   good: 'テンパイ（2 本でも上がれる）',
   playable: 'テンパイ',
   bogey: 'ノーテン',
-  'out-of-range': '170 超え・次ラウンドでは上がれない',
+  'out-of-range': '170 超え・次のラウンドでは上がれない',
 };
 
 const COUNT_OPTIONS: ReadonlyArray<{ label: string; value: number | null }> = [
@@ -69,6 +71,7 @@ export function TrainingPage() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [answer, setAnswer] = useState<Dart[]>([]);
   const [result, setResult] = useState<GradeResult | null>(null);
+  const [feedback, setFeedback] = useState<TrainingFeedback | null>(null);
   const [history, setHistory] = useState<TrainingHistory>(() => loadHistory());
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const startedAt = useRef<number>(0);
@@ -76,36 +79,44 @@ export function TrainingPage() {
   const stats = useMemo(() => computeStats(history), [history]);
   const question = session ? (session.questions[session.index] ?? null) : null;
 
-  const startSession = useCallback(
-    (nextSettings: TrainingSettings) => {
-      const questions = generateQuestions({
-        settings: nextSettings,
-        seed: Date.now() % 2147483647,
-        reviewTargets: reviewTargetsOf(computeStats(loadHistory())),
-        count: nextSettings.questionCount ?? 30,
-      });
-      setSession({ questions, index: 0, settings: nextSettings });
-      setAnswer([]);
-      setResult(null);
-      startedAt.current = performance.now();
-      setRemainingSeconds(nextSettings.timeLimitSeconds);
-    },
-    [],
-  );
+  const startSession = useCallback((nextSettings: TrainingSettings) => {
+    const questions = generateQuestions({
+      settings: nextSettings,
+      seed: Date.now() % 2147483647,
+      reviewTargets: reviewTargetsOf(computeStats(loadHistory())),
+      count: nextSettings.questionCount ?? 10,
+    });
+    setSession({ questions, index: 0, settings: nextSettings });
+    setAnswer([]);
+    setResult(null);
+    setFeedback(null);
+    startedAt.current = performance.now();
+    setRemainingSeconds(nextSettings.timeLimitSeconds);
+  }, []);
 
   const submit = useCallback(() => {
     if (!question || result !== null) return;
     const graded = gradeAnswer(question, answer);
     setResult(graded);
-    const record = {
+    setFeedback(buildFeedback(question, answer, graded));
+    const record: TrainingRecord = {
       id: `${question.id}-${Date.now()}`,
       at: Date.now(),
       kind: question.kind,
-      remaining: question.remaining,
+      format: question.format,
+      problemKey: question.problemKey,
+      difficulty: question.difficulty,
+      primaryCategory: question.primaryCategory,
+      learningTags: question.learningTags,
+      startRemaining: question.startRemaining,
+      currentRemaining: question.currentRemaining,
+      contextualThrows: question.contextualThrows,
       dartsAvailable: question.dartsAvailable,
       answer: answer.map((dart) => dart.id),
-      valid: graded.valid,
+      ruleValid: graded.ruleValid,
+      learningCorrect: graded.learningCorrect,
       grade: graded.grade,
+      failureCode: graded.failureCode,
       finishDouble: graded.finishDouble,
       elapsedMs: Math.round(performance.now() - startedAt.current),
     };
@@ -136,12 +147,14 @@ export function TrainingPage() {
       const nextIndex = current.index + 1;
       if (nextIndex < current.questions.length) return { ...current, index: nextIndex };
       // 無限モードでは追加生成する（開始時の設定で生成する）。
+      // 直前 chunk の末尾 5 問を渡し、chunk 境界で同じ問題が続かないようにする。
       if (current.settings.questionCount === null) {
         const more = generateQuestions({
           settings: current.settings,
           seed: Date.now() % 2147483647,
           reviewTargets: reviewTargetsOf(computeStats(loadHistory())),
           count: 10,
+          recentHistory: recentTailOf(current.questions, 5),
         });
         return { ...current, questions: [...current.questions, ...more], index: nextIndex };
       }
@@ -149,6 +162,7 @@ export function TrainingPage() {
     });
     setAnswer([]);
     setResult(null);
+    setFeedback(null);
     startedAt.current = performance.now();
     setRemainingSeconds(session?.settings.timeLimitSeconds ?? null);
   }, [session]);
@@ -319,10 +333,42 @@ export function TrainingPage() {
       {question && (
         <>
           <StatusBar
-            remaining={question.remaining}
+            remaining={question.currentRemaining}
             dartsLeft={question.dartsAvailable}
             note={question.promptJa}
           />
+
+          {question.contextualThrows.length > 0 && (
+            <section
+              className="training__context"
+              data-testid="training-context"
+              aria-label="ここまでの状況"
+            >
+              <dl>
+                <div>
+                  <dt>開始</dt>
+                  <dd data-testid="training-context-start">{question.startRemaining}</dd>
+                </div>
+                <div>
+                  <dt>ここまで（実際に入った的）</dt>
+                  <dd data-testid="training-context-throws">
+                    {question.contextualThrows.map((item) => item.actualDartId).join(' → ')}
+                  </dd>
+                </div>
+                <div>
+                  <dt>現在</dt>
+                  <dd data-testid="training-context-current">{question.currentRemaining}</dd>
+                </div>
+                <div>
+                  <dt>残り</dt>
+                  <dd data-testid="training-context-darts">{question.dartsAvailable} 投</dd>
+                </div>
+              </dl>
+              <p className="training__context-note">
+                ここまでの結果は「実際に入った的」です。回答ではありません。
+              </p>
+            </section>
+          )}
 
           {remainingSeconds !== null && (
             <p className="training__timer" data-testid="training-timer" role="timer">
@@ -387,16 +433,52 @@ export function TrainingPage() {
             </button>
           </div>
 
-          {result && (
+          {result && feedback && (
             <section className="training__result" data-testid="training-result" aria-live="polite">
+              {/* 1. 判定 */}
               <p
-                className={`training__verdict training__verdict--${result.valid ? 'ok' : 'ng'}`}
+                className={`training__verdict training__verdict--${
+                  feedback.learningCorrect ? 'ok' : 'ng'
+                }`}
                 data-testid="training-verdict"
               >
-                {result.valid
-                  ? `成立します（推奨度 ${result.grade}）`
-                  : `成立しません — ${result.invalidMessageJa}`}
+                {feedback.verdictJa}
               </p>
+
+              {/* 2. あなたの回答 / 3. その結果 */}
+              <div className="training__compare">
+                <div className="training__compare-item" data-testid="training-your-answer">
+                  <span className="training__compare-label">あなたの回答</span>
+                  <span className="training__compare-route">{feedback.answerText}</span>
+                  <span className="training__compare-outcome">{feedback.answerOutcomeJa}</span>
+                </div>
+
+                {/* 4. おすすめ回答 / 5. その結果 */}
+                <div className="training__compare-item" data-testid="training-recommended">
+                  <span className="training__compare-label">おすすめ</span>
+                  <span className="training__compare-route">{feedback.recommendedText}</span>
+                  <span className="training__compare-outcome">
+                    {feedback.recommendedOutcomeJa}
+                  </span>
+                </div>
+              </div>
+
+              {/* 6. 違いの理由 */}
+              <p className="training__difference" data-testid="training-difference">
+                {feedback.differenceJa}
+              </p>
+
+              {/* 7. 他の成立回答（必要な場合のみ） */}
+              {feedback.alternativeTexts.length > 0 && (
+                <details className="training__alternatives" data-testid="training-alternatives">
+                  <summary>他にも成立する回答</summary>
+                  <ul>
+                    {feedback.alternativeTexts.map((text) => (
+                      <li key={text}>{text}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
 
               {result.checkoutEvaluation && (
                 <RouteCard
@@ -405,7 +487,6 @@ export function TrainingPage() {
                   grade={result.checkoutEvaluation.grade}
                   dartIds={result.checkoutEvaluation.darts.map((dart) => dart.id)}
                   reasons={result.checkoutEvaluation.reasons.map((reason) => ({ ...reason }))}
-                  defaultOpen
                 />
               )}
               {result.setupEvaluation && (
@@ -418,14 +499,13 @@ export function TrainingPage() {
                     LEAVE_TIER_LABEL[result.setupEvaluation.leaveTier]
                   }）`}
                   reasons={result.setupEvaluation.reasons.map((reason) => ({ ...reason }))}
-                  defaultOpen
                 />
               )}
 
               {result.bestCheckout && result.bestCheckout.key !== result.checkoutEvaluation?.key && (
                 <RouteCard
                   testId="training-best-route"
-                  badge="より良いルート"
+                  badge="おすすめの理由"
                   isStandard={result.bestCheckout.isStandard}
                   grade={result.bestCheckout.grade}
                   dartIds={result.bestCheckout.darts.map((dart) => dart.id)}
@@ -435,7 +515,7 @@ export function TrainingPage() {
               {result.bestSetup && result.bestSetup.key !== result.setupEvaluation?.key && (
                 <RouteCard
                   testId="training-best-route"
-                  badge="より良いルート"
+                  badge="おすすめの理由"
                   grade={result.bestSetup.grade}
                   dartIds={result.bestSetup.darts.map((dart) => dart.id)}
                   meta={`取得 ${result.bestSetup.scored} 点 → 残り ${result.bestSetup.leave}`}
@@ -511,6 +591,28 @@ export function TrainingPage() {
           </p>
         )}
 
+        {stats.byCategory.length > 0 && (
+          <table className="training__table" data-testid="training-by-category">
+            <caption>学習カテゴリ別</caption>
+            <thead>
+              <tr>
+                <th scope="col">カテゴリ</th>
+                <th scope="col">回答</th>
+                <th scope="col">正答率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.byCategory.map((item) => (
+                <tr key={item.key}>
+                  <th scope="row">{item.key}</th>
+                  <td>{item.attempts}</td>
+                  <td>{Math.round(item.accuracy * 100)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
         {stats.byScoreBand.length > 0 && (
           <table className="training__table">
             <caption>スコア帯別</caption>
@@ -553,6 +655,12 @@ export function TrainingPage() {
               ))}
             </tbody>
           </table>
+        )}
+
+        {stats.migrationSkippedCount > 0 && (
+          <p className="training__migration" data-testid="training-migration-skipped">
+            読み取れなかった古い記録 {stats.migrationSkippedCount} 件は、正答率の集計から除いています。
+          </p>
         )}
 
         <button
