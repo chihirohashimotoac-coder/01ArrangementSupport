@@ -1,14 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { PracticePage } from './pages/PracticePage';
 import { TrainingPage } from './pages/TrainingPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { VersionHistoryPage } from './pages/VersionHistoryPage';
 import { sequenceTable } from './engine/setup/sequences';
 import { DEFAULT_SETUP_MAIN_TARGET } from './data/rankingRules';
 import { usePreferences } from './hooks/usePreferences';
 import type { Theme } from './storage/preferences';
 import './App.css';
 
-type Tab = 'home' | 'checkout' | 'setup' | 'training' | 'settings';
+type Tab = 'home' | 'checkout' | 'setup' | 'training' | 'settings' | 'history';
 
 const TABS: ReadonlyArray<{ id: Tab; label: string; sub: string }> = [
   { id: 'checkout', label: 'CHECKOUT', sub: '2〜170・この3投で上がる' },
@@ -46,6 +47,16 @@ function HomePage({ onSelect }: { onSelect: (tab: Tab) => void }) {
         <li>1 投ごとに実際の着弾を入れると、残り本数から候補を再計算します。</li>
         <li>成立するルートを不正解にはせず、推奨度（S / A / B / C）と理由を示します。</li>
       </ul>
+      <div className="home__more">
+        <button
+          type="button"
+          className="home__history"
+          data-testid="home-version-history"
+          onClick={() => onSelect('history')}
+        >
+          バージョン履歴
+        </button>
+      </div>
     </div>
   );
 }
@@ -71,6 +82,13 @@ export default function App() {
     }
     const handle = window.setTimeout(warm, 400);
     return () => window.clearTimeout(handle);
+  }, []);
+
+  // バージョン履歴のスクロール位置をトップページへ持ち越さない。
+  const backToHome = useCallback(() => {
+    setTab('home');
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
   }, []);
 
   return (
@@ -118,6 +136,7 @@ export default function App() {
         {tab === 'settings' && (
           <SettingsPage theme={preferences.theme} onThemeChange={setTheme} />
         )}
+        {tab === 'history' && <VersionHistoryPage onBack={backToHome} />}
       </main>
 
       <footer className="app__footer">
