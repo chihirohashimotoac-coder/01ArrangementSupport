@@ -59,6 +59,20 @@ function orderingProblemsOf(questions: readonly TrainingQuestion[]): string[] {
   return problems;
 }
 
+/** 直近 n 問に同じ状況（現在残り × 使える本数）が出ていないか。 */
+function sameContextWithin(questions: readonly TrainingQuestion[], window: number): number {
+  let count = 0;
+  for (let i = 0; i < questions.length; i += 1) {
+    for (let k = 1; k <= window && i - k >= 0; k += 1) {
+      if (contextKeyOf(questions[i - k]) === contextKeyOf(questions[i])) {
+        count += 1;
+        break;
+      }
+    }
+  }
+  return count;
+}
+
 function maxRunOf(values: readonly string[]): number {
   let best = 0;
   let run = 0;
@@ -173,40 +187,109 @@ describe('SETUP セッションの構成', () => {
     expect(orderingProblemsOf(questions)).toEqual([]);
   });
 
+  it('狭い出題範囲の seed 33 は同じ問題・同じ状況を近くで繰り返さない（独立監査 F-008 回帰）', () => {
+    // 171〜182 では setup-bogey-avoid と setup-same-number-worse の 1 投調整が
+    // それぞれ 1 件しかない。カテゴリ quota を満たすためにその 1 件を出し直し、
+    // 1 問目と 5 問目が同じ問題（current=160）になっていた。
+    // 1 投調整の候補は範囲全体で 120 件あるので、候補不足ではない。
+    const questions = generateQuestions({
+      settings: settingsOf({
+        mode: 'setup',
+        questionCount: 10,
+        setupRange: { min: 171, max: 182 },
+        reviewWeakFirst: false,
+      }),
+      seed: 33,
+    });
+
+    expect(questions).toHaveLength(10);
+    expect(questions.filter((question) => question.format === 'setup-adjustment')).toHaveLength(8);
+    expect(questions.filter((question) => question.format === 'setup-full')).toHaveLength(2);
+    expect(duplicateWithin(questions, 5)).toBe(0);
+    expect(sameContextWithin(questions, 3)).toBe(0);
+    expect(orderingProblemsOf(questions)).toEqual([]);
+    expect(questions.filter((question) => question.trivial).length).toBeLessThanOrEqual(2);
+  });
+
   it.each([
-    { label: 'review off', reviewWeakFirst: false },
-    { label: 'review on', reviewWeakFirst: true },
+    { label: '171〜182 / 10 問 / review off', min: 171, max: 182, questionCount: 10, reviewWeakFirst: false },
+    { label: '171〜182 / 10 問 / review on', min: 171, max: 182, questionCount: 10, reviewWeakFirst: true },
+    { label: '302〜309 / 10 問 / review off', min: 302, max: 309, questionCount: 10, reviewWeakFirst: false },
+    { label: '302〜309 / 10 問 / review on', min: 302, max: 309, questionCount: 10, reviewWeakFirst: true },
   ])(
-    '狭い出題範囲 171〜182 の 10 問は 1,000 seeds すべてで 8 / 2 を保つ（$label）',
-    ({ reviewWeakFirst }) => {
-      const formatViolations: string[] = [];
-      const orderingBroken: string[] = [];
+    '狭い出題範囲は 1,000 seeds すべてで形式・出題順・anti-repeat を同時に守る（$label）',
+    ({ min, max, questionCount, reviewWeakFirst }) => {
+      const violations: string[] = [];
 
       for (let seed = 0; seed < 1000; seed += 1) {
         const questions = generateQuestions({
           settings: settingsOf({
             mode: 'setup',
-            questionCount: 10,
-            setupRange: { min: 171, max: 182 },
+            questionCount,
+            setupRange: { min, max },
             reviewWeakFirst,
           }),
           seed,
+          reviewTargets: reviewWeakFirst ? [min] : undefined,
         });
+
         const full = questions.filter((question) => question.format === 'setup-full').length;
         const adjustment = questions.filter(
           (question) => question.format === 'setup-adjustment',
         ).length;
-        if (full !== 2 || adjustment !== 8) {
-          formatViolations.push(`seed=${seed}: adjustment ${adjustment} / full ${full}`);
+        const wantedFull = setupFullCount(questionCount);
+        if (questions.length !== questionCount) {
+          violations.push(`seed=${seed}: 出題数 ${questions.length}`);
+        }
+        if (full !== wantedFull || adjustment !== questionCount - wantedFull) {
+          violations.push(`seed=${seed}: adjustment ${adjustment} / full ${full}`);
         }
         const ordering = orderingProblemsOf(questions);
-        if (ordering.length > 0) orderingBroken.push(`seed=${seed}: ${ordering.join(',')}`);
+        if (ordering.length > 0) violations.push(`seed=${seed}: ${ordering.join(',')}`);
+        const prior5 = duplicateWithin(questions, 5);
+        if (prior5 > 0) violations.push(`seed=${seed}: 直近 5 問の重複 ${prior5}`);
+        const prior3 = sameContextWithin(questions, 3);
+        if (prior3 > 0) violations.push(`seed=${seed}: 直近 3 問の同じ状況 ${prior3}`);
+        const trivial = questions.filter((question) => question.trivial).length;
+        if (trivial > (questionCount === 10 ? 2 : 6)) {
+          violations.push(`seed=${seed}: trivial ${trivial}`);
+        }
       }
 
-      expect(formatViolations.slice(0, 5)).toEqual([]);
-      expect(orderingBroken.slice(0, 5)).toEqual([]);
+      expect(violations.slice(0, 5)).toEqual([]);
     },
   );
+
+  it.each([
+    { label: '171〜182 / 30 問', min: 171, max: 182 },
+    { label: '302〜309 / 30 問', min: 302, max: 309 },
+  ])('狭い出題範囲の 30 問も anti-repeat を守る（$label）', ({ min, max }) => {
+    const violations: string[] = [];
+
+    for (let seed = 0; seed < 200; seed += 1) {
+      const questions = generateQuestions({
+        settings: settingsOf({
+          mode: 'setup',
+          questionCount: 30,
+          setupRange: { min, max },
+          reviewWeakFirst: false,
+        }),
+        seed,
+      });
+      if (questions.length !== 30) violations.push(`seed=${seed}: 出題数 ${questions.length}`);
+      if (questions.filter((question) => question.format === 'setup-full').length !== 6) {
+        violations.push(`seed=${seed}: full 枠が 6 でない`);
+      }
+      const prior5 = duplicateWithin(questions, 5);
+      if (prior5 > 0) violations.push(`seed=${seed}: 直近 5 問の重複 ${prior5}`);
+      const prior3 = sameContextWithin(questions, 3);
+      if (prior3 > 0) violations.push(`seed=${seed}: 直近 3 問の同じ状況 ${prior3}`);
+      const ordering = orderingProblemsOf(questions);
+      if (ordering.length > 0) violations.push(`seed=${seed}: ${ordering.join(',')}`);
+    }
+
+    expect(violations.slice(0, 5)).toEqual([]);
+  });
 
   it('10 問で 9 カテゴリすべてが出る', () => {
     const questions = generateQuestions({
@@ -484,6 +567,94 @@ describe('reviewWeakFirst', () => {
         expect(reviewed, `${label}/${count} の露出`).toBeGreaterThan(baseline);
       }
     }
+  });
+
+  const F010_SEEDS = [619, 869, 1111, 1312, 1656, 1666, 1755, 1923, 2273, 2692, 2761, 2888];
+
+  it.each(F010_SEEDS)(
+    'MIXED 30 問 + 復習の seed %i は出題構成をすべて満たす（独立監査 F-010 回帰）',
+    (seed) => {
+      // 復習枠の難易度は「配られる候補」で決まるため、計画時点では予測でしかない。
+      // 末尾 2 問の HARD をその予測に頼ると、予測が外れたときに最後の 1 問で
+      // HARD を作り直すことになり、SETUP のカテゴリ quota が崩れていた。
+      const { questions, report } = generateQuestionsWithReport({
+        settings: settingsOf({ mode: 'mixed', questionCount: 30, reviewWeakFirst: true }),
+        seed,
+        reviewTargets: [122, 302],
+      });
+
+      expect(questions).toHaveLength(30);
+
+      // 種別 quota と同一種別の連続。
+      const kinds = countBy(questions.map((question) => question.kind));
+      expect(kinds).toEqual({ checkout: 10, setup: 10, recovery: 10 });
+      expect(maxRunOf(questions.map((question) => question.kind))).toBeLessThanOrEqual(2);
+
+      // SETUP の形式とカテゴリ。
+      const setup = questions.filter((question) => question.kind === 'setup');
+      expect(setup.filter((question) => question.format === 'setup-full')).toHaveLength(
+        setupFullCount(setup.length),
+      );
+      const categories = countBy(setup.map((question) => question.primaryCategory ?? '-'));
+      for (const [category, wanted] of Object.entries(setupCategoryQuota(setup.length))) {
+        expect(categories[category] ?? 0, `${category}`).toBe(wanted);
+      }
+
+      // 出題順と anti-repeat と上限。
+      expect(orderingProblemsOf(questions)).toEqual([]);
+      expect(duplicateWithin(questions, 5)).toBe(0);
+      expect(sameContextWithin(questions, 3)).toBe(0);
+      expect(report.trivialCount).toBeLessThanOrEqual(6);
+      expect(report.directOneDartCount).toBeLessThanOrEqual(3);
+
+      // 復習枠は使われている。
+      expect(report.reviewPlaced).toBeGreaterThan(0);
+    },
+  );
+
+  it('MIXED 30 問 + 復習は 60 seeds すべてで出題構成を守る（F-010 走査）', () => {
+    const violations: string[] = [];
+
+    // 10,000 seeds の走査は `npm run audit:training` 側（本仕様 51 節）。
+    for (let seed = 0; seed < 60; seed += 1) {
+      const { questions, report } = generateQuestionsWithReport({
+        settings: settingsOf({ mode: 'mixed', questionCount: 30, reviewWeakFirst: true }),
+        seed,
+        reviewTargets: [122, 302],
+      });
+
+      if (questions.length !== 30) violations.push(`seed=${seed}: 出題数 ${questions.length}`);
+      const kinds = countBy(questions.map((question) => question.kind));
+      if (kinds.checkout !== 10 || kinds.setup !== 10 || kinds.recovery !== 10) {
+        violations.push(`seed=${seed}: 種別 ${JSON.stringify(kinds)}`);
+      }
+      if (maxRunOf(questions.map((question) => question.kind)) > 2) {
+        violations.push(`seed=${seed}: 同一種別が 3 連続`);
+      }
+
+      const setup = questions.filter((question) => question.kind === 'setup');
+      if (setup.filter((question) => question.format === 'setup-full').length !== setupFullCount(setup.length)) {
+        violations.push(`seed=${seed}: SETUP 形式 quota`);
+      }
+      const categories = countBy(setup.map((question) => question.primaryCategory ?? '-'));
+      for (const [category, wanted] of Object.entries(setupCategoryQuota(setup.length))) {
+        if ((categories[category] ?? 0) !== wanted) {
+          violations.push(`seed=${seed}: ${category} 期待 ${wanted} / 実際 ${categories[category] ?? 0}`);
+        }
+      }
+
+      const ordering = orderingProblemsOf(questions);
+      if (ordering.length > 0) violations.push(`seed=${seed}: ${ordering.join(',')}`);
+      const prior5 = duplicateWithin(questions, 5);
+      if (prior5 > 0) violations.push(`seed=${seed}: 直近 5 問の重複 ${prior5}`);
+      const prior3 = sameContextWithin(questions, 3);
+      if (prior3 > 0) violations.push(`seed=${seed}: 直近 3 問の同じ状況 ${prior3}`);
+      if (report.trivialCount > 6) violations.push(`seed=${seed}: trivial ${report.trivialCount}`);
+      if (report.directOneDartCount > 3) violations.push(`seed=${seed}: 1 投上がり ${report.directOneDartCount}`);
+      if (report.reviewPlaced === 0) violations.push(`seed=${seed}: 復習枠が 0`);
+    }
+
+    expect(violations.slice(0, 5)).toEqual([]);
   });
 
   it('reviewWeakFirst を切ると復習枠を使わない', () => {

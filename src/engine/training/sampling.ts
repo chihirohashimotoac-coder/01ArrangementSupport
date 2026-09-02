@@ -433,13 +433,20 @@ function repairSlotOrder(
 
   const kinds = slots.map((slot) => slot.kind);
 
-  // 種別 × 難易度ごとに、元の並び順を保った待ち行列を作る。
+  // 種別 × 難易度 × 「難易度が確定しているか」ごとに、元の並び順を保った待ち行列を作る。
+  //
+  // 復習枠だけは、実際に配られる候補の難易度が計画とずれることがある。
+  // 復習 bucket は score 順で、直近履歴や出題順で弾かれると別の候補へ落ちるためで、
+  // 計画時点の難易度は予測でしかない（独立監査 F-010）。
   const queues = new Map<string, Slot[]>();
   const remaining = new Map<string, number>();
-  const queueKey = (kind: TrainingKind, difficulty: TrainingDifficulty): string =>
-    `${kind}|${difficulty}`;
+  const queueKey = (
+    kind: TrainingKind,
+    difficulty: TrainingDifficulty,
+    review: boolean,
+  ): string => `${kind}|${difficulty}|${review ? 'review' : 'fixed'}`;
   for (const [index, slot] of slots.entries()) {
-    const key = queueKey(slot.kind, expected[index]);
+    const key = queueKey(slot.kind, expected[index], slot.review);
     const queue = queues.get(key);
     if (queue) queue.push(slot);
     else queues.set(key, [slot]);
@@ -448,26 +455,28 @@ function repairSlotOrder(
 
   const endpointsApply = count >= 10 && slots.length >= 3;
   const order: TrainingDifficulty[] = [];
+  /** その位置の難易度が計画どおりに確定するか（復習枠は確定しない）。 */
+  const fixed: boolean[] = [];
   const dead = new Set<string>();
   let steps = 0;
   // 状態を記録しながら探索するので、この上限に当たることは実際には無い。
   // それでも、計画段階で時間を使い切らないための保険として置く。
   const maxSteps = 20000;
 
-  const stateKey = (index: number, hardRun: number): string => {
+  const stateKey = (index: number, hardRun: number, previousFixedHard: boolean): string => {
     const counts = [...remaining.entries()]
       .filter(([, value]) => value > 0)
       .map(([key, value]) => `${key}:${value}`)
       .sort()
       .join(',');
-    return `${index}|${hardRun}|${counts}`;
+    return `${index}|${hardRun}|${previousFixedHard ? 1 : 0}|${counts}`;
   };
 
-  const search = (index: number, hardRun: number): boolean => {
+  const search = (index: number, hardRun: number, previousFixedHard: boolean): boolean => {
     if (index >= slots.length) return true;
     steps += 1;
     if (steps > maxSteps) return false;
-    const key = stateKey(index, hardRun);
+    const key = stateKey(index, hardRun, previousFixedHard);
     if (dead.has(key)) return false;
 
     const kind = kinds[index];
@@ -479,26 +488,33 @@ function repairSlotOrder(
     ];
 
     for (const difficulty of preference) {
-      const slotKey = queueKey(kind, difficulty);
-      const left = remaining.get(slotKey) ?? 0;
-      if (left <= 0) continue;
       const isHard = difficulty === 'hard';
       if (isHard && hardRun >= 2) continue;
       if (endpointsApply && index === 0 && isHard) continue;
-      if (
-        endpointsApply &&
-        index === slots.length - 1 &&
-        !isHard &&
-        order[index - 1] !== 'hard'
-      ) {
-        continue;
-      }
 
-      remaining.set(slotKey, left - 1);
-      order.push(difficulty);
-      if (search(index + 1, isHard ? hardRun + 1 : 0)) return true;
-      order.pop();
-      remaining.set(slotKey, left);
+      // 復習枠は anchor で散らしてあるので、その位置がもともと復習枠だったかを優先する。
+      // 端点の条件（最後の 2 問のどちらかは HARD）だけは確定側で満たす。
+      const order0 = slots[index].review ? [false, true] : [true, false];
+      for (const isFixed of order0) {
+        const slotKey = queueKey(kind, difficulty, !isFixed);
+        const left = remaining.get(slotKey) ?? 0;
+        if (left <= 0) continue;
+
+        // 最後の 2 問の HARD は、実際にその難易度で出ることが確定している slot で満たす。
+        // 復習枠の予測difficultyに頼ると、予測が外れたときに末尾で HARD を作り直すことになり、
+        // カテゴリ quota を崩してしまう（独立監査 F-010）。
+        if (endpointsApply && index === slots.length - 1 && !previousFixedHard) {
+          if (!(isHard && isFixed)) continue;
+        }
+
+        remaining.set(slotKey, left - 1);
+        order.push(difficulty);
+        fixed.push(isFixed);
+        if (search(index + 1, isHard ? hardRun + 1 : 0, isHard && isFixed)) return true;
+        order.pop();
+        fixed.pop();
+        remaining.set(slotKey, left);
+      }
     }
 
     dead.add(key);
@@ -506,11 +522,11 @@ function repairSlotOrder(
   };
 
   // 実現できる並びが無い場合は、計画を変えずに false を返す（呼び出し側が復習枠を減らす）。
-  if (!search(0, 0)) return false;
+  if (!search(0, 0, false)) return false;
 
   const cursor = new Map<string, number>();
   for (const [index, difficulty] of order.entries()) {
-    const key = queueKey(kinds[index], difficulty);
+    const key = queueKey(kinds[index], difficulty, !fixed[index]);
     const at = cursor.get(key) ?? 0;
     cursor.set(key, at + 1);
     const queue = queues.get(key);
@@ -639,35 +655,39 @@ function createBucketIndex(all: readonly Candidate[], random: RandomSource) {
  */
 type DifficultyConstraint = 'preferred' | 'budget' | 'any';
 
-interface RelaxLevel {
+interface HistoryLevel {
   readonly keyWindow: number;
   readonly contextWindow: number;
-  readonly difficulty: DifficultyConstraint;
 }
 
 /**
- * 条件を緩める順序。
+ * 条件を緩める順序（本仕様 49 節 / 独立監査 F-008）。
  *
- * 難易度は「希望 → quota 残 → 制約なし」の順に緩め、そのあと直近履歴の除外窓を縮める
- * （本仕様 49 節）。希望が出題順の制約で弾かれたときに、quota を使い切った難易度を
- * 選び直さないための段階。ここを飛ばすと EASY が quota を超え、
- * EASY = trivial な RECOVERY / SETUP 基礎確認で trivial 上限を押し出す。
- * 出題順の制約（HARD を 3 連続させない等）と trivial 上限はこの表に入れない。
- * それぞれ「bucket を広げるより優先」「同じ bucket の中で先に緩める」という
- * 別の優先度を持つため、選択ループ側で扱う。
+ * 狭い出題範囲では「同じカテゴリの 1 件を早く出し直す」か
+ * 「形式を保ったまま別カテゴリへ広げる」かの二択になる。優先順位は
+ *
+ *   形式 quota → 出題順 → trivial / 1 投上がり上限 → 直近履歴 → カテゴリ → 難易度
+ *
+ * なので、直近履歴の窓を縮める前にカテゴリを外した bucket を試す。
+ * 選択ループの入れ子はこの順に対応していて、外側ほど後まで守られる。
+ *
+ * 難易度は「希望 → 種別 quota の残 → 制約なし」の 3 段階。
+ * 希望が出題順の制約で弾かれたときに quota を使い切った難易度を選び直さないための段階で、
+ * ここを飛ばすと EASY が quota を超え、EASY = trivial な RECOVERY / SETUP 基礎確認で
+ * trivial 上限を押し出す。
  */
-const RELAX_LEVELS: readonly RelaxLevel[] = [
-  { keyWindow: 5, contextWindow: 3, difficulty: 'preferred' },
-  { keyWindow: 5, contextWindow: 3, difficulty: 'budget' },
-  { keyWindow: 5, contextWindow: 3, difficulty: 'any' },
-  { keyWindow: 5, contextWindow: 1, difficulty: 'any' },
-  { keyWindow: 5, contextWindow: 0, difficulty: 'any' },
-  { keyWindow: 3, contextWindow: 0, difficulty: 'any' },
-  { keyWindow: 1, contextWindow: 0, difficulty: 'any' },
+const HISTORY_LEVELS: readonly HistoryLevel[] = [
+  { keyWindow: 5, contextWindow: 3 },
+  { keyWindow: 5, contextWindow: 1 },
+  { keyWindow: 5, contextWindow: 0 },
+  { keyWindow: 3, contextWindow: 0 },
+  { keyWindow: 1, contextWindow: 0 },
 ];
 
-/** ここまでは直近履歴の除外窓（5 問 / 3 問）を保ったままの relax。 */
-const LAST_STRICT_HISTORY_LEVEL = 2;
+const DIFFICULTY_CONSTRAINTS: readonly DifficultyConstraint[] = ['preferred', 'budget', 'any'];
+
+/** 直近履歴の除外窓（5 問 / 3 問）を保ったままの段階。 */
+const STRICT_HISTORY_LEVEL = 0;
 
 /**
  * slot（各問のわく）を先に決める。
@@ -1018,6 +1038,7 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
   const questions: TrainingQuestion[] = [];
   const difficulties: TrainingDifficulty[] = [];
   let relaxCount = 0;
+  let categoryNormalizedCount = 0;
   let reviewPlaced = 0;
   let trivialCount = 0;
   let directCount = 0;
@@ -1076,7 +1097,7 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
     return true;
   };
 
-  const passesHistory = (candidate: Candidate, level: RelaxLevel): boolean => {
+  const passesHistory = (candidate: Candidate, level: HistoryLevel): boolean => {
     const keyWindow = recent.slice(-level.keyWindow);
     if (level.keyWindow > 0 && keyWindow.some((item) => item.problemKey === candidate.problemKey)) {
       return false;
@@ -1094,15 +1115,35 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
   for (let index = 0; index < count; index += 1) {
     const slot = slots[index];
 
-    /** 候補集合を、条件の強い順に用意する。 */
-    const ringChain: Ring[] = [];
-    /** ring ごとに許す relax の範囲（復習枠でも anti-repeat は外さない）。 */
-    const ringMaxLevel: number[] = [];
-    const ringMinLevel: number[] = [];
-    const pushRing = (ring: Ring, maxLevel = RELAX_LEVELS.length - 1, minLevel = 0): void => {
-      ringChain.push(ring);
-      ringMaxLevel.push(maxLevel);
-      ringMinLevel.push(minLevel);
+    /**
+     * 候補集合を、条件の強い順に用意する。
+     *
+     * 形式は絶対に落とさない。カテゴリを外した ring は「決定論的な quota 正規化」として扱い、
+     * 使った回数を report の `quotaNormalizedCount` に足す。
+     */
+    interface RingSpec {
+      readonly ring: Ring;
+      /** この ring を使ってよい直近履歴の段階（HISTORY_LEVELS の index）。 */
+      readonly historyMin: number;
+      readonly historyMax: number;
+      /** 難易度 quota を見ない（復習枠）。 */
+      readonly ignoreDifficulty: boolean;
+      /** カテゴリを外した ring か。 */
+      readonly categoryRelaxed: boolean;
+    }
+
+    const ringSpecs: RingSpec[] = [];
+    const pushRing = (
+      ring: Ring,
+      options: Partial<Omit<RingSpec, 'ring'>> = {},
+    ): void => {
+      ringSpecs.push({
+        ring,
+        historyMin: options.historyMin ?? 0,
+        historyMax: options.historyMax ?? HISTORY_LEVELS.length - 1,
+        ignoreDifficulty: options.ignoreDifficulty ?? false,
+        categoryRelaxed: options.categoryRelaxed ?? false,
+      });
     };
 
     if (slot.review) {
@@ -1111,7 +1152,6 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
       // 復習枠が「関連しているだけの問題」で埋まってしまう。
       //
       // ただし、計画した形式・カテゴリを無視して差し替えてはいけない。
-      // 「カテゴリまで一致」→「形式だけ一致」の順に絞った bucket を使い、
       // SETUP の 80/20 とカテゴリ quota を保ったまま復習する。
       const reviewRing = buckets.ring(
         `review|${slot.kind}|${slot.format ?? '*'}|${slot.category ?? '*'}`,
@@ -1126,13 +1166,17 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
       // 逆に難易度 quota と trivial 上限は見ない。復習枠は「その問題をもう一度出す」ための
       // 枠なので、難易度が合う別問題を先に選んでしまうと目的を果たせない。
       if (reviewRing.items.length > 0) {
-        pushRing(reviewRing, LAST_STRICT_HISTORY_LEVEL, LAST_STRICT_HISTORY_LEVEL);
+        pushRing(reviewRing, {
+          historyMin: STRICT_HISTORY_LEVEL,
+          historyMax: STRICT_HISTORY_LEVEL,
+          ignoreDifficulty: true,
+        });
       }
     }
     if (slot.format !== null) {
       // 形式は SETUP の 80/20 そのものなので、bucket を広げても外さない。
       // 形式を落とした ring を挟むと、計画した 3 投フルの枠が
-      // 「同じカテゴリの 1 投調整」で埋まり、形式 quota が崩れる。
+      // 「同じカテゴリの 1 投調整」で埋まり、形式 quota が崩れる（独立監査 F-006）。
       if (slot.category !== null) {
         pushRing(
           buckets.ring(
@@ -1148,10 +1192,13 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
         candidate.kind === slot.kind && candidate.format === slot.format,
       );
       if (formatRing.items.length > 0) {
-        pushRing(formatRing);
+        pushRing(formatRing, { categoryRelaxed: slot.category !== null });
       } else {
         // その形式の候補が 1 件も無いときだけ、種別まで戻す。
-        pushRing(buckets.ring(`${slot.kind}`, (candidate) => candidate.kind === slot.kind));
+        pushRing(
+          buckets.ring(`${slot.kind}`, (candidate) => candidate.kind === slot.kind),
+          { categoryRelaxed: slot.category !== null },
+        );
       }
     } else {
       if (slot.category !== null) {
@@ -1161,47 +1208,60 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
           ),
         );
       }
-      pushRing(buckets.ring(`${slot.kind}`, (candidate) => candidate.kind === slot.kind));
+      pushRing(
+        buckets.ring(`${slot.kind}`, (candidate) => candidate.kind === slot.kind),
+        { categoryRelaxed: slot.category !== null },
+      );
     }
 
     let chosen: Candidate | null = null;
     let chosenRing: Ring | null = null;
+    let chosenSpec: RingSpec | null = null;
     let usedRelax = 0;
 
-    // 出題順の制約（HARD 3 連続・1 問目・最後の 2 問）は、slot 計画で満たしたうえで
-    // 選択時にも「実際に選ばれた難易度」で守る。bucket を広げる（= quota を崩す）より
-    // 優先度が高いので、まず ring chain 全体を ordering つきで走査する。
+    // 入れ子は優先順位そのもの。外側ほど後まで守られる。
+    //
+    //   出題順 → trivial / 1 投上がり上限 → 直近履歴 → カテゴリ（ring）→ 難易度
+    //
+    // 直近履歴より内側でカテゴリを外すのが F-008 の要点。
+    // 候補が足りているのに同じ問題を早く出し直すより、形式を保ったまま
+    // 別カテゴリへ広げるほうが学習として正しい。
     outer: for (const enforceOrdering of [true, false]) {
-      for (const [ringIndex, ring] of ringChain.entries()) {
-        if (ring.items.length === 0) continue;
-        for (const enforceCaps of [true, false]) {
-          for (const [levelIndex, level] of RELAX_LEVELS.entries()) {
-            if (levelIndex < ringMinLevel[ringIndex]) continue;
-            if (levelIndex > ringMaxLevel[ringIndex]) break;
-            for (let step = 0; step < ring.items.length; step += 1) {
-              const candidate = ring.items[(ring.cursor + step) % ring.items.length];
-              if (!passesHistory(candidate, level)) continue;
-              if (enforceOrdering && !orderingAllows(candidate, index)) continue;
-              if (enforceCaps && !capsAllow(candidate)) continue;
-              if (level.difficulty !== 'any') {
-                if (!budgetAllows(candidate)) continue;
-                if (
-                  level.difficulty === 'preferred' &&
-                  slot.preferredDifficulty !== null &&
-                  candidate.difficulty !== slot.preferredDifficulty
-                ) {
-                  continue;
+      for (const enforceCaps of [true, false]) {
+        for (const [historyIndex, history] of HISTORY_LEVELS.entries()) {
+          for (const [ringIndex, spec] of ringSpecs.entries()) {
+            if (historyIndex < spec.historyMin || historyIndex > spec.historyMax) continue;
+            const ring = spec.ring;
+            if (ring.items.length === 0) continue;
+            for (const difficulty of DIFFICULTY_CONSTRAINTS) {
+              if (spec.ignoreDifficulty && difficulty !== 'any') continue;
+              for (let step = 0; step < ring.items.length; step += 1) {
+                const candidate = ring.items[(ring.cursor + step) % ring.items.length];
+                if (!passesHistory(candidate, history)) continue;
+                if (enforceOrdering && !orderingAllows(candidate, index)) continue;
+                if (enforceCaps && !capsAllow(candidate)) continue;
+                if (difficulty !== 'any') {
+                  if (!budgetAllows(candidate)) continue;
+                  if (
+                    difficulty === 'preferred' &&
+                    slot.preferredDifficulty !== null &&
+                    candidate.difficulty !== slot.preferredDifficulty
+                  ) {
+                    continue;
+                  }
                 }
+                chosen = candidate;
+                chosenRing = ring;
+                chosenSpec = spec;
+                usedRelax =
+                  historyIndex +
+                  DIFFICULTY_CONSTRAINTS.indexOf(difficulty) +
+                  (enforceOrdering ? 0 : 1) +
+                  (enforceCaps ? 0 : 1) +
+                  (ringIndex > 0 ? 1 : 0);
+                ring.cursor = (ring.cursor + step + 1) % ring.items.length;
+                break outer;
               }
-              chosen = candidate;
-              chosenRing = ring;
-              usedRelax =
-                levelIndex +
-                (enforceOrdering ? 0 : 1) +
-                (enforceCaps ? 0 : 1) +
-                (ringIndex > 0 ? 1 : 0);
-              ring.cursor = (ring.cursor + step + 1) % ring.items.length;
-              break outer;
             }
           }
         }
@@ -1210,17 +1270,23 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
 
     if (chosen === null) {
       // 候補が 1 件しかない bucket では、直前と同じ問題を許可する（無限 retry はしない）。
-      for (const ring of ringChain) {
+      for (const spec of ringSpecs) {
+        const ring = spec.ring;
         if (ring.items.length === 0) continue;
         chosen = ring.items[ring.cursor % ring.items.length];
         chosenRing = ring;
+        chosenSpec = spec;
         ring.cursor = (ring.cursor + 1) % ring.items.length;
-        usedRelax = RELAX_LEVELS.length;
+        usedRelax = HISTORY_LEVELS.length + DIFFICULTY_CONSTRAINTS.length;
         break;
       }
     }
     if (chosen === null) break;
     void chosenRing;
+    // カテゴリを外して選んだぶんは、決定論的な quota 正規化として数える。
+    if (chosenSpec !== null && chosenSpec.categoryRelaxed && chosen.category !== slot.category) {
+      categoryNormalizedCount += 1;
+    }
 
     const budget = difficultyBudget.get(chosen.kind);
     if (budget !== undefined && budget[chosen.difficulty] > 0) {
@@ -1238,7 +1304,7 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
     recent.push({ problemKey: chosen.problemKey, contextKey: chosen.contextKey });
   }
 
-  return { questions, report: buildReport(count, questions, relaxCount, quotaNormalizedCount, reviewPlaced, trivialCount, directCount) };
+  return { questions, report: buildReport(count, questions, relaxCount, quotaNormalizedCount + categoryNormalizedCount, reviewPlaced, trivialCount, directCount) };
 }
 
 function buildReport(
