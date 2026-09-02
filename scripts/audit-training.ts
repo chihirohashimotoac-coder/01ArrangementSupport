@@ -17,6 +17,7 @@ import {
 import {
   generateQuestions,
   generateQuestionsWithReport,
+  modeQuota,
   setupCategoryQuota,
   setupFullCount,
 } from '../src/engine/training/sampling';
@@ -492,66 +493,308 @@ function auditNarrowRangeSweep(seeds: number): {
   cases: Array<{
     label: string;
     checked: number;
+    generated: number;
+    expectedGenerated: number;
     formatViolations: number;
     orderingViolations: number;
+    prior5Sessions: number;
+    prior5Events: number;
+    prior3Sessions: number;
+    prior3Events: number;
+    immediateSessions: number;
+    trivialOverCap: number;
+    nonDeterministic: number;
     examples: string[];
   }>;
 } {
   const ranges = [
-    { label: 'SETUP 171-182 / 10 問', min: 171, max: 182, count: 10 },
-    { label: 'SETUP 171-182 / 30 問', min: 171, max: 182, count: 30 },
-    { label: 'SETUP 302-309 / 10 問', min: 302, max: 309, count: 10 },
+    { label: 'SETUP 171-182', min: 171, max: 182 },
+    { label: 'SETUP 302-309', min: 302, max: 309 },
   ];
 
   const cases = ranges.flatMap((range) =>
-    [false, true].map((reviewWeakFirst) => {
-      const label = `${range.label} / review ${reviewWeakFirst ? 'on' : 'off'}`;
-      let formatViolations = 0;
-      let orderingBroken = 0;
-      const examples: string[] = [];
-      const sessions = range.count === 30 ? Math.max(100, Math.round(seeds / 5)) : seeds;
+    [10, 30].flatMap((count) =>
+      [false, true].map((reviewWeakFirst) => {
+        const label = `${range.label} / ${count} 問 / review ${reviewWeakFirst ? 'on' : 'off'}`;
+        const sessions = count === 30 ? Math.max(100, Math.round(seeds / 5)) : seeds;
+        const settings: TrainingSettings = {
+          ...DEFAULT_TRAINING_SETTINGS,
+          mode: 'setup',
+          questionCount: count,
+          setupRange: { min: range.min, max: range.max },
+          reviewWeakFirst,
+        };
+        const reviewTargets = reviewWeakFirst ? [range.min] : undefined;
 
-      for (let seed = 0; seed < sessions; seed += 1) {
-        const questions = generateQuestions({
-          settings: {
-            ...DEFAULT_TRAINING_SETTINGS,
-            mode: 'setup',
-            questionCount: range.count,
-            setupRange: { min: range.min, max: range.max },
-            reviewWeakFirst,
-          },
-          seed,
-          reviewTargets: reviewWeakFirst ? [range.min] : undefined,
-        });
+        const result = {
+          label,
+          checked: sessions,
+          generated: 0,
+          expectedGenerated: sessions * count,
+          formatViolations: 0,
+          orderingViolations: 0,
+          prior5Sessions: 0,
+          prior5Events: 0,
+          prior3Sessions: 0,
+          prior3Events: 0,
+          immediateSessions: 0,
+          trivialOverCap: 0,
+          nonDeterministic: 0,
+          examples: [] as string[],
+        };
 
-        const full = questions.filter((question) => question.format === 'setup-full').length;
-        const wantedFull = setupFullCount(questions.length);
-        if (full !== wantedFull) {
-          formatViolations += 1;
-          if (examples.length < 5) {
-            examples.push(`seed=${seed}: full ${full} / 期待 ${wantedFull}`);
+        for (let seed = 0; seed < sessions; seed += 1) {
+          const questions = generateQuestions({ settings, seed, reviewTargets });
+          result.generated += questions.length;
+
+          const full = questions.filter((question) => question.format === 'setup-full').length;
+          const wantedFull = setupFullCount(questions.length);
+          if (full !== wantedFull) {
+            result.formatViolations += 1;
+            if (result.examples.length < 5) {
+              result.examples.push(`seed=${seed}: full ${full} / 期待 ${wantedFull}`);
+            }
+          }
+
+          const ordering = orderingViolationsOf(questions);
+          if (ordering.hardTriple || ordering.firstHard || ordering.noFinalHard) {
+            result.orderingViolations += 1;
+            if (result.examples.length < 5) {
+              result.examples.push(`seed=${seed}: ${questions.map((q) => q.difficulty[0]).join('')}`);
+            }
+          }
+
+          // 直近履歴。session 単位（1 件でも起きたか）と event 単位（何問で起きたか）の両方。
+          let prior5 = 0;
+          let prior3 = 0;
+          let immediate = 0;
+          questions.forEach((question, index) => {
+            for (let back = 1; back <= 5 && index - back >= 0; back += 1) {
+              if (questions[index - back].problemKey === question.problemKey) {
+                prior5 += 1;
+                break;
+              }
+            }
+            for (let back = 1; back <= 3 && index - back >= 0; back += 1) {
+              if (contextKeyOf(questions[index - back]) === contextKeyOf(question)) {
+                prior3 += 1;
+                break;
+              }
+            }
+            if (index > 0 && questions[index - 1].problemKey === question.problemKey) immediate += 1;
+          });
+          if (prior5 > 0) {
+            result.prior5Sessions += 1;
+            if (result.examples.length < 5) {
+              result.examples.push(`seed=${seed}: 直近 5 問の重複 ${prior5} 問`);
+            }
+          }
+          if (prior3 > 0) {
+            result.prior3Sessions += 1;
+            if (result.examples.length < 5) {
+              result.examples.push(`seed=${seed}: 直近 3 問の同じ状況 ${prior3} 問`);
+            }
+          }
+          if (immediate > 0) result.immediateSessions += 1;
+          result.prior5Events += prior5;
+          result.prior3Events += prior3;
+
+          if (questions.filter((question) => question.trivial).length > trivialCapOf(count)) {
+            result.trivialOverCap += 1;
+          }
+
+          // 決定論であること（同じ seed から同じ並び）。
+          if (seed % 100 === 0) {
+            const again = generateQuestions({ settings, seed, reviewTargets });
+            const same =
+              again.length === questions.length &&
+              again.every((question, index) => question.problemKey === questions[index].problemKey);
+            if (!same) result.nonDeterministic += 1;
           }
         }
-        const ordering = orderingViolationsOf(questions);
-        if (ordering.hardTriple || ordering.firstHard || ordering.noFinalHard) {
-          orderingBroken += 1;
-          if (examples.length < 5) {
-            examples.push(`seed=${seed}: ${questions.map((q) => q.difficulty[0]).join('')}`);
-          }
-        }
-      }
 
-      return {
-        label,
-        checked: sessions,
-        formatViolations,
-        orderingViolations: orderingBroken,
-        examples,
-      };
-    }),
+        return result;
+      }),
+    ),
   );
 
   return { cases };
+}
+
+/**
+ * MIXED 30 問 + 復習の専用スイープ（独立監査 F-010）。
+ *
+ * 200 seeds の復習監査では、発生率 0.4% の構成崩れを安定して検出できなかった。
+ * 復習枠の難易度は「配られる候補」で決まるため計画時点では予測でしかなく、
+ * 予測が外れると末尾 2 問の HARD を作り直すことになり、
+ * SETUP のカテゴリ quota が崩れる。専用に大量走査して厳密に assert する。
+ */
+function auditMixedReviewSweep(seeds: number): {
+  checked: number;
+  generated: number;
+  expectedGenerated: number;
+  categorySessions: number;
+  categoryEvents: number;
+  formatViolations: number;
+  orderingViolations: number;
+  modeQuotaViolations: number;
+  sameKindRunViolations: number;
+  prior5Sessions: number;
+  prior5Events: number;
+  prior3Sessions: number;
+  prior3Events: number;
+  immediateSessions: number;
+  trivialOverCap: number;
+  directOverCap: number;
+  reviewPlaced: number;
+  reviewZeroSessions: number;
+  baselineExposure: number;
+  reviewExposure: number;
+  nonDeterministic: number;
+  examples: string[];
+} {
+  const count = 30;
+  const settings: TrainingSettings = {
+    ...DEFAULT_TRAINING_SETTINGS,
+    mode: 'mixed',
+    questionCount: count,
+    reviewWeakFirst: true,
+  };
+  const withoutReview: TrainingSettings = { ...settings, reviewWeakFirst: false };
+  const reviewTargets = [122, 302];
+  const reviewKeys = [
+    'checkout|v2|left=122|darts=3',
+    'setup|v2|full|start=302|darts=3',
+    'setup|v2|adjust|start=302|ctx=T20,T20|current=182|darts=1',
+  ];
+
+  const result = {
+    checked: seeds,
+    generated: 0,
+    expectedGenerated: seeds * count,
+    categorySessions: 0,
+    categoryEvents: 0,
+    formatViolations: 0,
+    orderingViolations: 0,
+    modeQuotaViolations: 0,
+    sameKindRunViolations: 0,
+    prior5Sessions: 0,
+    prior5Events: 0,
+    prior3Sessions: 0,
+    prior3Events: 0,
+    immediateSessions: 0,
+    trivialOverCap: 0,
+    directOverCap: 0,
+    reviewPlaced: 0,
+    reviewZeroSessions: 0,
+    baselineExposure: 0,
+    reviewExposure: 0,
+    nonDeterministic: 0,
+    examples: [] as string[],
+  };
+
+  const quota = setupCategoryQuota(10);
+  const kindQuota = modeQuota(count);
+
+  for (let seed = 0; seed < seeds; seed += 1) {
+    const { questions, report } = generateQuestionsWithReport({ settings, seed, reviewTargets });
+    result.generated += questions.length;
+
+    const kindCounts: Counter = {};
+    for (const question of questions) bump(kindCounts, question.kind);
+    if (Object.entries(kindQuota).some(([kind, wanted]) => (kindCounts[kind] ?? 0) !== wanted)) {
+      result.modeQuotaViolations += 1;
+    }
+    let run = 0;
+    let longestKindRun = 0;
+    let previousKind = '';
+    for (const question of questions) {
+      run = question.kind === previousKind ? run + 1 : 1;
+      previousKind = question.kind;
+      longestKindRun = Math.max(longestKindRun, run);
+    }
+    if (longestKindRun > 2) result.sameKindRunViolations += 1;
+
+    const setup = questions.filter((question) => question.kind === 'setup');
+    if (setup.length > 0) {
+      if (setup.filter((question) => question.format === 'setup-full').length !== setupFullCount(setup.length)) {
+        result.formatViolations += 1;
+      }
+      const categoryCounts: Counter = {};
+      for (const question of setup) bump(categoryCounts, question.primaryCategory);
+      const events = Object.entries(quota).reduce(
+        (sum, [category, wanted]) => sum + Math.abs((categoryCounts[category] ?? 0) - wanted),
+        0,
+      );
+      if (events > 0) {
+        result.categorySessions += 1;
+        result.categoryEvents += events;
+        if (result.examples.length < 5) {
+          const diff = Object.entries(quota)
+            .filter(([category, wanted]) => (categoryCounts[category] ?? 0) !== wanted)
+            .map(([category, wanted]) => `${category} 期待${wanted}/実際${categoryCounts[category] ?? 0}`);
+          result.examples.push(`seed=${seed}: ${diff.join(',')}`);
+        }
+      }
+    }
+
+    const ordering = orderingViolationsOf(questions);
+    if (ordering.hardTriple || ordering.firstHard || ordering.noFinalHard) {
+      result.orderingViolations += 1;
+      if (result.examples.length < 5) {
+        result.examples.push(`seed=${seed}: ${questions.map((q) => q.difficulty[0]).join('')}`);
+      }
+    }
+
+    let prior5 = 0;
+    let prior3 = 0;
+    let immediate = 0;
+    questions.forEach((question, index) => {
+      for (let back = 1; back <= 5 && index - back >= 0; back += 1) {
+        if (questions[index - back].problemKey === question.problemKey) {
+          prior5 += 1;
+          break;
+        }
+      }
+      for (let back = 1; back <= 3 && index - back >= 0; back += 1) {
+        if (contextKeyOf(questions[index - back]) === contextKeyOf(question)) {
+          prior3 += 1;
+          break;
+        }
+      }
+      if (index > 0 && questions[index - 1].problemKey === question.problemKey) immediate += 1;
+    });
+    if (prior5 > 0) result.prior5Sessions += 1;
+    if (prior3 > 0) result.prior3Sessions += 1;
+    if (immediate > 0) result.immediateSessions += 1;
+    result.prior5Events += prior5;
+    result.prior3Events += prior3;
+
+    if (questions.filter((question) => question.trivial).length > trivialCapOf(count)) {
+      result.trivialOverCap += 1;
+    }
+    const direct = questions.filter(
+      (question) => question.kind === 'checkout' && question.learningTags.includes('direct-finish'),
+    ).length;
+    if (direct > directCapOf(count)) result.directOverCap += 1;
+
+    result.reviewPlaced += report.reviewPlaced;
+    if (report.reviewPlaced === 0) result.reviewZeroSessions += 1;
+    result.reviewExposure += questions.filter((question) => reviewKeys.includes(question.problemKey)).length;
+
+    // 決定論であることと、復習なしとの露出差は抜き取りで確認する。
+    if (seed % 50 === 0) {
+      const again = generateQuestions({ settings, seed, reviewTargets });
+      const same =
+        again.length === questions.length &&
+        again.every((question, index) => question.problemKey === questions[index].problemKey);
+      if (!same) result.nonDeterministic += 1;
+      const baseline = generateQuestions({ settings: withoutReview, seed });
+      result.baselineExposure += baseline.filter((question) => reviewKeys.includes(question.problemKey)).length;
+    }
+  }
+
+  return result;
 }
 
 function ratio(counter: Counter, key: string, total: number): number {
@@ -705,17 +948,26 @@ function main(): void {
     failures.push(`ordering sweep: 末尾 2 問に HARD 無し = ${ordering.noFinalHard}`);
   }
 
-  // --- 狭い出題範囲のスイープ（独立監査 F-006） ------------------------------
+  // --- 狭い出題範囲のスイープ（独立監査 F-006 / F-008） ----------------------
   const narrowSeeds = Math.max(1_000, Math.min(10_000, Math.round(perMode / 10)));
   const narrow = auditNarrowRangeSweep(narrowSeeds);
   console.log(`\n=== 狭い出題範囲スイープ（最大 ${narrowSeeds} seeds） ===`);
   for (const item of narrow.cases) {
     console.log(
-      `${item.label.padEnd(34)}: ${String(item.checked).padStart(5)} セッション / ` +
-        `形式 quota 違反 ${item.formatViolations} / 出題順違反 ${item.orderingViolations}`,
+      `${item.label.padEnd(38)}: ${String(item.checked).padStart(5)} セッション / ` +
+        `出題 ${item.generated}（期待 ${item.expectedGenerated}） / ` +
+        `形式 ${item.formatViolations} / 出題順 ${item.orderingViolations} / ` +
+        `直近5 ${item.prior5Sessions}セッション ${item.prior5Events}問 / ` +
+        `直近3 ${item.prior3Sessions}セッション ${item.prior3Events}問 / ` +
+        `直前と同じ ${item.immediateSessions} / trivial超過 ${item.trivialOverCap}`,
     );
     if (item.examples.length > 0) {
-      console.log(`  違反例                        : ${item.examples.join(' | ')}`);
+      console.log(`  違反例                              : ${item.examples.join(' | ')}`);
+    }
+    if (item.generated !== item.expectedGenerated) {
+      failures.push(
+        `narrow(${item.label}): 出題数が足りない (${item.generated} / ${item.expectedGenerated})`,
+      );
     }
     if (item.formatViolations !== 0) {
       failures.push(`narrow(${item.label}): SETUP 形式 quota 違反 = ${item.formatViolations}`);
@@ -723,6 +975,104 @@ function main(): void {
     if (item.orderingViolations !== 0) {
       failures.push(`narrow(${item.label}): 出題順違反 = ${item.orderingViolations}`);
     }
+    if (item.prior5Sessions !== 0 || item.prior5Events !== 0) {
+      failures.push(
+        `narrow(${item.label}): 直近 5 問の同じ problemKey = ` +
+          `${item.prior5Sessions} セッション / ${item.prior5Events} 問`,
+      );
+    }
+    if (item.prior3Sessions !== 0 || item.prior3Events !== 0) {
+      failures.push(
+        `narrow(${item.label}): 直近 3 問の同じ状況 = ` +
+          `${item.prior3Sessions} セッション / ${item.prior3Events} 問`,
+      );
+    }
+    if (item.immediateSessions !== 0) {
+      failures.push(`narrow(${item.label}): 直前と同じ問題 = ${item.immediateSessions}`);
+    }
+    if (item.trivialOverCap !== 0) {
+      failures.push(`narrow(${item.label}): trivial 上限超過 = ${item.trivialOverCap}`);
+    }
+    if (item.nonDeterministic !== 0) {
+      failures.push(`narrow(${item.label}): 同じ seed から別の並び = ${item.nonDeterministic}`);
+    }
+  }
+
+  // --- MIXED 30 問 + 復習のスイープ（独立監査 F-010） -------------------------
+  // 10,000 seeds でも 0 件であることは確認済み（約 8 分）。CI での実行時間に収めるため
+  // 既定は 2,000 seeds にしてある。`--per-mode` を上げれば増える。
+  const mixedReviewSeeds = Math.max(1_000, Math.min(10_000, Math.round(perMode / 50)));
+  const mixedReview = auditMixedReviewSweep(mixedReviewSeeds);
+  console.log(`\n=== MIXED 30 問 + 復習スイープ（${mixedReview.checked} seeds） ===`);
+  console.log(`出題数                          : ${mixedReview.generated} / 期待 ${mixedReview.expectedGenerated}`);
+  console.log(`SETUP カテゴリ quota 違反        : ${mixedReview.categorySessions} セッション / ${mixedReview.categoryEvents} 件`);
+  console.log(`SETUP 形式 quota 違反            : ${mixedReview.formatViolations}`);
+  console.log(`出題順違反                       : ${mixedReview.orderingViolations}`);
+  console.log(`種別 quota 違反                  : ${mixedReview.modeQuotaViolations}`);
+  console.log(`同一種別 3 連続                  : ${mixedReview.sameKindRunViolations}`);
+  console.log(`直近 5 問の同じ problemKey       : ${mixedReview.prior5Sessions} セッション / ${mixedReview.prior5Events} 問`);
+  console.log(`直近 3 問の同じ状況              : ${mixedReview.prior3Sessions} セッション / ${mixedReview.prior3Events} 問`);
+  console.log(`直前と同じ問題                   : ${mixedReview.immediateSessions}`);
+  console.log(`trivial 上限超過                 : ${mixedReview.trivialOverCap}`);
+  console.log(`1 投上がり上限超過               : ${mixedReview.directOverCap}`);
+  console.log(`復習枠                           : ${mixedReview.reviewPlaced} 問（復習 0 のセッション ${mixedReview.reviewZeroSessions}）`);
+  console.log(`苦手問題の露出（抜き取り）        : ${mixedReview.baselineExposure} -> ${Math.round(mixedReview.reviewExposure / mixedReview.checked * Math.ceil(mixedReview.checked / 50))}（推計）`);
+  console.log(`同じ seed から別の並び           : ${mixedReview.nonDeterministic}`);
+  if (mixedReview.examples.length > 0) {
+    console.log(`  違反例                        : ${mixedReview.examples.join(' | ')}`);
+  }
+  if (mixedReview.generated !== mixedReview.expectedGenerated) {
+    failures.push(`mixed+review: 出題数が足りない (${mixedReview.generated} / ${mixedReview.expectedGenerated})`);
+  }
+  if (mixedReview.categorySessions !== 0 || mixedReview.categoryEvents !== 0) {
+    failures.push(
+      `mixed+review: SETUP カテゴリ quota 違反 = ` +
+        `${mixedReview.categorySessions} セッション / ${mixedReview.categoryEvents} 件`,
+    );
+  }
+  if (mixedReview.formatViolations !== 0) {
+    failures.push(`mixed+review: SETUP 形式 quota 違反 = ${mixedReview.formatViolations}`);
+  }
+  if (mixedReview.orderingViolations !== 0) {
+    failures.push(`mixed+review: 出題順違反 = ${mixedReview.orderingViolations}`);
+  }
+  if (mixedReview.modeQuotaViolations !== 0) {
+    failures.push(`mixed+review: 種別 quota 違反 = ${mixedReview.modeQuotaViolations}`);
+  }
+  if (mixedReview.sameKindRunViolations !== 0) {
+    failures.push(`mixed+review: 同一種別 3 連続 = ${mixedReview.sameKindRunViolations}`);
+  }
+  if (mixedReview.prior5Sessions !== 0 || mixedReview.prior5Events !== 0) {
+    failures.push(
+      `mixed+review: 直近 5 問の同じ problemKey = ` +
+        `${mixedReview.prior5Sessions} セッション / ${mixedReview.prior5Events} 問`,
+    );
+  }
+  if (mixedReview.prior3Sessions !== 0 || mixedReview.prior3Events !== 0) {
+    failures.push(
+      `mixed+review: 直近 3 問の同じ状況 = ` +
+        `${mixedReview.prior3Sessions} セッション / ${mixedReview.prior3Events} 問`,
+    );
+  }
+  if (mixedReview.immediateSessions !== 0) {
+    failures.push(`mixed+review: 直前と同じ問題 = ${mixedReview.immediateSessions}`);
+  }
+  if (mixedReview.trivialOverCap !== 0) {
+    failures.push(`mixed+review: trivial 上限超過 = ${mixedReview.trivialOverCap}`);
+  }
+  if (mixedReview.directOverCap !== 0) {
+    failures.push(`mixed+review: 1 投上がり上限超過 = ${mixedReview.directOverCap}`);
+  }
+  if (mixedReview.reviewZeroSessions !== 0) {
+    failures.push(`mixed+review: 復習枠が 0 のセッション = ${mixedReview.reviewZeroSessions}`);
+  }
+  if (mixedReview.reviewExposure <= mixedReview.baselineExposure) {
+    failures.push(
+      `mixed+review: 苦手問題の露出が増えていない (${mixedReview.baselineExposure} -> ${mixedReview.reviewExposure})`,
+    );
+  }
+  if (mixedReview.nonDeterministic !== 0) {
+    failures.push(`mixed+review: 同じ seed から別の並び = ${mixedReview.nonDeterministic}`);
   }
 
   // --- 復習を有効にしたときの構成と効果（独立監査 F-002） ---------------------
