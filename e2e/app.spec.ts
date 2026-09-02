@@ -530,3 +530,156 @@ test('設定画面は基準ルートをユーザー向けの言葉で説明す�
   // APPROVALS.md A-1: 一次資料が確認できていないため、出典は主張しない。
   await expect(settings).not.toContainText('PDC');
 });
+
+// ---------------------------------------------------------------------------
+// v1.3 TRAINING 教育設計
+// ---------------------------------------------------------------------------
+
+/** SETUP TRAINING を開き、1 投調整の問題まで進める。 */
+async function openSetupAdjustment(page: Page) {
+  await page.getByTestId('nav-training').click();
+  await page.getByTestId('training-mode-setup').click();
+  await page.getByTestId('start-training').click();
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    if ((await page.getByTestId('training-context').count()) > 0) return;
+    await page.getByTestId('segment-s20-outer').click();
+    await page.getByTestId('training-submit').click();
+    await page.getByTestId('training-next').click();
+  }
+  throw new Error('SETUP の 1 投調整問題が出題されませんでした');
+}
+
+test('TRAINING: SETUP は開始残り・ここまでの結果・現在の残り・残り 1 投を出す', async ({ page }) => {
+  await openSetupAdjustment(page);
+
+  await expect(page.getByTestId('training-context')).toBeVisible();
+  const start = Number(await page.getByTestId('training-context-start').textContent());
+  const current = Number(await page.getByTestId('training-context-current').textContent());
+  expect(start).toBeGreaterThanOrEqual(171);
+  expect(current).toBeLessThan(start);
+  await expect(page.getByTestId('training-context-throws')).toContainText('→');
+  await expect(page.getByTestId('training-context-darts')).toHaveText('1 投');
+  await expect(page.getByTestId('status-left')).toHaveText(String(current));
+  await expect(page.getByTestId('answer-0')).toHaveText('—');
+});
+
+test('TRAINING: SETUP の 1 投調整は自動確定せず、Undo できる', async ({ page }) => {
+  await openSetupAdjustment(page);
+
+  await page.getByTestId('segment-s20-outer').click();
+  await expect(page.getByTestId('answer-0')).toHaveText('S20');
+  await expect(page.getByTestId('answer-1')).toHaveCount(0);
+  await expect(page.getByTestId('training-result')).toHaveCount(0);
+
+  await page.getByTestId('training-undo').click();
+  await expect(page.getByTestId('answer-0')).toHaveText('—');
+
+  await page.getByTestId('segment-s19-outer').click();
+  await page.getByTestId('training-submit').click();
+  await expect(page.getByTestId('training-result')).toBeVisible();
+});
+
+test('TRAINING: SETUP の結果は「あなたの回答」と「おすすめ」を並べて見せる', async ({ page }) => {
+  await openSetupAdjustment(page);
+
+  await page.getByTestId('segment-s20-outer').click();
+  await page.getByTestId('training-submit').click();
+
+  await expect(page.getByTestId('training-verdict')).toBeVisible();
+  await expect(page.getByTestId('training-your-answer')).toContainText('S20');
+  await expect(page.getByTestId('training-recommended')).toContainText('おすすめ');
+  await expect(page.getByTestId('training-difference')).toBeVisible();
+  expect((await page.getByTestId('training-difference').textContent())?.length ?? 0).toBeGreaterThan(
+    0,
+  );
+});
+
+test('TRAINING: CHECKOUT で成立しない回答をしても、おすすめの上がり方を出す', async ({ page }) => {
+  await page.getByTestId('nav-training').click();
+  await page.getByTestId('start-training').click();
+
+  await page.getByTestId('segment-s1-outer').click();
+  await page.getByTestId('training-submit').click();
+
+  await expect(page.getByTestId('training-recommended')).toBeVisible();
+  await expect(page.getByTestId('training-difference')).toContainText('上がれます');
+});
+
+test('TRAINING: RECOVERY でも不成立の回答におすすめを出す', async ({ page }) => {
+  await page.getByTestId('nav-training').click();
+  await page.getByTestId('training-mode-recovery').click();
+  await page.getByTestId('start-training').click();
+
+  await expect(page.getByTestId('status-darts')).toHaveText('2');
+  await page.getByTestId('segment-s1-outer').click();
+  await page.getByTestId('training-submit').click();
+
+  await expect(page.getByTestId('training-recommended')).toBeVisible();
+  await expect(page.getByTestId('training-difference')).toContainText('上がれます');
+});
+
+test('TRAINING: MIXED で 10 問を終えられる', async ({ page }) => {
+  await page.getByTestId('nav-training').click();
+  await page.getByTestId('training-mode-mixed').click();
+  await page.getByTestId('start-training').click();
+
+  for (let i = 0; i < 10; i += 1) {
+    await expect(page.getByTestId('training-progress')).toHaveText(`${i + 1} / 10 問目`);
+    await page.getByTestId('segment-t20').click();
+    await page.getByTestId('training-submit').click();
+    await expect(page.getByTestId('training-result')).toBeVisible();
+    await page.getByTestId('training-next').click();
+  }
+
+  await expect(page.getByTestId('training-finished')).toBeVisible();
+  await expect(page.getByTestId('stat-attempts')).toHaveText('10');
+});
+
+test('TRAINING: 無限モードは 10 問を超えても続く', async ({ page }) => {
+  await page.getByTestId('nav-training').click();
+  await page.getByRole('button', { name: '詳細設定' }).click();
+  await page.getByRole('button', { name: '無限' }).click();
+  await page.getByTestId('start-training').click();
+
+  for (let i = 0; i < 11; i += 1) {
+    await expect(page.getByTestId('training-progress')).toHaveText(`${i + 1} 問目`);
+    await page.getByTestId('segment-t20').click();
+    await page.getByTestId('training-submit').click();
+    await page.getByTestId('training-next').click();
+  }
+  await expect(page.getByTestId('training-progress')).toHaveText('12 問目');
+});
+
+test('TRAINING: 読み取れない古い履歴を正答率へ混ぜない', async ({ page }) => {
+  await page.evaluate(() => {
+    window.localStorage.setItem(
+      'oas.training.v1',
+      JSON.stringify({
+        version: 1,
+        records: [
+          {
+            id: 'ok',
+            at: 1,
+            kind: 'checkout',
+            remaining: 103,
+            dartsAvailable: 3,
+            answer: ['T19', 'S6', 'D20'],
+            valid: true,
+            grade: 'S',
+            finishDouble: 'D20',
+            elapsedMs: 3000,
+          },
+          null,
+          { kind: 'setup', remaining: 302, dartsAvailable: 3, answer: ['ZZ'], valid: true },
+        ],
+      }),
+    );
+  });
+  await page.reload();
+  await page.getByTestId('nav-training').click();
+
+  await expect(page.getByTestId('stat-attempts')).toHaveText('1');
+  await expect(page.getByTestId('stat-accuracy')).toHaveText('100%');
+  await expect(page.getByTestId('training-migration-skipped')).toContainText('2 件');
+});

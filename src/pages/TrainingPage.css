@@ -396,3 +396,120 @@
 @media (max-width: 22rem) {
   .training__modes { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* --------------------------------------------------------------------------
+   v1.3 TRAINING 教育設計
+   - SETUP 1 投調整の「ここまでの実際の結果」
+   - 「あなたの回答」と「おすすめ」を同じ場所で見比べる
+   既存のテーマトークン（Light / Dark）だけを使い、配色は追加しない。
+   -------------------------------------------------------------------------- */
+
+.training__context {
+  padding: 0.75rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: var(--inner-highlight);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.training__context dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+  gap: 0.4rem;
+}
+
+.training__context dl div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+.training__context dt {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.training__context dd {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.training__context-note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.training__compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.5rem;
+}
+
+.training__compare-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface-alt);
+}
+
+.training__compare-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.training__compare-route {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.training__compare-outcome {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.training__difference {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.training__alternatives {
+  font-size: 0.8rem;
+}
+
+.training__alternatives summary {
+  cursor: pointer;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+}
+
+.training__alternatives ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--text-secondary);
+}
+
+.training__migration {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}

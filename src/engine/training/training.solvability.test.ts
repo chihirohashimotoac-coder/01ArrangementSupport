@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { isLegalCheckoutRoute } from '../../domain/checkoutRules';
+import { parseRoute } from '../../domain/dart';
 import { gradeAnswer } from './grade';
-import {
-  DEFAULT_TRAINING_SETTINGS,
-  generateQuestions,
-  recoveryQuestionCandidates,
-  type TrainingQuestion,
-} from './questions';
+import { DEFAULT_TRAINING_SETTINGS, recoveryQuestionCandidates } from './questions';
+import { generateQuestions } from './sampling';
+import type { TrainingQuestion } from './model';
 
 interface AuditSummary {
   generated: number;
@@ -28,7 +26,7 @@ function audit(questions: readonly TrainingQuestion[]): AuditSummary {
   };
 
   for (const question of questions) {
-    if (!Number.isFinite(question.remaining) || !Number.isFinite(question.dartsAvailable)) {
+    if (!Number.isFinite(question.currentRemaining) || !Number.isFinite(question.dartsAvailable)) {
       summary.nan += 1;
     }
     if (question.kind !== 'recovery') continue;
@@ -40,23 +38,22 @@ function audit(questions: readonly TrainingQuestion[]): AuditSummary {
       continue;
     }
 
-    const recalculated = context.visitStartRemaining - context.actualDart.score;
+    const expected = parseRoute(context.expectedRoute);
+    const recalculated =
+      context.visitStartRemaining - parseRoute([context.actualDartId])[0].score;
     if (
-      question.remaining !== recalculated ||
+      question.currentRemaining !== recalculated ||
       question.dartsAvailable !== 2 ||
-      !isLegalCheckoutRoute(
-        question.remaining,
-        context.expectedRoute,
-        question.dartsAvailable,
-      )
+      !isLegalCheckoutRoute(question.currentRemaining, expected, question.dartsAvailable)
     ) {
       summary.unsolvable += 1;
       continue;
     }
 
-    const graded = gradeAnswer(question, context.expectedRoute);
+    const graded = gradeAnswer(question, expected);
     if (
-      !graded.valid ||
+      !graded.ruleValid ||
+      !graded.learningCorrect ||
       graded.grade === null ||
       graded.checkoutEvaluation === null ||
       graded.bestCheckout === null
@@ -70,13 +67,15 @@ function audit(questions: readonly TrainingQuestion[]): AuditSummary {
 
 describe('RECOVERY / MIXED 大量決定性監査', () => {
   it(
-    '各 10,000 問で解なし・NaN・undefined・grader 不一致を生成しない',
+    '各 2,000 問で解なし・NaN・undefined・grader 不一致を生成しない',
     () => {
+      // 10 万問規模の監査は `npm run audit:training` に分離してある（本仕様 51 節）。
+      // 通常 suite は高速な決定論的回帰として、規模を抑えて同じ invariant を確認する。
       const recovery = generateQuestions({
         settings: {
           ...DEFAULT_TRAINING_SETTINGS,
           mode: 'recovery',
-          questionCount: 10_000,
+          questionCount: 2_000,
           reviewWeakFirst: false,
         },
         seed: 1,
@@ -85,7 +84,7 @@ describe('RECOVERY / MIXED 大量決定性監査', () => {
         settings: {
           ...DEFAULT_TRAINING_SETTINGS,
           mode: 'mixed',
-          questionCount: 10_000,
+          questionCount: 2_000,
           reviewWeakFirst: false,
         },
         seed: 20260901,
@@ -103,9 +102,9 @@ describe('RECOVERY / MIXED 大量決定性監査', () => {
         `TRAINING_SOLVABILITY_AUDIT ${JSON.stringify({ candidatePool, ...summaries })}`,
       );
       expect(candidatePool).toBeGreaterThan(0);
-      expect(summaries.recovery.generated).toBe(10_000);
-      expect(summaries.recovery.recovery).toBe(10_000);
-      expect(summaries.mixed.generated).toBe(10_000);
+      expect(summaries.recovery.generated).toBe(2_000);
+      expect(summaries.recovery.recovery).toBe(2_000);
+      expect(summaries.mixed.generated).toBe(2_000);
       expect(summaries.mixed.recovery).toBeGreaterThan(0);
       expect(violations).toEqual([]);
     },

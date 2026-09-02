@@ -5,14 +5,16 @@ import {
   canBuildRecoveryQuestion,
   canGenerateQuestions,
   checkoutCandidates,
+  checkoutQuestionCandidates,
   createRecoveryQuestionCandidate,
-  generateQuestions,
   recoveryCandidates,
   recoveryQuestionCandidates,
   setupCandidates,
 } from './questions';
+import { generateQuestions } from './sampling';
 import { gradeAnswer, isDiscouraged, leftBogey } from './grade';
 import { createRandom } from './random';
+import { checkoutProblemKey, type TrainingQuestion } from './model';
 import { isFinishingDart, parseRoute, requireDart, routeTotal } from '../../domain/dart';
 import {
   DARTS_PER_VISIT,
@@ -22,6 +24,29 @@ import {
   isLegalCheckoutRoute,
 } from '../../domain/checkoutRules';
 import { BOGEY_NUMBERS } from '../../data/bogeyNumbers';
+
+/** 採点テスト用の最小限の出題オブジェクト。 */
+export function makeQuestion(overrides: Partial<TrainingQuestion> = {}): TrainingQuestion {
+  const currentRemaining = overrides.currentRemaining ?? 103;
+  return {
+    id: 'q',
+    problemKey: checkoutProblemKey(currentRemaining, DARTS_PER_VISIT),
+    kind: 'checkout',
+    format: 'checkout-route',
+    difficulty: 'medium',
+    primaryCategory: 'checkout-100-119',
+    learningTags: [],
+    startRemaining: currentRemaining,
+    currentRemaining,
+    dartsAvailable: DARTS_PER_VISIT,
+    contextualThrows: [],
+    promptJa: '',
+    recovery: null,
+    expectedAnswer: [],
+    trivial: false,
+    ...overrides,
+  };
+}
 
 describe('擬似乱数', () => {
   it('同じ seed からは同じ列が出る', () => {
@@ -68,6 +93,28 @@ describe('出題対象', () => {
       checkoutCandidates({ min: 100, max: 110 }),
     );
   });
+
+  it('CHECKOUT の難易度バケットがどれも空にならない', () => {
+    const pool = checkoutQuestionCandidates({ min: 2, max: 170 });
+    for (const difficulty of ['easy', 'medium', 'hard'] as const) {
+      expect(pool.filter((item) => item.difficulty === difficulty).length).toBeGreaterThan(0);
+    }
+    for (const category of [
+      'checkout-under-100',
+      'checkout-100-119',
+      'checkout-120-149',
+      'checkout-150-170',
+    ] as const) {
+      expect(pool.filter((item) => item.primaryCategory === category).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('RECOVERY の難易度バケットがどれも空にならない', () => {
+    const pool = recoveryQuestionCandidates({ min: 2, max: 170 });
+    for (const difficulty of ['easy', 'medium', 'hard'] as const) {
+      expect(pool.filter((item) => item.difficulty === difficulty).length).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('RECOVERY の出題可否（PR #1 レビュー指摘の回帰テスト）', () => {
@@ -94,11 +141,13 @@ describe('RECOVERY の出題可否（PR #1 レビュー指摘の回帰テスト�
 
   it('2〜3 の範囲では RECOVERY の出題対象が 0 件になる', () => {
     expect(recoveryCandidates({ min: 2, max: 3 })).toEqual([]);
-    expect(canGenerateQuestions({
-      ...DEFAULT_TRAINING_SETTINGS,
-      mode: 'recovery',
-      checkoutRange: { min: 2, max: 3 },
-    })).toBe(false);
+    expect(
+      canGenerateQuestions({
+        ...DEFAULT_TRAINING_SETTINGS,
+        mode: 'recovery',
+        checkoutRange: { min: 2, max: 3 },
+      }),
+    ).toBe(false);
   });
 
   it('出題できない範囲では、空回りせずに空の出題列を返す', () => {
@@ -122,7 +171,7 @@ describe('RECOVERY の出題可否（PR #1 レビュー指摘の回帰テスト�
     expect(questions).toHaveLength(20);
     for (const question of questions) {
       expect(question.kind).toBe('recovery');
-      expect(question.remaining).toBeGreaterThanOrEqual(2);
+      expect(question.currentRemaining).toBeGreaterThanOrEqual(2);
     }
   });
 
@@ -141,7 +190,9 @@ describe('RECOVERY の出題可否（PR #1 レビュー指摘の回帰テスト�
     const questions = generateQuestions({ settings, seed: 23 });
     expect(questions).toHaveLength(100);
     expect(questions.some((question) => question.kind === 'recovery')).toBe(false);
-    expect(generateQuestions({ settings, seed: 23 })).toEqual(questions);
+    expect(generateQuestions({ settings, seed: 23 }).map((q) => q.problemKey)).toEqual(
+      questions.map((q) => q.problemKey),
+    );
   });
 });
 
@@ -157,7 +208,7 @@ describe('RECOVERY 候補の合法性 invariant', () => {
 
       if (candidate.remaining !== recalculated) violations.push(`${label}: remaining`);
       if (candidate.dartsAvailable !== DARTS_PER_VISIT - 1) violations.push(`${label}: darts`);
-      if (question.remaining !== recalculated) violations.push(`${label}: question remaining`);
+      if (question.currentRemaining !== recalculated) violations.push(`${label}: question remaining`);
       if (question.dartsAvailable !== candidate.dartsAvailable) {
         violations.push(`${label}: question darts`);
       }
@@ -196,7 +247,8 @@ describe('RECOVERY 候補の合法性 invariant', () => {
       }
 
       const graded = gradeAnswer(question, route);
-      if (!graded.valid) violations.push(`${label}: grader ${graded.invalidReason}`);
+      if (!graded.ruleValid) violations.push(`${label}: grader ${graded.failureCode}`);
+      if (!graded.learningCorrect) violations.push(`${label}: learningCorrect`);
       if (graded.grade === null) violations.push(`${label}: grade`);
       if (graded.checkoutEvaluation === null) violations.push(`${label}: reason`);
       if (graded.bestCheckout === null) violations.push(`${label}: better route`);
@@ -218,11 +270,7 @@ describe('RECOVERY 実投境界', () => {
     ['SB', 75],
     ['BULL', 50],
   ])('%s の実投後に合法な回答があれば候補になる', (actualId, expectedRemaining) => {
-    const candidate = createRecoveryQuestionCandidate(
-      100,
-      intended,
-      requireDart(actualId),
-    );
+    const candidate = createRecoveryQuestionCandidate(100, intended, requireDart(actualId));
     expect(candidate?.remaining).toBe(expectedRemaining);
     expect(
       candidate === null
@@ -236,29 +284,21 @@ describe('RECOVERY 実投境界', () => {
   });
 
   it('BULL finish を必要とする 104 / 2 本を生成・採点できる', () => {
-    const candidate = createRecoveryQuestionCandidate(
-      122,
-      requireDart('T18'),
-      requireDart('S18'),
-    );
+    const candidate = createRecoveryQuestionCandidate(122, requireDart('T18'), requireDart('S18'));
     expect(candidate?.remaining).toBe(104);
     expect(candidate?.expectedRoute.map((dart) => dart.id)).toEqual(['T18', 'BULL']);
-    expect(gradeAnswer(buildRecoveryQuestion(candidate!, 0), candidate!.expectedRoute).valid).toBe(
-      true,
-    );
+    expect(
+      gradeAnswer(buildRecoveryQuestion(candidate!, 0), candidate!.expectedRoute).ruleValid,
+    ).toBe(true);
   });
 
   it('D1 finish の 2 / 2 本を生成・採点できる', () => {
-    const candidate = createRecoveryQuestionCandidate(
-      4,
-      requireDart('D2'),
-      requireDart('S2'),
-    );
+    const candidate = createRecoveryQuestionCandidate(4, requireDart('D2'), requireDart('S2'));
     expect(candidate?.remaining).toBe(2);
     expect(candidate?.expectedRoute.map((dart) => dart.id)).toEqual(['D1']);
-    expect(gradeAnswer(buildRecoveryQuestion(candidate!, 0), candidate!.expectedRoute).valid).toBe(
-      true,
-    );
+    expect(
+      gradeAnswer(buildRecoveryQuestion(candidate!, 0), candidate!.expectedRoute).ruleValid,
+    ).toBe(true);
   });
 
   it.each([
@@ -268,9 +308,7 @@ describe('RECOVERY 実投境界', () => {
     [60, 'T20', 'triple zero'],
     [40, 'D20', 'checkout'],
   ])('%i から %s の %s 状態は次の狙いを問わない', (remaining, actualId) => {
-    expect(
-      createRecoveryQuestionCandidate(remaining, intended, requireDart(actualId)),
-    ).toBeNull();
+    expect(createRecoveryQuestionCandidate(remaining, intended, requireDart(actualId))).toBeNull();
   });
 });
 
@@ -285,17 +323,17 @@ describe('出題生成', () => {
 
   it('同じ seed からは同じ出題になる', () => {
     const options = { settings: DEFAULT_TRAINING_SETTINGS, seed: 99 };
-    expect(generateQuestions(options).map((q) => q.id)).toEqual(
-      generateQuestions(options).map((q) => q.id),
+    expect(generateQuestions(options).map((q) => q.problemKey)).toEqual(
+      generateQuestions(options).map((q) => q.problemKey),
     );
   });
 
-  it('MIXED では 3 種類が混ざりうる', () => {
+  it('MIXED では 3 種類が混ざる', () => {
     const questions = generateQuestions({
-      settings: { ...DEFAULT_TRAINING_SETTINGS, mode: 'mixed', questionCount: 60 },
+      settings: { ...DEFAULT_TRAINING_SETTINGS, mode: 'mixed', questionCount: 30 },
       seed: 5,
     });
-    expect(new Set(questions.map((q) => q.kind)).size).toBeGreaterThan(1);
+    expect(new Set(questions.map((q) => q.kind)).size).toBe(3);
   });
 
   it('RECOVERY は「狙い」と「実際」を持ち、残り本数が 2 になる', () => {
@@ -307,20 +345,21 @@ describe('出題生成', () => {
     for (const question of questions) {
       expect(question.recovery).not.toBeNull();
       expect(question.dartsAvailable).toBe(2);
-      expect(question.remaining).toBe(
-        question.recovery!.visitStartRemaining - question.recovery!.actualDart.score,
+      expect(question.currentRemaining).toBe(
+        question.recovery!.visitStartRemaining - requireDart(question.recovery!.actualDartId).score,
       );
     }
   });
 
-  it('SETUP の出題は必ずテンパイを作れる', () => {
+  it('SETUP の出題は開始残りが 171 以上で、必ず良い残りを作れる', () => {
     const questions = generateQuestions({
       settings: { ...DEFAULT_TRAINING_SETTINGS, mode: 'setup', questionCount: 25 },
       seed: 11,
     });
     for (const question of questions) {
-      expect(question.remaining).toBeGreaterThanOrEqual(171);
+      expect(question.startRemaining).toBeGreaterThanOrEqual(171);
       expect(question.kind).toBe('setup');
+      expect(question.expectedAnswer.length).toBeGreaterThan(0);
     }
   });
 
@@ -330,23 +369,17 @@ describe('出題生成', () => {
       seed: 8,
       reviewTargets: [122],
     });
-    expect(questions.some((q) => q.remaining === 122)).toBe(true);
+    expect(questions.some((q) => q.startRemaining === 122)).toBe(true);
   });
 });
 
-const checkoutQuestion = {
-  id: 'q',
-  kind: 'checkout' as const,
-  remaining: 103,
-  dartsAvailable: DARTS_PER_VISIT,
-  promptJa: '',
-  recovery: null,
-};
+const checkoutQuestion = makeQuestion();
 
 describe('CHECKOUT の採点', () => {
   it('基準ルートは S ランク', () => {
     const result = gradeAnswer(checkoutQuestion, parseRoute(['T19', 'S6', 'D20']));
-    expect(result.valid).toBe(true);
+    expect(result.ruleValid).toBe(true);
+    expect(result.learningCorrect).toBe(true);
     expect(result.grade).toBe('S');
     expect(result.finishDouble).toBe('D20');
   });
@@ -354,18 +387,16 @@ describe('CHECKOUT の採点', () => {
   it('順番が違えば別ルートとして扱う', () => {
     const forward = gradeAnswer(checkoutQuestion, parseRoute(['T19', 'S6', 'D20']));
     const reversed = gradeAnswer(checkoutQuestion, parseRoute(['S6', 'T19', 'D20']));
-    expect(forward.valid).toBe(true);
-    expect(reversed.valid).toBe(true);
+    expect(forward.ruleValid).toBe(true);
+    expect(reversed.ruleValid).toBe(true);
     expect(reversed.answerText).not.toBe(forward.answerText);
     expect(reversed.checkoutEvaluation!.key).not.toBe(forward.checkoutEvaluation!.key);
   });
 
-  it('成立するが非推奨のルートは C ランクで、理由が付く', () => {
-    const result = gradeAnswer(
-      { ...checkoutQuestion, remaining: 46 },
-      parseRoute(['D11', 'D12']),
-    );
-    expect(result.valid).toBe(true);
+  it('成立するが非推奨のルートは C ランクでも learningCorrect のまま', () => {
+    const result = gradeAnswer(makeQuestion({ currentRemaining: 46 }), parseRoute(['D11', 'D12']));
+    expect(result.ruleValid).toBe(true);
+    expect(result.learningCorrect).toBe(true);
     expect(isDiscouraged(result)).toBe(true);
     expect(result.checkoutEvaluation!.reasons.map((r) => r.code)).toContain('NON_FINAL_DOUBLE');
     const negatives = result.checkoutEvaluation!.reasons.filter((r) => r.polarity === 'negative');
@@ -374,10 +405,10 @@ describe('CHECKOUT の採点', () => {
 
   it('122 の T20 始動は「成立するが非推奨」として C になり、理由が示される', () => {
     const result = gradeAnswer(
-      { ...checkoutQuestion, remaining: 122 },
+      makeQuestion({ currentRemaining: 122 }),
       parseRoute(['T20', 'T14', 'D10']),
     );
-    expect(result.valid).toBe(true);
+    expect(result.ruleValid).toBe(true);
     expect(result.grade).toBe('C');
     const codes = result.checkoutEvaluation!.reasons.map((r) => r.code);
     expect(codes).toContain('SINGLE_MISS_LOSES_CHECKOUT');
@@ -386,39 +417,36 @@ describe('CHECKOUT の採点', () => {
 
   it('合計が合わなければ不成立', () => {
     const result = gradeAnswer(checkoutQuestion, parseRoute(['T20', 'D20']));
-    expect(result.valid).toBe(false);
-    expect(result.invalidReason).toBe('TOTAL_MISMATCH');
+    expect(result.ruleValid).toBe(false);
+    expect(result.failureCode).toBe('TOTAL_MISMATCH');
   });
 
   it('最終ダートがシングルなら不成立', () => {
     const result = gradeAnswer(
-      { ...checkoutQuestion, remaining: 60 },
+      makeQuestion({ currentRemaining: 60 }),
       parseRoute(['S20', 'S20', 'S20']),
     );
-    expect(result.valid).toBe(false);
-    expect(result.invalidReason).toBe('NOT_DOUBLE_FINISH');
+    expect(result.ruleValid).toBe(false);
+    expect(result.failureCode).toBe('NOT_DOUBLE_FINISH');
   });
 
   it('Bust するルートは不成立', () => {
-    const result = gradeAnswer(
-      { ...checkoutQuestion, remaining: 40 },
-      parseRoute(['T20', 'D20']),
-    );
-    expect(result.valid).toBe(false);
-    expect(result.invalidReason).toBe('BUST');
+    const result = gradeAnswer(makeQuestion({ currentRemaining: 40 }), parseRoute(['T20', 'D20']));
+    expect(result.ruleValid).toBe(false);
+    expect(result.failureCode).toBe('BUST');
   });
 
   it('本数超過は不成立', () => {
     const result = gradeAnswer(
-      { ...checkoutQuestion, remaining: 103, dartsAvailable: 2 },
+      makeQuestion({ currentRemaining: 103, dartsAvailable: 2 }),
       parseRoute(['T19', 'S6', 'D20']),
     );
-    expect(result.valid).toBe(false);
-    expect(result.invalidReason).toBe('TOO_MANY_DARTS');
+    expect(result.ruleValid).toBe(false);
+    expect(result.failureCode).toBe('TOO_MANY_DARTS');
   });
 
   it('未回答は不成立', () => {
-    expect(gradeAnswer(checkoutQuestion, []).invalidReason).toBe('EMPTY');
+    expect(gradeAnswer(checkoutQuestion, []).failureCode).toBe('EMPTY');
   });
 
   it('最上位ルートを併せて返す', () => {
@@ -427,37 +455,38 @@ describe('CHECKOUT の採点', () => {
   });
 });
 
-const setupQuestion = {
-  id: 'q',
-  kind: 'setup' as const,
-  remaining: 302,
-  dartsAvailable: DARTS_PER_VISIT,
-  promptJa: '',
-  recovery: null,
-};
+const setupQuestion = makeQuestion({
+  kind: 'setup',
+  format: 'setup-full',
+  currentRemaining: 302,
+  startRemaining: 302,
+  primaryCategory: 'setup-302-309',
+});
 
 describe('SETUP の採点', () => {
-  it('資料どおり T20 → T20 → S18 は最上位ランク', () => {
+  it('資料どおり T20 → T20 → S18 は最上位ランクで learningCorrect', () => {
     const result = gradeAnswer(setupQuestion, parseRoute(['T20', 'T20', 'S18']));
-    expect(result.valid).toBe(true);
+    expect(result.ruleValid).toBe(true);
+    expect(result.learningCorrect).toBe(true);
     expect(result.grade).toBe('S');
     expect(result.setupEvaluation!.leave).toBe(164);
     expect(leftBogey(result)).toBe(false);
   });
 
-  it('S20 に振るとノーテンを残し、C ランクになる', () => {
+  it('S20 に振るとノーテンを残し、ruleValid でも learningCorrect にはならない', () => {
     const result = gradeAnswer(setupQuestion, parseRoute(['T20', 'T20', 'S20']));
-    expect(result.valid).toBe(true);
-    expect(result.grade).toBe('C');
+    expect(result.ruleValid).toBe(true);
+    expect(result.learningCorrect).toBe(false);
+    expect(result.failureCode).toBe('LEAVES_BOGEY');
     expect(result.setupEvaluation!.leave).toBe(162);
     expect(isBogey(162)).toBe(true);
     expect(leftBogey(result)).toBe(true);
   });
 
-  it('3 本すべてを選ばないと採点しない', () => {
+  it('本数ぶんすべてを選ばないと採点しない', () => {
     const result = gradeAnswer(setupQuestion, parseRoute(['T20', 'T20']));
-    expect(result.valid).toBe(false);
-    expect(result.invalidReason).toBe('NOT_FINISHED');
+    expect(result.ruleValid).toBe(false);
+    expect(result.failureCode).toBe('NOT_FINISHED');
   });
 
   it('最上位の SETUP ルートを併せて返す', () => {
@@ -468,16 +497,16 @@ describe('SETUP の採点', () => {
 
 describe('RECOVERY の採点', () => {
   it('122 で T18 → S18 のあと、104 を 2 本で上がるルートが正解になる', () => {
-    const question = {
-      id: 'r',
-      kind: 'recovery' as const,
-      remaining: 104,
+    const question = makeQuestion({
+      kind: 'recovery',
+      format: 'recovery-route',
+      currentRemaining: 104,
+      startRemaining: 122,
       dartsAvailable: 2,
-      promptJa: '',
-      recovery: null,
-    };
+    });
     const result = gradeAnswer(question, parseRoute(['T18', 'BULL']));
-    expect(result.valid).toBe(true);
+    expect(result.ruleValid).toBe(true);
+    expect(result.learningCorrect).toBe(true);
     expect(result.grade).not.toBeNull();
   });
 });

@@ -1075,3 +1075,147 @@ describe('v1.2 レビュー指摘の回帰テスト', () => {
     expect(target.contains(screen.getByTestId('standard-route'))).toBe(true);
   });
 });
+
+describe('v1.3 TRAINING 教育設計', () => {
+  /**
+   * SETUP の 1 投調整問題まで進める。
+   * 8 割は 1 投調整なので、3 投フルに当たったときだけ次へ送る。
+   */
+  async function openSetupAdjustment(user: User) {
+    await user.click(screen.getByTestId('nav-training'));
+    await user.click(screen.getByTestId('training-mode-setup'));
+    await user.click(screen.getByTestId('start-training'));
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      if (screen.queryByTestId('training-context') !== null) return;
+      await user.click(screen.getByTestId('segment-s20-outer'));
+      await user.click(screen.getByTestId('training-submit'));
+      await user.click(screen.getByTestId('training-next'));
+    }
+    throw new Error('SETUP の 1 投調整問題が出題されませんでした');
+  }
+
+  it('SETUP は開始残り・ここまでの結果・現在の残り・残り 1 投を示す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupAdjustment(user);
+
+    const context = screen.getByTestId('training-context');
+    const start = Number(screen.getByTestId('training-context-start').textContent);
+    const current = Number(screen.getByTestId('training-context-current').textContent);
+    const throws = screen.getByTestId('training-context-throws').textContent ?? '';
+
+    expect(start).toBeGreaterThanOrEqual(171);
+    expect(current).toBeLessThan(start);
+    expect(throws.split(' → ')).toHaveLength(2);
+    expect(screen.getByTestId('training-context-darts')).toHaveTextContent('1 投');
+    // ここまでの結果は読み取り専用の表示で、回答欄には入っていない。
+    expect(within(context).queryByRole('button')).toBeNull();
+    expect(screen.getByTestId('answer-0')).toHaveTextContent('—');
+    expect(screen.getByTestId('status-left')).toHaveTextContent(String(current));
+  });
+
+  it('SETUP の 1 投調整では 1 投しか選べず、自動確定もしない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupAdjustment(user);
+
+    await user.click(screen.getByTestId('segment-s20-outer'));
+    expect(screen.getByTestId('answer-0')).toHaveTextContent('S20');
+    expect(screen.queryByTestId('answer-1')).toBeNull();
+    expect(screen.queryByTestId('training-result')).toBeNull();
+
+    // 2 投目は受け付けない。
+    await user.click(screen.getByTestId('segment-s19-outer'));
+    expect(screen.getByTestId('answer-0')).toHaveTextContent('S20');
+
+    await user.click(screen.getByTestId('training-undo'));
+    expect(screen.getByTestId('answer-0')).toHaveTextContent('—');
+  });
+
+  it('SETUP の回答後に「あなたの回答」「おすすめ」「違いの理由」を並べる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupAdjustment(user);
+
+    await user.click(screen.getByTestId('segment-s20-outer'));
+    await user.click(screen.getByTestId('training-submit'));
+
+    const result = screen.getByTestId('training-result');
+    const verdict = screen.getByTestId('training-verdict');
+    const yours = screen.getByTestId('training-your-answer');
+    const recommended = screen.getByTestId('training-recommended');
+    const difference = screen.getByTestId('training-difference');
+
+    expect(result).toBeInTheDocument();
+    expect(precedes(verdict, yours)).toBe(true);
+    expect(precedes(yours, recommended)).toBe(true);
+    expect(precedes(recommended, difference)).toBe(true);
+    expect(yours).toHaveTextContent('S20');
+    expect(recommended.textContent).toMatch(/[A-Z]?\d|BULL/);
+    expect(difference.textContent?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it('CHECKOUT で成立しない回答をしても、おすすめの上がり方を示す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-training'));
+    await user.click(screen.getByTestId('start-training'));
+
+    // 1 投だけで確定すると、ほとんどの残り点では成立しない。
+    await user.click(screen.getByTestId('segment-s1-outer'));
+    await user.click(screen.getByTestId('training-submit'));
+
+    const recommended = screen.getByTestId('training-recommended');
+    expect(recommended.textContent).toContain('おすすめ');
+    expect(screen.getByTestId('training-difference').textContent).toContain('上がれます');
+  });
+
+  it('SETUP でノーテンを残した回答は正答率へ加算しない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupAdjustment(user);
+
+    const current = Number(screen.getByTestId('training-context-current').textContent);
+    await user.click(screen.getByTestId('segment-s20-outer'));
+    await user.click(screen.getByTestId('training-submit'));
+
+    const leave = current - 20;
+    const bogeys = [159, 162, 163, 165, 166, 168, 169];
+    const correct = leave >= 2 && leave <= 170 && !bogeys.includes(leave);
+    expect(screen.getByTestId('stat-attempts')).toHaveTextContent('1');
+    expect(screen.getByTestId('stat-accuracy')).toHaveTextContent(correct ? '100%' : '0%');
+  });
+
+  it('読み取れない古い履歴は正答率へ混ぜず、件数だけ知らせる', async () => {
+    window.localStorage.setItem(
+      'oas.training.v1',
+      JSON.stringify({
+        version: 1,
+        records: [
+          {
+            id: 'ok',
+            at: 1,
+            kind: 'checkout',
+            remaining: 103,
+            dartsAvailable: 3,
+            answer: ['T19', 'S6', 'D20'],
+            valid: true,
+            grade: 'S',
+            finishDouble: 'D20',
+            elapsedMs: 3000,
+          },
+          null,
+          { kind: 'setup', remaining: 302, dartsAvailable: 3, answer: ['ZZ'], valid: true },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-training'));
+
+    expect(screen.getByTestId('stat-attempts')).toHaveTextContent('1');
+    expect(screen.getByTestId('stat-accuracy')).toHaveTextContent('100%');
+    expect(screen.getByTestId('training-migration-skipped')).toHaveTextContent('2 件');
+  });
+});

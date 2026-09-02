@@ -10,6 +10,8 @@
 実装では `MAX_SETUP_REMAINING = MAX_VISIT_SCORE + MAX_CHECKOUT` として、
 この式そのものをコードに書いています。
 
+TRAINING での教材化（1 投調整・カテゴリ・採点）は `docs/TRAINING_DESIGN.md` に分けてあります。
+
 ## 2. SETUP の目的
 
 **最大得点を取るゲームではありません。** 目的は「次ラウンドに良い 3 ダートチェックアウトを残す」ことです。
