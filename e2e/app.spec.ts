@@ -683,3 +683,45 @@ test('TRAINING: 読み取れない古い履歴を正答率へ混ぜない', asyn
   await expect(page.getByTestId('stat-accuracy')).toHaveText('100%');
   await expect(page.getByTestId('training-migration-skipped')).toContainText('2 件');
 });
+
+test('バージョン履歴: トップから開き、「トップへ戻る」で戻れる', async ({ page }) => {
+  await page.getByTestId('home-version-history').click();
+
+  await expect(page.getByRole('heading', { name: 'バージョン履歴' })).toBeVisible();
+  const items = page.getByTestId('version-history-item');
+  await expect(items.first()).toContainText('現在');
+  await expect(items.first()).toContainText('v1.3');
+  expect(await items.count()).toBeGreaterThan(1);
+
+  // トップページのボタンは、この画面では出さない。
+  await expect(page.getByTestId('home-version-history')).toHaveCount(0);
+
+  // 下までスクロールしても「トップへ戻る」は画面上部に残る。
+  const back = page.getByTestId('version-history-back');
+  await items.last().scrollIntoViewIfNeeded();
+  await expect(back).toBeInViewport();
+
+  await back.click();
+  await expect(page.getByTestId('home-checkout')).toBeVisible();
+  await expect(page.getByTestId('version-history-list')).toHaveCount(0);
+  // 履歴のスクロール位置を持ち越さない。
+  expect(await page.evaluate(() => document.documentElement.scrollTop)).toBe(0);
+});
+
+test('バージョン履歴: 320px 幅でも横へはみ出さない', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.getByTestId('home-version-history').click();
+  await expect(page.getByTestId('version-history-list')).toBeVisible();
+
+  const overflow = await page.evaluate(() => {
+    const width = document.documentElement.clientWidth;
+    const targets = document.querySelectorAll(
+      '.version-history, .version-history *, .app__header, .app__nav',
+    );
+    return [...targets]
+      .map((el) => ({ cls: el.className.toString(), right: el.getBoundingClientRect().right }))
+      .filter((box) => box.right > width + 1);
+  });
+  expect(overflow).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+});
