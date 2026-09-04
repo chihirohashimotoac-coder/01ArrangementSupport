@@ -24,6 +24,22 @@ export interface VersionHistoryEntry {
 /** 新しい順。先頭が現在の版。 */
 export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
   {
+    label: 'v1.3.3 選んだルートで実戦入力',
+    date: '2026-09-04',
+    summary:
+      'MY ROUTE や OTHER ROUTES を選んだとき、そのルートを実戦入力へそのまま引き継げるようにしました。',
+    changes: [
+      'MY ROUTE のダーツをタップすると、そのルートを基準に実際の着弾を入力できるようにしました。',
+      'OTHER ROUTES でも、予定どおり入っているあいだは選んだルートの続きを案内します。',
+      'MY ROUTE で外した場合は、現在の残りから MY ROUTE を自動で組み直します。',
+      'OTHER ROUTES で外した場合は、現在の STANDARD / BEST へ自動で戻ります。',
+      '外した結果として上がれなくなった場合は、これまでどおり NEXT VISIT を案内します。',
+      '新しいボタンや設定は追加していません。STANDARD / BEST をタップすれば元の案内へ戻ります。',
+      'CHECKOUT・SETUP・NEXT VISIT・TRAINING の計算ルールと順位は変更していません。',
+    ],
+    current: true,
+  },
+  {
     label: 'v1.3.2 NEXT VISITの残しの選び方',
     date: '2026-09-04',
     summary:
@@ -36,7 +52,6 @@ export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
       '表示するのはこれまでどおり 1 件だけです。ボタンや設定は増えていません。',
       '通常の CHECKOUT・SETUP・TRAINING の計算ルールと順位は変更していません。',
     ],
-    current: true,
   },
   {
     label: 'v1.3.1 CHECKOUTリカバリーと操作補助',

@@ -49,18 +49,32 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴に v1.3.2 の主要変更がある', async () => {
+  it('最新の履歴に v1.3.3 の主要変更がある', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('v1.3.2');
+    expect(latest).toHaveTextContent('v1.3.3');
     expect(latest).toHaveTextContent('現在');
-    expect(latest.textContent ?? '').toMatch(/NEXT VISIT/);
-    expect(latest.textContent ?? '').toMatch(/得意ダブル/);
+    expect(latest.textContent ?? '').toMatch(/MY ROUTE/);
+    expect(latest.textContent ?? '').toMatch(/OTHER ROUTES/);
+    // 追加の操作を求めない改善であることを、ユーザー向けにも明示する。
+    expect(latest.textContent ?? '').toMatch(/新しいボタンや設定は追加していません/);
     // 計算ルールを変えていないことを、ユーザー向けにも明示する。
     expect(latest.textContent ?? '').toMatch(/変更していません/);
+  });
+
+  it('v1.3.2 の履歴は残り、現在版ではなくなっている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const items = screen.getAllByTestId('version-history-item');
+    const previous = items.find((item) => (item.textContent ?? '').includes('v1.3.2'));
+    expect(previous).toBeDefined();
+    expect(previous!.textContent ?? '').toMatch(/NEXT VISIT/);
+    expect(previous!.querySelector('.version-history__badge')).toBeNull();
   });
 
   it('v1.3.1 の履歴は残り、現在版ではなくなっている', async () => {
@@ -72,7 +86,7 @@ describe('バージョン履歴', () => {
     const previous = items.find((item) => (item.textContent ?? '').includes('v1.3.1'));
     expect(previous).toBeDefined();
     expect(previous!.textContent ?? '').toMatch(/ノーテン/);
-    // 「現在」バッジは v1.3.2 だけに付く（本文中の「現在」と混同しない）。
+    // 「現在」バッジは最新版だけに付く（本文中の「現在」と混同しない）。
     expect(previous!.querySelector('.version-history__badge')).toBeNull();
     expect(items[0].querySelector('.version-history__badge')?.textContent).toBe('現在');
   });
