@@ -242,3 +242,20 @@
   border-radius: 0.9rem;
   color: var(--text-dim);
 }
+
+/*
+ * MY ROUTE 設定の案内（TIP）。
+ *
+ * 答えを読む邪魔をしないよう、視覚的な優先度は
+ * LEFT 入力 → 回答 → 状態情報 → TIP の順で最も弱くする。
+ * 枠も背景も持たせず、余白へ 1〜2 行で静かに置くだけにとどめる。
+ */
+.practice__tip {
+  margin: 0;
+  padding: 0 0.25rem;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  text-align: center;
+  opacity: 0.85;
+}

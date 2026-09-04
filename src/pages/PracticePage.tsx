@@ -207,6 +207,11 @@ export function PracticePage({ mode }: PracticePageProps) {
 
   const checkoutRoutes = suggestion?.checkoutRoutes ?? [];
   const setupRoutes = suggestion?.setupRoutes ?? [];
+  /*
+   * CHECKOUT 中に上がれなくなったときだけ入る「次ラウンドへの残し」。
+   * CHECKOUT ルートがある状態では engine 側で必ず null になる。
+   */
+  const nextVisitRoute = suggestion?.nextVisitRoute ?? null;
   const standardRoute = checkoutRoutes.find((route) => route.isStandard) ?? checkoutRoutes[0] ?? null;
   const bestSetup = setupRoutes[0] ?? null;
 
@@ -228,10 +233,27 @@ export function PracticePage({ mode }: PracticePageProps) {
   const nextDartIds = useMemo(() => {
     if (suggestion === null) return null;
     if (suggestion.mode === 'setup') return bestSetup?.darts.map((dart) => dart.id) ?? null;
-    return standardRoute?.darts.map((dart) => dart.id) ?? null;
-  }, [suggestion, bestSetup, standardRoute]);
+    if (standardRoute) return standardRoute.darts.map((dart) => dart.id);
+    // CHECKOUT ルートが無いときだけ、次ラウンドへの残しを盤面へ出す。
+    return nextVisitRoute?.darts.map((dart) => dart.id) ?? null;
+  }, [suggestion, bestSetup, standardRoute, nextVisitRoute]);
 
   const highlightedDartIds = nextDartIds ?? [];
+
+  /**
+   * 候補が 1 件も無いときに、ルート一覧の代わりへ出す文言。
+   * 状態のお知らせ（practice__note）と重複させないため、1 か所で決めておく。
+   */
+  const emptyNotice = (() => {
+    if (suggestion === null) return null;
+    if (suggestion.mode === 'checkout' && checkoutRoutes.length === 0) {
+      return suggestion.unavailableReason ?? 'この残りで成立するルートはありません。';
+    }
+    if (suggestion.mode === 'setup' && setupRoutes.length === 0) {
+      return suggestion.unavailableReason ?? 'この残りで作れるセットアップがありません。';
+    }
+    return null;
+  })();
 
   const statusNote = (() => {
     if (visit === null || suggestion === null) return null;
@@ -375,13 +397,30 @@ export function PracticePage({ mode }: PracticePageProps) {
       </section>
 
       {visit === null || suggestion === null ? (
-        <p className="practice__idle" data-testid="practice-idle">
-          残り点（LEFT）を入力すると、候補と理由をここに表示します。
-        </p>
+        <>
+          <p className="practice__idle" data-testid="practice-idle">
+            残り点（LEFT）を入力すると、候補と理由をここに表示します。
+          </p>
+          {/*
+            答えがまだ何も無い余白にだけ、MY ROUTE 設定の存在を静かに知らせる。
+            表示専用で、設定・ランキング・保存のいずれにも触れない。
+          */}
+          {mode === 'checkout' && (
+            <p className="practice__tip" data-testid="practice-tip">
+              {/* 全角スペース区切り。JSX へ直接書くと lint の no-irregular-whitespace に触れる。 */}
+              {'TIP\u3000得意なダブルは「設定」から登録できます。MY ROUTEの優先順位に反映されます。'}
+            </p>
+          )}
+        </>
       ) : (
         <div className="practice__result" ref={resultRef}>
-          {/* 盤面をたたんでいるあいだも、ノーテンや TON の罠は先に伝える。 */}
-          {!recoveryOpen && statusNote && (
+          {/*
+            盤面をたたんでいるあいだも、ノーテンや TON の罠は先に伝える。
+            ただし同じ文言をルート一覧の代わり（practice__empty）にも出す場合は、
+            ここでは繰り返さない。同じ文を 2 度読ませると、その下にある答え
+            （NEXT VISIT）が押し下げられるだけで、伝わる情報は増えない。
+          */}
+          {!recoveryOpen && statusNote && statusNote !== emptyNotice && (
             <p className="practice__note" data-testid="status-note">
               {statusNote}
             </p>
@@ -424,16 +463,29 @@ export function PracticePage({ mode }: PracticePageProps) {
             </section>
           )}
 
-          {suggestion.mode === 'checkout' && checkoutRoutes.length === 0 && (
+          {emptyNotice && (
             <p className="practice__empty" data-testid="no-routes">
-              {suggestion.unavailableReason ?? 'この残りで成立するルートはありません。'}
+              {emptyNotice}
             </p>
           )}
 
-          {suggestion.mode === 'setup' && setupRoutes.length === 0 && (
-            <p className="practice__empty" data-testid="no-routes">
-              {suggestion.unavailableReason ?? 'この残りで作れるセットアップがありません。'}
-            </p>
+          {/*
+            1.5. 上がれないときの答え —— 盤面より前に置く。
+            判断を増やさないよう最適候補 1 件だけを出し、理由の展開もしない。
+          */}
+          {suggestion.mode === 'checkout' && nextVisitRoute && (
+            <section className="practice__routes" aria-label="次ラウンドへの残し">
+              <h2 className="practice__heading">NEXT VISIT — 次ラウンドへ整える</h2>
+              <RouteCard
+                testId="next-visit-route"
+                badge="NEXT VISIT"
+                dartIds={nextVisitRoute.darts.map((dart) => dart.id)}
+                meta={`取得 ${nextVisitRoute.scored} 点 → 残り ${nextVisitRoute.leave}`}
+                reasons={[]}
+                onDartFocus={focusDart}
+                focusedDartId={focusedDartId}
+              />
+            </section>
           )}
 
           {/*
