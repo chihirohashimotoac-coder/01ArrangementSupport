@@ -836,3 +836,98 @@ test('v1.3.2: 119 / 2 本では、警告・NEXT VISIT・実戦入力が近い位
   // 3 つとも 1 画面（844px）に収まる。
   expect(tops[2]).toBeLessThan(844);
 });
+
+/*
+ * v1.3.3: 選んだルートを実戦入力へ引き継ぐ。
+ * 実機相当（iPhone 幅 390x844）で、追加操作なしに追従することを確かめる。
+ */
+/** 得意ダブルを指定した状態でアプリを読み込み直す。 */
+async function withPreferredDoubles(page: Page, doubles: readonly string[]) {
+  await page.addInitScript((ids) => {
+    window.localStorage.setItem(
+      'oas.preferences.v1',
+      JSON.stringify({ version: 1, preferredDoubles: ids, setupMainTarget: 'T20', theme: 'dark' }),
+    );
+  }, doubles);
+  await page.reload();
+}
+
+test('v1.3.3: MY ROUTE のチップをタップするだけで、そのルートを追従する', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  // 得意ダブルを D20 だけにすると、122 の MY ROUTE は T18 → D14 → D20 になる。
+  await withPreferredDoubles(page, ['D20']);
+
+  await openCheckout(page, 122);
+  const myRoute = page.getByTestId('my-route');
+  await expect(myRoute).toContainText('T18');
+  await expect(myRoute).toContainText('D14');
+
+  // チップを押すだけで盤面が開く。新しいボタンも確認も挟まらない。
+  await myRoute.getByRole('button', { name: /^1 投目/ }).click();
+  await expect(page.getByTestId('dartboard')).toBeVisible();
+
+  // 予定どおり T18 → 選んだ MY ROUTE の続き（D14 → D20）を案内する。
+  await page.getByTestId('segment-t18').click();
+  await expect(page.getByTestId('status-bar')).toContainText('68');
+  const next = page.getByTestId('recovery-next-route');
+  await expect(next).toContainText('D14');
+  await expect(next).toContainText('D20');
+
+  await page.getByTestId('segment-d14').click();
+  await expect(page.getByTestId('status-bar')).toContainText('40');
+  await expect(next).toContainText('D20');
+
+  // 横スクロールを増やさない。
+  const overflows = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflows, 'ルート追従中に横スクロールが出ている').toBe(false);
+});
+
+test('v1.3.3: OTHER ROUTE を外したら、追加操作なしで STANDARD へ戻る', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openCheckout(page, 117);
+
+  const other = page.getByTestId('route-T19-T12-D12');
+  await other.getByRole('button', { name: /^1 投目/ }).click();
+  await expect(page.getByTestId('dartboard')).toBeVisible();
+
+  // T19 の予定に対して T20。117 - 60 = 57 / 2 本。
+  await page.getByTestId('segment-t20').click();
+  await expect(page.getByTestId('status-bar')).toContainText('57');
+
+  // 57 / 2 本の STANDARD（S17 → D20）へ、操作なしで戻る。
+  const next = page.getByTestId('recovery-next-route');
+  await expect(next).toContainText('S17');
+  await expect(next).toContainText('D20');
+});
+
+test('v1.3.3: ルートを選んでも、ボタンも答えの位置も増えない', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await withPreferredDoubles(page, ['D20']);
+  await openCheckout(page, 122);
+  await openRecovery(page);
+
+  // 位置はページ先頭からの絶対位置で測る（チップから盤面へ動く既存のスクロールと切り分ける）。
+  const measure = () =>
+    page.evaluate(() => {
+      const card = document.querySelector('[data-testid="standard-route"]');
+      return {
+        buttons: document.querySelectorAll('button').length,
+        standardTop: card ? card.getBoundingClientRect().top + window.scrollY : Number.NaN,
+        scrollHeight: document.documentElement.scrollHeight,
+      };
+    });
+
+  const before = await measure();
+  await page.getByTestId('my-route').getByRole('button', { name: /^1 投目/ }).click();
+  const after = await measure();
+
+  // 新しい常設 UI は追加していない。
+  expect(after.buttons).toBe(before.buttons);
+  // 答え（STANDARD）が下へ押し下げられていない。
+  expect(after.standardTop).toBe(before.standardTop);
+  // スクロール量も増えていない。
+  expect(after.scrollHeight).toBe(before.scrollHeight);
+});

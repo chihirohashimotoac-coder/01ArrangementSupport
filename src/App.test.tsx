@@ -1389,3 +1389,339 @@ describe('v1.3.1 CHECKOUT 不能時の NEXT VISIT', () => {
     expect(highlighted.length).toBeGreaterThan(0);
   });
 });
+
+/*
+ * v1.3.3: 選んだルートを実戦入力へ引き継ぐ。
+ *
+ * ここで確かめるのは UI state だけで、engine の候補・順位・採点には触れない。
+ * 使う場面は engine から実際に出てくる値を確認して選んである。
+ *   CHECKOUT 122 / 得意ダブル D20
+ *     STANDARD  T18 → S18 → BULL
+ *     MY ROUTE  T18 → D14 → D20
+ *     68 / 2 本  STANDARD T20 → D4 ／ MY ROUTE S18 → BULL
+ *     62 / 2 本  STANDARD T10 → D16 ／ MY ROUTE S12 → BULL
+ *   CHECKOUT 117（得意ダブルなし）
+ *     STANDARD  T20 → S17 → D20
+ *     OTHER     T19 → T12 → D12
+ *     57 / 2 本  STANDARD S17 → D20
+ *   SETUP 302
+ *     BEST      T20 → T20 → S18
+ *     OTHER     T20 → T20 → S15
+ *     242 / 2 本 BEST S18 → T18 ／ 245 / 2 本 BEST T20 → S18
+ */
+describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
+  function setPreferredDoubles(doubles: readonly string[]) {
+    window.localStorage.setItem(
+      'oas.preferences.v1',
+      JSON.stringify({
+        version: 1,
+        preferredDoubles: doubles,
+        setupMainTarget: 'T20',
+        theme: 'light',
+      }),
+    );
+  }
+
+  /** カードの n 投目のチップ。 */
+  function chipOf(card: HTMLElement, index: number) {
+    return within(card).getByRole('button', { name: new RegExp(`^${index} 投目`) });
+  }
+
+  /** カードに並んでいるダーツ（Dart ID）。 */
+  function cardDarts(card: HTMLElement) {
+    return within(card)
+      .getAllByRole('button', { name: /投目/ })
+      .map((chip) => chip.getAttribute('data-dart') ?? '');
+  }
+
+  /** 盤面でハイライトされているダーツ。内外に分かれるシングルはまとめる。 */
+  function highlightedDarts() {
+    const darts = Array.from(document.querySelectorAll('[data-highlighted="true"]')).map(
+      (node) => node.getAttribute('data-dart') ?? '',
+    );
+    return [...new Set(darts)].sort();
+  }
+
+  /** 盤面直下の NEXT に出ているルート。出ていなければ null。 */
+  function nextRoute() {
+    const route = screen.queryByTestId('recovery-next-route');
+    if (route === null) return null;
+    return Array.from(within(route).getByLabelText('次に狙うルート').children).map(
+      (item) => item.textContent ?? '',
+    );
+  }
+
+  const STANDARD_122 = ['BULL', 'S18', 'T18'];
+
+  async function selectMyRouteAt122(user: User) {
+    setPreferredDoubles(['D20']);
+    render(<App />);
+    await openCheckoutWith(user, '122');
+    await user.click(chipOf(screen.getByTestId('my-route'), 1));
+  }
+
+  it('Case A: ルートを選ばなければ、CHECKOUT の実戦入力はこれまでどおり STANDARD 基準', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+    await openRecovery(user);
+
+    expect(highlightedDarts()).toEqual(['D20', 'S6', 'T19'].sort());
+    await user.click(screen.getByTestId('segment-t19'));
+    // 46 / 2 本の STANDARD へ、これまでどおり追従する。
+    expect(nextRoute()).toEqual(['S6', 'D20']);
+  });
+
+  it('Case B: ルートを選ばなければ、SETUP の実戦入力はこれまでどおり BEST 基準', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupWith(user, '302');
+    await openRecovery(user);
+
+    expect(highlightedDarts()).toEqual(['S18', 'T20'].sort());
+    await user.click(screen.getByTestId('segment-t20'));
+    // 242 / 2 本の BEST。
+    expect(nextRoute()).toEqual(['S18', 'T18']);
+  });
+
+  it('MY ROUTE のチップを押すだけで、盤面が開いてそのルートが次の狙いになる', async () => {
+    const user = userEvent.setup();
+    setPreferredDoubles(['D20']);
+    render(<App />);
+    await openCheckoutWith(user, '122');
+
+    const myCard = screen.getByTestId('my-route');
+    expect(cardDarts(myCard)).toEqual(['T18', 'D14', 'D20']);
+    expect(cardDarts(screen.getByTestId('standard-route'))).toEqual(['T18', 'S18', 'BULL']);
+
+    await user.click(chipOf(myCard, 1));
+
+    expect(screen.getByTestId('dartboard')).toBeInTheDocument();
+    expect(highlightedDarts()).toEqual(['D14', 'D20', 'T18'].sort());
+  });
+
+  it('MY ROUTE が予定どおり入っているあいだは、選んだルートの続きを案内する', async () => {
+    const user = userEvent.setup();
+    await selectMyRouteAt122(user);
+
+    await user.click(screen.getByTestId('segment-t18'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('68');
+    // STANDARD（T20 → D4）でも MY ROUTE 再計算（S18 → BULL）でもなく、選んだ続き。
+    expect(nextRoute()).toEqual(['D14', 'D20']);
+
+    await user.click(screen.getByTestId('segment-d14'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('40');
+    expect(nextRoute()).toEqual(['D20']);
+  });
+
+  it('MY ROUTE で外したら、現在の残りから MY ROUTE を組み直す', async () => {
+    const user = userEvent.setup();
+    await selectMyRouteAt122(user);
+
+    // T18 の予定に対して T20。得点ではなく Dart ID で「外した」と判定する。
+    await user.click(screen.getByTestId('segment-t20'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('62');
+    // 62 / 2 本の MY ROUTE。STANDARD（T10 → D16）へは戻さない。
+    expect(nextRoute()).toEqual(['S12', 'BULL']);
+  });
+
+  it('MY ROUTE で外して上がれなくなったら、NEXT VISIT へ移る', async () => {
+    const user = userEvent.setup();
+    await selectMyRouteAt122(user);
+
+    await user.click(screen.getByTestId('segment-miss'));
+    await user.click(screen.getByTestId('segment-miss'));
+
+    expect(screen.getByTestId('status-left')).toHaveTextContent('122');
+    expect(screen.getByTestId('next-visit-route')).toBeInTheDocument();
+    // v1.3.2 の NEXT VISIT をそのまま使う。
+    expect(nextRoute()).toEqual(['S18']);
+  });
+
+  it('CHECKOUT の OTHER ROUTE も、予定どおりのあいだは選んだ続きを案内する', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '117');
+
+    const other = screen.getByTestId('route-T19-T12-D12');
+    expect(cardDarts(other)).toEqual(['T19', 'T12', 'D12']);
+    await user.click(chipOf(other, 1));
+    expect(highlightedDarts()).toEqual(['D12', 'T12', 'T19'].sort());
+
+    await user.click(screen.getByTestId('segment-t19'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('60');
+    // 60 / 2 本の STANDARD（S20 → D20）ではなく、選んだ続き。
+    expect(nextRoute()).toEqual(['T12', 'D12']);
+  });
+
+  it('CHECKOUT の OTHER ROUTE で外したら、現在の STANDARD へ自動で戻る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '117');
+    await user.click(chipOf(screen.getByTestId('route-T19-T12-D12'), 1));
+
+    await user.click(screen.getByTestId('segment-t20'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('57');
+    expect(nextRoute()).toEqual(['S17', 'D20']);
+  });
+
+  it('CHECKOUT の OTHER ROUTE で外して上がれなくなったら、NEXT VISIT へ移る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '117');
+    await user.click(chipOf(screen.getByTestId('route-T19-T12-D12'), 1));
+
+    await user.click(screen.getByTestId('segment-miss'));
+    await user.click(screen.getByTestId('segment-miss'));
+
+    expect(screen.getByTestId('next-visit-route')).toBeInTheDocument();
+    expect(nextRoute()).toEqual(['S19']);
+  });
+
+  it('SETUP の OTHER ROUTE も、予定どおりのあいだは選んだ続きを案内する', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupWith(user, '302');
+
+    await user.click(chipOf(screen.getByTestId('setup-T20-T20-S15'), 1));
+    expect(highlightedDarts()).toEqual(['S15', 'T20'].sort());
+
+    await user.click(screen.getByTestId('segment-t20'));
+    // 242 / 2 本の BEST（S18 → T18）ではなく、選んだ続き。
+    expect(nextRoute()).toEqual(['T20', 'S15']);
+    await user.click(screen.getByTestId('segment-t20'));
+    expect(nextRoute()).toEqual(['S15']);
+  });
+
+  it('SETUP の OTHER ROUTE で外したら、現在の BEST へ自動で戻る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupWith(user, '302');
+    await user.click(chipOf(screen.getByTestId('setup-T20-T20-S15'), 1));
+
+    // T20 の予定に対して T19。302 - 57 = 245 / 2 本。
+    await user.click(screen.getByTestId('segment-t19'));
+    expect(nextRoute()).toEqual(['T20', 'S18']);
+  });
+
+  it('別のルートのチップを押したら、確認なしでそちらへ切り替わる', async () => {
+    const user = userEvent.setup();
+    await selectMyRouteAt122(user);
+    expect(highlightedDarts()).toEqual(['D14', 'D20', 'T18'].sort());
+
+    const other = screen.getByTestId('route-T12-T18-D16');
+    await user.click(chipOf(other, 1));
+    expect(highlightedDarts()).toEqual([...new Set(cardDarts(other))].sort());
+
+    // STANDARD を押せば選択は解除され、これまでどおりの案内へ戻る。
+    await user.click(chipOf(screen.getByTestId('standard-route'), 1));
+    expect(highlightedDarts()).toEqual(STANDARD_122);
+  });
+
+  it('SETUP でも BEST のチップを押せば選択が解除される', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupWith(user, '302');
+
+    await user.click(chipOf(screen.getByTestId('setup-T20-T20-S15'), 1));
+    expect(highlightedDarts()).toEqual(['S15', 'T20'].sort());
+
+    await user.click(chipOf(screen.getByTestId('standard-route'), 1));
+    expect(highlightedDarts()).toEqual(['S18', 'T20'].sort());
+  });
+
+  it('1 投入力したあとでも、いまの残りに出ているルートを選べる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+    await openRecovery(user);
+
+    await user.click(screen.getByTestId('segment-t19'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('46');
+
+    // 46 / 2 本に出ている候補を選ぶ。LEFT 103 まで遡って解釈しない。
+    const other = screen.getByTestId('route-T10-D8');
+    await user.click(chipOf(other, 1));
+    expect(highlightedDarts()).toEqual(['D8', 'T10'].sort());
+
+    await user.click(screen.getByTestId('segment-t10'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('16');
+    expect(nextRoute()).toEqual(['D8']);
+  });
+
+  it('LEFT を変えたら、選んだルートは持ち越さない', async () => {
+    const user = userEvent.setup();
+    await selectMyRouteAt122(user);
+
+    await typeLeft(user, '103');
+    await openRecovery(user);
+    expect(highlightedDarts()).toEqual(['D20', 'S6', 'T19'].sort());
+  });
+
+  it('Undo すると選択は解除され、Undo 後の状態の STANDARD へ戻る', async () => {
+    const user = userEvent.setup();
+    await selectMyRouteAt122(user);
+
+    await user.click(screen.getByTestId('segment-t18'));
+    expect(nextRoute()).toEqual(['D14', 'D20']);
+
+    await user.click(screen.getByTestId('undo-button'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('122');
+    expect(highlightedDarts()).toEqual(STANDARD_122);
+  });
+
+  it('Bust から「次の3投へ」進むと、前のビジットのルートは残らない', async () => {
+    const user = userEvent.setup();
+    await selectMyRouteAt122(user);
+
+    await user.click(screen.getByTestId('segment-t18'));
+    await user.click(screen.getByTestId('segment-d14'));
+    // 40 残りに T20 で Bust。
+    await user.click(screen.getByTestId('segment-t20'));
+    expect(screen.getByTestId('status-flag')).toHaveTextContent('BUST');
+
+    await user.click(screen.getByTestId('next-visit-button'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('122');
+    expect(highlightedDarts()).toEqual(STANDARD_122);
+  });
+
+  it('CHECKOUT 成立後にやり直しても、前のルートは残らない', async () => {
+    const user = userEvent.setup();
+    await selectMyRouteAt122(user);
+
+    await user.click(screen.getByTestId('segment-t18'));
+    await user.click(screen.getByTestId('segment-d14'));
+    await user.click(screen.getByTestId('segment-d20'));
+    expect(screen.getByTestId('status-flag')).toHaveTextContent('CHECKOUT!');
+
+    await user.click(screen.getByTestId('reset-button'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('122');
+    expect(highlightedDarts()).toEqual(STANDARD_122);
+  });
+
+  it('実戦入力を閉じて開き直しても、同じビジット中は選んだルートを保つ', async () => {
+    const user = userEvent.setup();
+    await selectMyRouteAt122(user);
+
+    await user.click(screen.getByTestId('segment-t18'));
+    expect(nextRoute()).toEqual(['D14', 'D20']);
+
+    await user.click(screen.getByTestId('recovery-toggle'));
+    expect(screen.queryByTestId('dartboard')).toBeNull();
+    await user.click(screen.getByTestId('recovery-toggle'));
+    expect(nextRoute()).toEqual(['D14', 'D20']);
+  });
+
+  it('ルートを選んでも、新しいボタンや確認は増えない', async () => {
+    const user = userEvent.setup();
+    setPreferredDoubles(['D20']);
+    render(<App />);
+    await openCheckoutWith(user, '122');
+    await openRecovery(user);
+
+    const before = screen.getAllByRole('button').length;
+    await user.click(chipOf(screen.getByTestId('my-route'), 1));
+    expect(screen.getAllByRole('button').length).toBe(before);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
