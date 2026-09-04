@@ -49,17 +49,31 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴に TRAINING v1.3 の主要変更がある', async () => {
+  it('最新の履歴に v1.3.1 の主要変更がある', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('v1.3');
-    expect(latest).toHaveTextContent('TRAINING');
+    expect(latest).toHaveTextContent('v1.3.1');
     expect(latest).toHaveTextContent('現在');
+    expect(latest.textContent ?? '').toMatch(/NEXT VISIT/);
     expect(latest.textContent ?? '').toMatch(/ノーテン/);
-    expect(latest.textContent ?? '').toMatch(/1 投調整/);
+    // 計算ルールを変えていないことを、ユーザー向けにも明示する。
+    expect(latest.textContent ?? '').toMatch(/変更していません/);
+  });
+
+  it('TRAINING v1.3 の履歴は残っている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const items = screen.getAllByTestId('version-history-item');
+    const training = items.find((item) => (item.textContent ?? '').includes('TRAINING 教育設計'));
+    expect(training).toBeDefined();
+    expect(training!.textContent ?? '').toMatch(/1 投調整/);
+    // 現在版ではなくなっている。
+    expect(training!.textContent ?? '').not.toMatch(/現在/);
   });
 
   it('「トップへ戻る」でトップページへ戻れる', async () => {

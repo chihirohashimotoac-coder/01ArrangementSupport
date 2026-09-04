@@ -725,3 +725,61 @@ test('バージョン履歴: 320px 幅でも横へはみ出さない', async ({ 
   expect(overflow).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
 });
+
+test('v1.3.1: 上がれない残りでは NEXT VISIT が盤面より先に出る', async ({ page }) => {
+  await page.getByTestId('nav-checkout').click();
+  await page.getByTestId('score-input').fill('169');
+
+  const empty = page.getByTestId('no-routes');
+  const card = page.getByTestId('next-visit-route');
+  await expect(empty).toContainText('ノーテン');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('取得');
+  await expect(card).toContainText('残り');
+
+  // 「上がれません」→ NEXT VISIT →「実際の着弾を入力」の順で読める。
+  const order = await page.evaluate(() => {
+    const ids = ['no-routes', 'next-visit-route', 'recovery-toggle'];
+    return ids.map((id) => {
+      const el = document.querySelector(`[data-testid="${id}"]`);
+      return el ? el.getBoundingClientRect().top : Number.NaN;
+    });
+  });
+  expect(order[0]).toBeLessThan(order[1]);
+  expect(order[1]).toBeLessThan(order[2]);
+});
+
+test('v1.3.1: 320px でも TIP と NEXT VISIT が横へはみ出さない', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.getByTestId('nav-checkout').click();
+
+  // 未入力の余白に TIP が出る。
+  await expect(page.getByTestId('practice-tip')).toBeVisible();
+  let overflows = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflows, 'TIP 表示中の 320px で横スクロールが出ている').toBe(false);
+
+  // 入力したら TIP は消え、上がれない残りでは NEXT VISIT が出る。
+  await page.getByTestId('score-input').fill('169');
+  await expect(page.getByTestId('practice-tip')).toHaveCount(0);
+  await expect(page.getByTestId('next-visit-route')).toBeVisible();
+  await page.getByTestId('recovery-toggle').click();
+  await expect(page.getByTestId('dartboard')).toBeVisible();
+
+  overflows = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflows, 'NEXT VISIT 表示中の 320px で横スクロールが出ている').toBe(false);
+});
+
+test('v1.3.1: 上がれる残りでは TIP も NEXT VISIT も出さない', async ({ page }) => {
+  await openCheckout(page, 103);
+  await expect(page.getByTestId('practice-tip')).toHaveCount(0);
+  await expect(page.getByTestId('next-visit-route')).toHaveCount(0);
+
+  // SETUP では MY ROUTE の TIP を出さない。
+  await page.getByTestId('nav-setup').click();
+  await expect(page.getByTestId('practice-idle')).toBeVisible();
+  await expect(page.getByTestId('practice-tip')).toHaveCount(0);
+});

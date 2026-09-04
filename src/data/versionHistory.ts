@@ -24,6 +24,20 @@ export interface VersionHistoryEntry {
 /** 新しい順。先頭が現在の版。 */
 export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
   {
+    label: 'v1.3.1 CHECKOUTリカバリーと操作補助',
+    date: '2026-09-04',
+    summary:
+      'CHECKOUT 中に現在の残り本数では上がれなくなった場合も、残ったダーツで次ラウンドへ作るべき残りを案内するようにしました。',
+    changes: [
+      '残り本数が足りずチェックアウトできなくなったときに、次ラウンドへ整えるための狙いどころ（NEXT VISIT）を 1 つだけ表示します。',
+      'ノーテン（どう投げても上がれない残り）でも、残ったダーツで何を狙えばよいかを表示します。',
+      'NEXT VISIT の残しは、これまでの SETUP と同じ考え方で選んでいます。CHECKOUT 用に別の基準を作ってはいません。',
+      '残り点をまだ入力していないあいだの余白に、得意なダブルを「設定」から登録できることを案内する短い一文を追加しました。',
+      'これまでの CHECKOUT・SETUP・TRAINING の計算や順位は変更していません。上がれる場面の表示はこれまでと同じです。',
+    ],
+    current: true,
+  },
+  {
     label: 'v1.3 TRAINING 教育設計の再構築',
     date: '2026-09-02',
     summary:
@@ -35,7 +49,6 @@ export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
       '出題を、カテゴリ・難易度・復習・直近の出題履歴を考慮した組み立てへ変更しました。候補が足りる限り、同じ問題や同じ状況が続けて出ないようにします。',
       '正答率を「学習目的として正しかったか」で数えるようにし、これまでの学習履歴も新しい形式へ引き継ぎます。',
     ],
-    current: true,
   },
   {
     label: 'RECOVERY 出題の修正',

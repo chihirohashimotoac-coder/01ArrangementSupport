@@ -26,6 +26,14 @@ export interface Suggestion {
   readonly dartsLeft: number;
   readonly checkoutRoutes: readonly RankedCheckoutRoute[];
   readonly setupRoutes: readonly RankedSetupRoute[];
+  /**
+   * CHECKOUT 中に、現在の残り本数では上がれなくなったときの「次ラウンドへの残し」。
+   *
+   * mode は 'checkout' のまま変えない。あくまで CHECKOUT 中の補助であり、
+   * 計算そのものは通常の SETUP と同じ `rankSetupRoutes()` を再利用する。
+   * CHECKOUT ルートが 1 件でもある場合は必ず null。
+   */
+  readonly nextVisitRoute: RankedSetupRoute | null;
   /** この残りが Bogey Number か。 */
   readonly isBogey: boolean;
   /** SETUP でテンパイを作れるか。CHECKOUT では常に null。 */
@@ -49,6 +57,7 @@ export function suggestFor(
     dartsLeft,
     checkoutRoutes: [] as readonly RankedCheckoutRoute[],
     setupRoutes: [] as readonly RankedSetupRoute[],
+    nextVisitRoute: null as RankedSetupRoute | null,
     isBogey: isBogey(remaining),
     canReachTenpai: null as boolean | null,
     tonTrapLeave: tonTrapWarning(remaining)?.leaveAfterTon ?? null,
@@ -71,12 +80,27 @@ export function suggestFor(
   if (remaining <= MAX_CHECKOUT) {
     const routes = rankCheckoutRoutes(remaining, dartsLeft, options);
     if (routes.length === 0) {
+      /*
+       * 上がれないと伝えるだけで終わらせない。
+       * 残っているダートで次ラウンドへ何を残すかは、通常の SETUP と同じ
+       * エンジンで決める（NEXT VISIT 専用の残し点リストや重みは作らない）。
+       */
+      const nextVisit =
+        rankSetupRoutes(remaining, dartsLeft, {
+          mainTarget: options.mainTarget,
+          maxRoutes: 1,
+        })[0] ?? null;
+      const cannot = isBogey(remaining)
+        ? `${remaining} はノーテン（Bogey）です。この残りは 3 本でも上がれません。`
+        : `残り ${dartsLeft} 本では ${remaining} を上がれません。`;
       return {
         ...base,
         mode: 'checkout',
-        unavailableReason: isBogey(remaining)
-          ? `${remaining} はノーテン（Bogey）です。この残りは 3 本でも上がれません。`
-          : `残り ${dartsLeft} 本では ${remaining} を上がれません。次ラウンドへ良い残りを作りましょう。`,
+        nextVisitRoute: nextVisit,
+        // 残しを提示できるときは、答えの無い「作りましょう」で終わらせない。
+        unavailableReason: nextVisit === null
+          ? `${cannot}次ラウンドへ良い残りを作りましょう。`
+          : cannot,
       };
     }
     return { ...base, mode: 'checkout', checkoutRoutes: routes, unavailableReason: null };

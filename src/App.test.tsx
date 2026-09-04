@@ -1219,3 +1219,138 @@ describe('v1.3 TRAINING 教育設計', () => {
     expect(screen.getByTestId('training-migration-skipped')).toHaveTextContent('2 件');
   });
 });
+
+describe('v1.3.1 CHECKOUT の TIP', () => {
+  it('CHECKOUT で LEFT 未入力のときだけ、MY ROUTE 設定の TIP を出す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckout(user);
+
+    const tip = screen.getByTestId('practice-tip');
+    expect(tip).toBeInTheDocument();
+    expect(tip.textContent ?? '').toContain('得意なダブル');
+    expect(tip.textContent ?? '').toContain('設定');
+    expect(tip.textContent ?? '').toContain('MY ROUTE');
+    // 余白（idle）の中に置き、答えを押し下げない。
+    expect(precedes(screen.getByTestId('practice-idle'), tip)).toBe(true);
+  });
+
+  it('LEFT を入力して結果が出たら TIP は消える', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+
+    expect(screen.getByTestId('standard-route')).toBeInTheDocument();
+    expect(screen.queryByTestId('practice-tip')).toBeNull();
+  });
+
+  it('上がれない残り（169）でも TIP は出さない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '169');
+
+    expect(screen.getByTestId('no-routes')).toBeInTheDocument();
+    expect(screen.queryByTestId('practice-tip')).toBeNull();
+  });
+
+  it('SETUP 画面には MY ROUTE の TIP を出さない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-setup'));
+
+    expect(screen.getByTestId('practice-idle')).toBeInTheDocument();
+    expect(screen.queryByTestId('practice-tip')).toBeNull();
+  });
+
+  it('TIP を表示しても設定・保存・候補計算に触れない', async () => {
+    window.localStorage.clear();
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckout(user);
+
+    expect(screen.getByTestId('practice-tip')).toBeInTheDocument();
+    // 表示専用。ルートも出さないし、設定も書き換えない。
+    expect(screen.queryByTestId('standard-route')).toBeNull();
+    expect(screen.queryByTestId('other-routes')).toBeNull();
+    expect(window.localStorage.getItem('oas.preferences.v1')).toBeNull();
+  });
+});
+
+describe('v1.3.1 CHECKOUT 不能時の NEXT VISIT', () => {
+  it('150 / 1 本になったら、上がれない旨のあとに NEXT VISIT を出す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    // 170 から MISS 2 本で 170 / 1 本 → さらに S20 で 150 / 0 本になってしまうため、
+    // 150 を直接入れてから MISS を 2 本入れて 150 / 1 本を作る。
+    await openCheckoutWith(user, '150');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-miss'));
+    await user.click(screen.getByTestId('segment-miss'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('150');
+
+    const card = screen.getByTestId('next-visit-route');
+    expect(card).toBeInTheDocument();
+    expect(screen.getByTestId('no-routes').textContent).toContain('上がれません');
+    // 「上がれません」→ NEXT VISIT → 盤面、の順に読める。
+    expect(precedes(screen.getByTestId('no-routes'), card)).toBe(true);
+    expect(precedes(card, screen.getByTestId('dartboard'))).toBe(true);
+    // 取得点と残りが読める。
+    expect(card.textContent ?? '').toMatch(/取得 \d+ 点 → 残り \d+/);
+    // 候補一覧を増やさない（NEXT VISIT のカードは 1 枚だけ）。
+    expect(screen.getAllByTestId('next-visit-route')).toHaveLength(1);
+  });
+
+  it('ノーテン（169 / 3 本）でも NEXT VISIT を出す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '169');
+
+    expect(screen.getByTestId('no-routes').textContent).toContain('ノーテン');
+    const card = screen.getByTestId('next-visit-route');
+    expect(card).toBeInTheDocument();
+    expect(card.textContent ?? '').toMatch(/取得 \d+ 点 → 残り \d+/);
+  });
+
+  it('上がれる場面（103 / 3 本）では NEXT VISIT を出さない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+
+    expect(screen.getByTestId('standard-route')).toBeInTheDocument();
+    expect(screen.queryByTestId('next-visit-route')).toBeNull();
+  });
+
+  it('103 から S19 で 84 / 2 本になっても、上がれるので NEXT VISIT を出さない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '103');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-s19-outer'));
+
+    expect(screen.getByTestId('status-left')).toHaveTextContent('84');
+    expect(screen.getByTestId('standard-route')).toBeInTheDocument();
+    expect(screen.queryByTestId('next-visit-route')).toBeNull();
+  });
+
+  it('SETUP（305）では NEXT VISIT を出さない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSetupWith(user, '305');
+
+    expect(screen.getByTestId('standard-route')).toBeInTheDocument();
+    expect(screen.queryByTestId('next-visit-route')).toBeNull();
+  });
+
+  it('NEXT VISIT のセグメントが盤面のハイライトになる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '169');
+    await openRecovery(user);
+
+    const card = screen.getByTestId('next-visit-route');
+    const first = within(card).getAllByRole('button')[0].textContent ?? '';
+    expect(first.length).toBeGreaterThan(0);
+    const highlighted = document.querySelectorAll('[data-highlighted="true"]');
+    expect(highlighted.length).toBeGreaterThan(0);
+  });
+});
