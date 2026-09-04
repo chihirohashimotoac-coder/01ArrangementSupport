@@ -6,13 +6,46 @@ import { ScoreInput } from '../components/ScoreInput';
 import { StatusBar } from '../components/StatusBar';
 import { VisitTrail } from '../components/VisitTrail';
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
+import type { Dart } from '../domain/dart';
 import { CURATED_CHECKOUT_EXPLANATIONS, CURATED_SETUP_EXPLANATIONS } from '../data/explanations';
 import { rankCheckoutRoutes } from '../engine/ranking/checkoutRanking';
+import type { VisitState } from '../engine/recovery/visit';
 import { useVisit } from '../hooks/useVisit';
 import { usePreferences } from '../hooks/usePreferences';
 import './PracticePage.css';
 
 export type PracticeMode = 'checkout' | 'setup';
+
+/**
+ * ユーザーが明示的に「このルートで投げる」と選んだルートの出どころ。
+ *
+ * STANDARD / BEST は何も選んでいないときの既定の答えなので、ここには含めない。
+ */
+type SelectedRouteSource = 'my' | 'other-checkout' | 'other-setup';
+
+/**
+ * 選んだルートの記録（このページ内だけの一時 UI state）。
+ *
+ * 保存しない（localStorage / preferences / URL などへは出さない）。
+ * engine へも渡さないので、CHECKOUT / SETUP / NEXT VISIT の候補・順位・
+ * 採点は、選んでいてもいなくてもまったく同じ結果になる。
+ */
+interface SelectedRoutePlan {
+  readonly source: SelectedRouteSource;
+  /** 選んだルート全体（Dart ID）。どのチップを押しても先頭から追従する。 */
+  readonly dartIds: readonly string[];
+  /** 選んだ時点で投げ終えていた本数。ここから先の着弾だけを照合する。 */
+  readonly thrownAtSelection: number;
+  /** 選んだ時点のビジット開始残り。別ビジットへ選択を持ち越さないための番人。 */
+  readonly visitStartRemaining: number;
+}
+
+/** いまの visit から見た、選んだルートの状態。 */
+interface SelectedRouteState {
+  readonly source: SelectedRouteSource;
+  /** 予定どおり進んでいるときの残りのダーツ。1 投でも外したら null。 */
+  readonly remainingDartIds: readonly string[] | null;
+}
 
 interface ModeCopy {
   readonly min: number;
@@ -51,6 +84,39 @@ const ROUTE_PAGE_SIZE = 40;
  * 競合して行き先がずれるため、少しだけ待ってから動かす。
  */
 const KEYBOARD_SETTLE_MS = 250;
+
+/**
+ * 選んだルートが、いまも「予定どおり」かを現在の visit から判定する。
+ *
+ * 判定は Dart ID の完全一致だけで行う。T20 を狙って S20 / D20 に入ったら
+ * 同じ 20 でも「外した」として扱う（得点が違うので当然）。
+ *
+ * 毎回この関数で導くので、Bust・上がり・3 投使い切り・別ビジット・Undo の
+ * あとに古い選択が生き残ることがない。
+ */
+function followSelectedRoute(
+  plan: SelectedRoutePlan | null,
+  visit: VisitState | null,
+): SelectedRouteState | null {
+  if (plan === null || visit === null) return null;
+  // Bust / 上がり / 3 投使い切りでは、選んだルートは終了する。
+  if (visit.status !== 'in-progress' || visit.dartsLeft <= 0) return null;
+  // LEFT 変更・reset・次の3投で別ビジットになったら持ち越さない。
+  if (visit.visitStartRemaining !== plan.visitStartRemaining) return null;
+
+  const thrownSince = visit.thrown.length - plan.thrownAtSelection;
+  // Undo で選んだ時点より前へ戻った / ルートを投げ切った場合は使わない。
+  if (thrownSince < 0 || thrownSince >= plan.dartIds.length) return null;
+
+  for (let index = 0; index < thrownSince; index += 1) {
+    const actual = visit.thrown[plan.thrownAtSelection + index];
+    if (actual === undefined || actual.dart.id !== plan.dartIds[index]) {
+      // 外した。選んだ出どころだけを残し、残りルートは無効にする。
+      return { source: plan.source, remainingDartIds: null };
+    }
+  }
+  return { source: plan.source, remainingDartIds: plan.dartIds.slice(thrownSince) };
+}
 
 interface RouteListControlsProps {
   readonly total: number;
@@ -122,6 +188,12 @@ export function PracticePage({ mode }: PracticePageProps) {
    * 通過させたくない。外したときだけ開く。
    */
   const [recoveryOpen, setRecoveryOpen] = useState(false);
+  /*
+   * ユーザーが MY ROUTE / OTHER ROUTES のチップを押して選んだルート。
+   * 次に狙う表示（NEXT / 盤面のハイライト）だけに使う一時 state で、
+   * 保存もしないし、候補の計算・順位づけにも一切関与しない。
+   */
+  const [selectedRoutePlan, setSelectedRoutePlan] = useState<SelectedRoutePlan | null>(null);
 
   /*
    * NEXT VISIT（CHECKOUT 不能時の残し）だけで得意ダブルを見る。
@@ -202,6 +274,11 @@ export function PracticePage({ mode }: PracticePageProps) {
     recoveryRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
   }, [recoveryOpen]);
 
+  const selectedRoute = useMemo(
+    () => followSelectedRoute(selectedRoutePlan, visit),
+    [selectedRoutePlan, visit],
+  );
+
   /** MY ROUTE は得意ダブルを優先し、基準ルート加点を外して並べ替える。 */
   const myRoute = useMemo(() => {
     if (visit === null || suggestion?.mode !== 'checkout') return null;
@@ -238,13 +315,46 @@ export function PracticePage({ mode }: PracticePageProps) {
   const visibleCheckout = otherCheckout.slice(0, visibleCount);
   const visibleSetup = otherSetup.slice(0, visibleCount);
 
+  /*
+   * 次に狙うルート。
+   *
+   * ルートを選んでいないユーザーには、これまでどおり STANDARD / BEST
+   * （CHECKOUT 不能なら NEXT VISIT）をそのまま出す。選んだ場合だけ、
+   * 予定どおり入っているあいだその続きへ追従する。
+   * どの分岐でも engine の出力そのものを使い、作り直しはしない。
+   */
   const nextDartIds = useMemo(() => {
     if (suggestion === null) return null;
-    if (suggestion.mode === 'setup') return bestSetup?.darts.map((dart) => dart.id) ?? null;
+
+    if (suggestion.mode === 'setup') {
+      if (selectedRoute?.source === 'other-setup' && selectedRoute.remainingDartIds !== null) {
+        return selectedRoute.remainingDartIds;
+      }
+      // 選んでいない、または外した場合は現在の残りからの BEST へ戻る。
+      return bestSetup?.darts.map((dart) => dart.id) ?? null;
+    }
+
+    /*
+     * SETUP で選んだルートは、残りが 170 以下へ入って CHECKOUT の場面になった
+     * 時点で役目を終える。そこからは CHECKOUT の答え（STANDARD）が正しい。
+     */
+    if (selectedRoute !== null && selectedRoute.source !== 'other-setup') {
+      if (selectedRoute.remainingDartIds !== null) return selectedRoute.remainingDartIds;
+      /*
+       * 外した場合。MY ROUTE を選んだユーザーは MY ROUTE の考え方を続けるので、
+       * 現在の残り・本数から既存の MY ROUTE 算出（上の myRoute）をそのまま使う。
+       * OTHER ROUTE は恒久的な戦術設定ではないので、ここでは何もせず
+       * 下の STANDARD へ自動で戻す。
+       */
+      if (selectedRoute.source === 'my' && myRoute !== null) {
+        return myRoute.darts.map((dart) => dart.id);
+      }
+    }
+
     if (standardRoute) return standardRoute.darts.map((dart) => dart.id);
     // CHECKOUT ルートが無いときだけ、次ラウンドへの残しを盤面へ出す。
     return nextVisitRoute?.darts.map((dart) => dart.id) ?? null;
-  }, [suggestion, bestSetup, standardRoute, nextVisitRoute]);
+  }, [suggestion, bestSetup, standardRoute, nextVisitRoute, selectedRoute, myRoute]);
 
   const highlightedDartIds = nextDartIds ?? [];
 
@@ -299,6 +409,66 @@ export function PracticePage({ mode }: PracticePageProps) {
     [cancelPendingScroll],
   );
 
+  /**
+   * MY ROUTE / OTHER ROUTES のチップを押したとき。
+   *
+   * 「盤面で位置を見る」という既存の動きはそのままに、そのルートを
+   * 実戦入力の基準として選んだものとして扱う。追加の操作は求めない。
+   * どのチップを押しても、ルートは先頭から追従する。
+   */
+  const selectRoute = useCallback(
+    (dartId: string, source: SelectedRouteSource, dartIds: readonly string[]) => {
+      focusDart(dartId);
+      setSelectedRoutePlan(
+        visit === null
+          ? null
+          : {
+              source,
+              dartIds: [...dartIds],
+              // すでに何投か入力したあとでも、そこから追従を始められる。
+              thrownAtSelection: visit.thrown.length,
+              visitStartRemaining: visit.visitStartRemaining,
+            },
+      );
+    },
+    [focusDart, visit],
+  );
+
+  /**
+   * STANDARD / BEST / NEXT VISIT のチップを押したとき。
+   *
+   * これらは何も選んでいないときの既定の答えなので、押したら選択を解除して
+   * 通常どおりの案内へ戻す。「戻す」ための専用ボタンは作らない。
+   */
+  const focusDefaultDart = useCallback(
+    (dartId: string) => {
+      focusDart(dartId);
+      setSelectedRoutePlan(null);
+    },
+    [focusDart],
+  );
+
+  /**
+   * 実際の着弾を 1 投記録する。
+   *
+   * ルートを選んでいるあいだだけ、押したチップの focus を外す。
+   * 選んだ時点の狙い（例 T19）が、着弾後の新しい NEXT より強く見えると
+   * 盤面が読み違えのもとになる。選んでいないときの動きは変えない。
+   */
+  const handleThrow = useCallback(
+    (dart: Dart) => {
+      if (selectedRoutePlan !== null) setFocusedDartId(null);
+      throwDart(dart);
+    },
+    [selectedRoutePlan, throwDart],
+  );
+
+  /** Undo。古い残りルートを表示しないよう、選択は必ず解除する。 */
+  const handleUndo = useCallback(() => {
+    setSelectedRoutePlan(null);
+    undo();
+  }, [undo]);
+
   const copy = COPY[mode];
 
   /** STANDARD / BEST の直後に置く「実際の着弾を入力」とその展開部。 */
@@ -348,7 +518,7 @@ export function PracticePage({ mode }: PracticePageProps) {
             実際に刺さった場所をタップすると、残り点と残り本数から候補を再計算します。
           </p>
           <Dartboard
-            onSelect={(segment) => throwDart(segment.dart)}
+            onSelect={(segment) => handleThrow(segment.dart)}
             highlightedDartIds={highlightedDartIds}
             focusDartId={focusedDartId}
             disabled={visit.status !== 'in-progress' || visit.dartsLeft === 0}
@@ -367,12 +537,19 @@ export function PracticePage({ mode }: PracticePageProps) {
             status={visit.status}
             hasThrown={visit.thrown.length > 0}
             dartIds={nextDartIds}
-            onUndo={undo}
+            onUndo={handleUndo}
           />
           <VisitTrail
             visit={visit}
-            onNextVisit={nextVisit}
-            onReset={() => reset(visit.visitStartRemaining)}
+            onNextVisit={() => {
+              // 前のビジットのルートを次のビジットへ持ち越さない。
+              setSelectedRoutePlan(null);
+              nextVisit();
+            }}
+            onReset={() => {
+              setSelectedRoutePlan(null);
+              reset(visit.visitStartRemaining);
+            }}
           />
         </section>
       )}
@@ -392,6 +569,8 @@ export function PracticePage({ mode }: PracticePageProps) {
           onChange={(value) => {
             setVisibleCount(INITIAL_ROUTE_COUNT);
             setFocusedDartId(null);
+            // 別の残り点は別の場面。前の残り点で選んだルートは捨てる。
+            setSelectedRoutePlan(null);
             /*
              * 別の残り点へ書き換えたら、新しい3投として入力し直す。
              * 前の3投の着弾が残ったままだと、別の残り点の候補を読んでしまう。
@@ -446,7 +625,7 @@ export function PracticePage({ mode }: PracticePageProps) {
                 dartIds={standardRoute.darts.map((dart) => dart.id)}
                 reasons={toReasonViews(standardRoute.reasons)}
                 curatedExplanation={CURATED_CHECKOUT_EXPLANATIONS[visit.remaining] ?? null}
-                onDartFocus={focusDart}
+                onDartFocus={focusDefaultDart}
                 focusedDartId={focusedDartId}
                 defaultOpen
               />
@@ -464,7 +643,7 @@ export function PracticePage({ mode }: PracticePageProps) {
                 meta={`取得 ${bestSetup.scored} 点 → 残り ${bestSetup.leave}`}
                 reasons={toReasonViews(bestSetup.reasons)}
                 curatedExplanation={CURATED_SETUP_EXPLANATIONS[visit.remaining] ?? null}
-                onDartFocus={focusDart}
+                onDartFocus={focusDefaultDart}
                 focusedDartId={focusedDartId}
                 defaultOpen
               />
@@ -490,7 +669,7 @@ export function PracticePage({ mode }: PracticePageProps) {
                 dartIds={nextVisitRoute.darts.map((dart) => dart.id)}
                 meta={`取得 ${nextVisitRoute.scored} 点 → 残り ${nextVisitRoute.leave}`}
                 reasons={[]}
-                onDartFocus={focusDart}
+                onDartFocus={focusDefaultDart}
                 focusedDartId={focusedDartId}
               />
             </section>
@@ -515,7 +694,13 @@ export function PracticePage({ mode }: PracticePageProps) {
                     grade={myRoute.grade}
                     dartIds={myRoute.darts.map((dart) => dart.id)}
                     reasons={toReasonViews(myRoute.reasons)}
-                    onDartFocus={focusDart}
+                    onDartFocus={(dartId) =>
+                      selectRoute(
+                        dartId,
+                        'my',
+                        myRoute.darts.map((dart) => dart.id),
+                      )
+                    }
                     focusedDartId={focusedDartId}
                   />
                 </>
@@ -532,7 +717,13 @@ export function PracticePage({ mode }: PracticePageProps) {
                         grade={route.grade}
                         dartIds={route.darts.map((dart) => dart.id)}
                         reasons={toReasonViews(route.reasons)}
-                        onDartFocus={focusDart}
+                        onDartFocus={(dartId) =>
+                          selectRoute(
+                            dartId,
+                            'other-checkout',
+                            route.darts.map((dart) => dart.id),
+                          )
+                        }
                         focusedDartId={focusedDartId}
                       />
                     ))}
@@ -560,7 +751,13 @@ export function PracticePage({ mode }: PracticePageProps) {
                     dartIds={route.darts.map((dart) => dart.id)}
                     meta={`取得 ${route.scored} 点 → 残り ${route.leave}`}
                     reasons={toReasonViews(route.reasons)}
-                    onDartFocus={focusDart}
+                    onDartFocus={(dartId) =>
+                      selectRoute(
+                        dartId,
+                        'other-setup',
+                        route.darts.map((dart) => dart.id),
+                      )
+                    }
                     focusedDartId={focusedDartId}
                   />
                 ))}
