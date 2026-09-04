@@ -17,6 +17,7 @@ import {
   type RankedSetupRoute,
   type SetupOptions,
 } from '../setup/enumerate';
+import { selectNextVisitRoute, type NextVisitOptions } from './nextVisitSelection';
 
 export type SuggestionMode = 'checkout' | 'setup' | 'unavailable';
 
@@ -30,7 +31,7 @@ export interface Suggestion {
    * CHECKOUT 中に、現在の残り本数では上がれなくなったときの「次ラウンドへの残し」。
    *
    * mode は 'checkout' のまま変えない。あくまで CHECKOUT 中の補助であり、
-   * 計算そのものは通常の SETUP と同じ `rankSetupRoutes()` を再利用する。
+   * 選び方だけを NEXT VISIT 専用セレクタ（nextVisitSelection.ts）へ任せる。
    * CHECKOUT ルートが 1 件でもある場合は必ず null。
    */
   readonly nextVisitRoute: RankedSetupRoute | null;
@@ -44,7 +45,7 @@ export interface Suggestion {
   readonly unavailableReason: string | null;
 }
 
-export interface SuggestOptions extends CheckoutRankingOptions, SetupOptions {}
+export interface SuggestOptions extends CheckoutRankingOptions, SetupOptions, NextVisitOptions {}
 
 /** 現在の状況に対する提案を作る。 */
 export function suggestFor(
@@ -82,14 +83,14 @@ export function suggestFor(
     if (routes.length === 0) {
       /*
        * 上がれないと伝えるだけで終わらせない。
-       * 残っているダートで次ラウンドへ何を残すかは、通常の SETUP と同じ
-       * エンジンで決める（NEXT VISIT 専用の残し点リストや重みは作らない）。
+       * 残っているダートで次ラウンドへ何を残すかは、NEXT VISIT 専用の
+       * セレクタで決める。既存の CHECKOUT ランキングへは何も渡さないので、
+       * 上がれる場面の順位はこの分岐から一切影響を受けない。
        */
-      const nextVisit =
-        rankSetupRoutes(remaining, dartsLeft, {
-          mainTarget: options.mainTarget,
-          maxRoutes: 1,
-        })[0] ?? null;
+      const nextVisit = selectNextVisitRoute(remaining, dartsLeft, {
+        mainTarget: options.mainTarget,
+        fallbackPreferredDoubles: options.fallbackPreferredDoubles,
+      });
       const cannot = isBogey(remaining)
         ? `${remaining} はノーテン（Bogey）です。この残りは 3 本でも上がれません。`
         : `残り ${dartsLeft} 本では ${remaining} を上がれません。`;

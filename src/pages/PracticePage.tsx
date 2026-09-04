@@ -123,9 +123,17 @@ export function PracticePage({ mode }: PracticePageProps) {
    */
   const [recoveryOpen, setRecoveryOpen] = useState(false);
 
+  /*
+   * NEXT VISIT（CHECKOUT 不能時の残し）だけで得意ダブルを見る。
+   * 既存の CHECKOUT ランキングが読む preferredDoubles とは別の名前で渡すので、
+   * STANDARD / OTHER ROUTES の順位はこの設定では変わらない。
+   */
   const suggestOptions = useMemo(
-    () => ({ mainTarget: preferences.setupMainTarget }),
-    [preferences.setupMainTarget],
+    () => ({
+      mainTarget: preferences.setupMainTarget,
+      fallbackPreferredDoubles: preferences.preferredDoubles,
+    }),
+    [preferences.setupMainTarget, preferences.preferredDoubles],
   );
 
   /*
