@@ -34,15 +34,19 @@ import { THROWABLE_DARTS } from '../../domain/dart';
 const DARTS_LEFT = [1, 2, 3] as const;
 const SEGMENT_IDS = new Set(THROWABLE_DARTS.map((dart) => dart.id));
 
-/** 監査に使う得意ダブルのプロファイル（既定値・未設定・順位違い）。 */
-const PREFERENCE_PROFILES: readonly (readonly string[] | undefined)[] = [
-  undefined,
-  [],
-  ['D16', 'D20'],
-  ['D20', 'D16'],
-  ['D8', 'D20', 'D16'],
-  ['D16', 'D20', 'D8', 'D10', 'D18'],
+/**
+ * 監査に使う得意ダブルのプロファイル（未設定・空・順位違い・アプリの既定値）。
+ *
+ * CHECKOUT 側の監査は 1 状態あたり rankCheckoutRoutes() を走らせるため重い。
+ * vitest の既定タイムアウト 5 秒に収まるよう、2 つのテストへ分けて回す。
+ */
+const PREFERENCE_PROFILE_GROUPS: readonly (readonly (readonly string[] | undefined)[])[] = [
+  [undefined, []],
+  [['D16', 'D20'], ['D20', 'D16']],
+  [['D8', 'D20', 'D16'], ['D16', 'D20', 'D8', 'D10', 'D18']],
 ];
+const PREFERENCE_PROFILES: readonly (readonly string[] | undefined)[] =
+  PREFERENCE_PROFILE_GROUPS.flat();
 
 interface State {
   readonly remaining: number;
@@ -304,33 +308,43 @@ describe('Case 6: ノーテン 169 / 3 本', () => {
   });
 });
 
-describe('Case 14: 全 507 状態の監査', () => {
-  it('得意ダブルの設定を変えても、CHECKOUT の結果は 1 件も変わらない', () => {
-    const violations: string[] = [];
-    for (const state of ALL_STATES) {
-      const base = suggestFor(state.remaining, state.dartsLeft);
-      for (const profile of PREFERENCE_PROFILES) {
-        const actual = suggestFor(state.remaining, state.dartsLeft, {
-          fallbackPreferredDoubles: profile,
-        });
-        if (actual.checkoutRoutes.length !== base.checkoutRoutes.length) {
-          violations.push(`${at(state)}: 件数が変わった（${JSON.stringify(profile)}）`);
-          continue;
-        }
-        for (let i = 0; i < base.checkoutRoutes.length; i += 1) {
-          if (
-            actual.checkoutRoutes[i].key !== base.checkoutRoutes[i].key ||
-            actual.checkoutRoutes[i].grade !== base.checkoutRoutes[i].grade ||
-            actual.checkoutRoutes[i].score !== base.checkoutRoutes[i].score
-          ) {
-            violations.push(`${at(state)}: ${i} 番目が変わった（${JSON.stringify(profile)}）`);
-            break;
-          }
+/** 全 507 状態で、得意ダブルの設定が CHECKOUT の結果を動かさないことを見る。 */
+function checkoutInvarianceViolations(
+  profiles: readonly (readonly string[] | undefined)[],
+): string[] {
+  const violations: string[] = [];
+  for (const state of ALL_STATES) {
+    const base = rankCheckoutRoutes(state.remaining, state.dartsLeft);
+    for (const profile of profiles) {
+      const actual = suggestFor(state.remaining, state.dartsLeft, {
+        fallbackPreferredDoubles: profile,
+      }).checkoutRoutes;
+      if (actual.length !== base.length) {
+        violations.push(`${at(state)}: 件数が変わった（${JSON.stringify(profile)}）`);
+        continue;
+      }
+      for (let i = 0; i < base.length; i += 1) {
+        if (
+          actual[i].key !== base[i].key ||
+          actual[i].grade !== base[i].grade ||
+          actual[i].score !== base[i].score
+        ) {
+          violations.push(`${at(state)}: ${i} 番目が変わった（${JSON.stringify(profile)}）`);
+          break;
         }
       }
     }
-    expect(violations).toEqual([]);
-  });
+  }
+  return violations;
+}
+
+describe('Case 14: 全 507 状態の監査', () => {
+  it.each(PREFERENCE_PROFILE_GROUPS.map((group, index) => [index + 1, group]))(
+    '得意ダブルの設定を変えても、CHECKOUT の結果は 1 件も変わらない（%i 組目）',
+    (_index, group) => {
+      expect(checkoutInvarianceViolations(group)).toEqual([]);
+    },
+  );
 
   it('どの設定でも、選ばれた残しは合法でセレクタの第 1 位である', () => {
     const violations: string[] = [];
