@@ -240,6 +240,21 @@ export function PracticePage({ mode }: PracticePageProps) {
 
   const highlightedDartIds = nextDartIds ?? [];
 
+  /**
+   * 候補が 1 件も無いときに、ルート一覧の代わりへ出す文言。
+   * 状態のお知らせ（practice__note）と重複させないため、1 か所で決めておく。
+   */
+  const emptyNotice = (() => {
+    if (suggestion === null) return null;
+    if (suggestion.mode === 'checkout' && checkoutRoutes.length === 0) {
+      return suggestion.unavailableReason ?? 'この残りで成立するルートはありません。';
+    }
+    if (suggestion.mode === 'setup' && setupRoutes.length === 0) {
+      return suggestion.unavailableReason ?? 'この残りで作れるセットアップがありません。';
+    }
+    return null;
+  })();
+
   const statusNote = (() => {
     if (visit === null || suggestion === null) return null;
     if (visit.status === 'bust') {
@@ -399,8 +414,13 @@ export function PracticePage({ mode }: PracticePageProps) {
         </>
       ) : (
         <div className="practice__result" ref={resultRef}>
-          {/* 盤面をたたんでいるあいだも、ノーテンや TON の罠は先に伝える。 */}
-          {!recoveryOpen && statusNote && (
+          {/*
+            盤面をたたんでいるあいだも、ノーテンや TON の罠は先に伝える。
+            ただし同じ文言をルート一覧の代わり（practice__empty）にも出す場合は、
+            ここでは繰り返さない。同じ文を 2 度読ませると、その下にある答え
+            （NEXT VISIT）が押し下げられるだけで、伝わる情報は増えない。
+          */}
+          {!recoveryOpen && statusNote && statusNote !== emptyNotice && (
             <p className="practice__note" data-testid="status-note">
               {statusNote}
             </p>
@@ -443,15 +463,9 @@ export function PracticePage({ mode }: PracticePageProps) {
             </section>
           )}
 
-          {suggestion.mode === 'checkout' && checkoutRoutes.length === 0 && (
+          {emptyNotice && (
             <p className="practice__empty" data-testid="no-routes">
-              {suggestion.unavailableReason ?? 'この残りで成立するルートはありません。'}
-            </p>
-          )}
-
-          {suggestion.mode === 'setup' && setupRoutes.length === 0 && (
-            <p className="practice__empty" data-testid="no-routes">
-              {suggestion.unavailableReason ?? 'この残りで作れるセットアップがありません。'}
+              {emptyNotice}
             </p>
           )}
 

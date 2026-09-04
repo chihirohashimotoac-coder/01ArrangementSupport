@@ -1300,6 +1300,41 @@ describe('v1.3.1 CHECKOUT 不能時の NEXT VISIT', () => {
     expect(screen.getAllByTestId('next-visit-route')).toHaveLength(1);
   });
 
+  it('上がれないときの警告文を 2 回表示しない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '169');
+
+    // ルート一覧の代わり（no-routes）が同じ文言を出すので、
+    // 盤面をたたんでいるときの状態のお知らせ（status-note）は重ねない。
+    const notice = screen.getByTestId('no-routes').textContent ?? '';
+    expect(notice).toContain('ノーテン');
+    expect(screen.queryByTestId('status-note')).toBeNull();
+
+    // 画面全体でも、この文言はちょうど 1 回だけ。
+    const page = screen.getByTestId('no-routes').closest('.practice');
+    const occurrences = (page?.textContent ?? '').split(notice).length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it('内容が違うお知らせ（TON の罠・Bust）はこれまでどおり出す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    // SETUP 269 の TON の罠は、候補が出ている状態のお知らせなので消さない。
+    await openSetupWith(user, '269');
+    expect(screen.getByTestId('status-note').textContent).toContain('169');
+    expect(screen.queryByTestId('no-routes')).toBeNull();
+
+    // Bust のお知らせも従来どおり。
+    await openCheckoutWith(user, '103');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-t19'));
+    await user.click(screen.getByTestId('segment-t20'));
+    expect(screen.getByTestId('status-flag')).toHaveTextContent('BUST');
+    expect(screen.getByTestId('status-note').textContent).toContain('103');
+  });
+
   it('ノーテン（169 / 3 本）でも NEXT VISIT を出す', async () => {
     const user = userEvent.setup();
     render(<App />);
