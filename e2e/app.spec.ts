@@ -783,3 +783,56 @@ test('v1.3.1: 上がれる残りでは TIP も NEXT VISIT も出さない', asyn
   await expect(page.getByTestId('practice-idle')).toBeVisible();
   await expect(page.getByTestId('practice-tip')).toHaveCount(0);
 });
+
+test('v1.3.2: 134 から T5 を刺した 119 / 2 本で、40 残しを案内する', async ({ page }) => {
+  // 実機で見つかった事故の再現。モバイル相当の幅で確認する。
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openCheckout(page, 134);
+  await openRecovery(page);
+
+  // 実際の着弾は T5（15 点）。134 - 15 = 119、残り 2 本。
+  await page.getByTestId('segment-t5').click();
+  await expect(page.getByTestId('status-bar')).toContainText('119');
+
+  const card = page.getByTestId('next-visit-route');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('T20');
+  await expect(card).toContainText('S19');
+  await expect(card).toContainText('取得 79 点 → 残り 40');
+
+  // 候補を並べて選ばせない。NEXT VISIT は常に 1 件だけ。
+  await expect(page.getByTestId('next-visit-route')).toHaveCount(1);
+
+  // 横スクロールを増やさない。
+  const overflows = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflows, 'NEXT VISIT 表示中に横スクロールが出ている').toBe(false);
+});
+
+test('v1.3.2: 119 / 2 本では、警告・NEXT VISIT・実戦入力が近い位置に並ぶ', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openCheckout(page, 134);
+  await openRecovery(page);
+  await page.getByTestId('segment-t5').click();
+  // 盤面をたたんで、通常の読み順（警告 → 答え → 実戦入力）へ戻す。
+  await page.getByTestId('recovery-toggle').click();
+  await expect(page.getByTestId('dartboard')).toHaveCount(0);
+
+  const notice = page.getByTestId('no-routes');
+  await expect(notice).toContainText('上がれません');
+  await expect(page.getByTestId('next-visit-route')).toBeVisible();
+
+  // 警告 → NEXT VISIT →「実際の着弾を入力」の順で、過度なスクロールなしに読める。
+  const tops = await page.evaluate(() => {
+    const ids = ['no-routes', 'next-visit-route', 'recovery-toggle'];
+    return ids.map((id) => {
+      const el = document.querySelector(`[data-testid="${id}"]`);
+      return el ? el.getBoundingClientRect().top : Number.NaN;
+    });
+  });
+  expect(tops[0]).toBeLessThan(tops[1]);
+  expect(tops[1]).toBeLessThan(tops[2]);
+  // 3 つとも 1 画面（844px）に収まる。
+  expect(tops[2]).toBeLessThan(844);
+});

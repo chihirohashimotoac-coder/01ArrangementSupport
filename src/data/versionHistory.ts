@@ -24,6 +24,21 @@ export interface VersionHistoryEntry {
 /** 新しい順。先頭が現在の版。 */
 export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
   {
+    label: 'v1.3.2 NEXT VISITの残しの選び方',
+    date: '2026-09-04',
+    summary:
+      'CHECKOUT 中に上がれなくなった場合の NEXT VISIT を、次ラウンドでより少ない本数で上がれる残りと、いまの狙いやすさを考慮して選ぶよう改善しました。',
+    changes: [
+      '次ラウンド 1 投で上がれる良いダブル残し（8・12・16・20・24・28・32・36・40）を優先するよう改善しました。',
+      '同じくらいの狙いやすさの候補が複数ある場合は、設定した得意ダブルを考慮します。',
+      '得意ダブルのために、いま不必要に難しいトリプルを要求しないよう改善しました。',
+      '例: 119 残り 2 本では、これまでの 80 点取って 39 残し（次ラウンド 2 投）ではなく、79 点取って 40 残し（次ラウンド 1 投・D20）を案内します。',
+      '表示するのはこれまでどおり 1 件だけです。ボタンや設定は増えていません。',
+      '通常の CHECKOUT・SETUP・TRAINING の計算ルールと順位は変更していません。',
+    ],
+    current: true,
+  },
+  {
     label: 'v1.3.1 CHECKOUTリカバリーと操作補助',
     date: '2026-09-04',
     summary:
@@ -36,7 +51,6 @@ export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
       '上がれないときに、同じ案内文が 2 回続けて表示されていた点を直しました。',
       'これまでの CHECKOUT・SETUP・TRAINING の計算や順位は変更していません。上がれる場面の表示はこれまでと同じです。',
     ],
-    current: true,
   },
   {
     label: 'v1.3 TRAINING 教育設計の再構築',

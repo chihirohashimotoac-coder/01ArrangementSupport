@@ -1,5 +1,8 @@
 /**
- * v1.3.1 で追加した「CHECKOUT 不能時の NEXT VISIT」の回帰テスト。
+ * 「CHECKOUT 不能時の NEXT VISIT」の回帰テスト。
+ *
+ * v1.3.2 で残しの選び方だけを専用セレクタへ移した。ここで守るのは
+ * 「上がれる場面は 1 ミリも変わっていない」ことと「残しは常に合法」であること。
  *
  * 目的は 2 つ。
  *   1. CHECKOUT が成立する状態の挙動が、これまでと 1 ミリも変わっていないこと
@@ -14,6 +17,7 @@ import { createVisit, recordThrow } from './visit';
 import { requireDart, THROWABLE_DARTS } from '../../domain/dart';
 import { rankCheckoutRoutes } from '../ranking/checkoutRanking';
 import { rankSetupRoutes } from '../setup/enumerate';
+import { selectNextVisitRoute } from './nextVisitSelection';
 import { evaluateLeave } from '../setup/leaveQuality';
 import { MAX_CHECKOUT, MIN_CHECKOUT, isBogey } from '../../domain/checkoutRules';
 
@@ -162,10 +166,10 @@ describe('CHECKOUT 2〜170 × 1〜3 本の全 507 状態', () => {
         violations.push(`${at(state)}: 上がれる残りを bogey と表示している`);
       }
 
-      // 既存 SETUP エンジンの第 1 候補そのものであること（独自の選び直しをしない）。
-      const expected = rankSetupRoutes(state.remaining, state.dartsLeft, { maxRoutes: 1 })[0];
+      // v1.3.2: 残しの選び方は NEXT VISIT 専用セレクタが決める。
+      const expected = selectNextVisitRoute(state.remaining, state.dartsLeft);
       if (!expected || expected.key !== route.key) {
-        violations.push(`${at(state)}: 既存 SETUP の第 1 候補と違う`);
+        violations.push(`${at(state)}: NEXT VISIT セレクタの選択と違う`);
       }
 
       // テンパイを作れる状況なら、必ずテンパイを残す（既存 SETUP の方針どおり）。
