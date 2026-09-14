@@ -13,7 +13,13 @@
  * 推奨解答は通常 Practice と同じ `rankSetupRoutes` から取る。
  * TRAINING のためにランキングの重み（Human Approval 済み）は一切変更しない。
  */
-import { THROWABLE_DARTS, findDart, requireDart, type Dart } from '../../domain/dart';
+import {
+  THROWABLE_DARTS,
+  TRIPLE_DARTS,
+  findDart,
+  requireDart,
+  type Dart,
+} from '../../domain/dart';
 import {
   DARTS_PER_VISIT,
   MAX_CHECKOUT,
@@ -32,6 +38,7 @@ import {
 import { LAST_DIGIT_RULE_BAND } from '../../data/bogeyNumbers';
 import {
   canReachTenpai,
+  evaluateSetupRoute,
   isSingleMissTenpaiSafe,
   rankSetupRoutes,
   singleMissDartOf,
@@ -567,10 +574,13 @@ export function setupFullCandidates(range: {
 // ---------------------------------------------------------------------------
 
 /**
- * 第一ターゲットの候補を SETUP ランキングから取り出すときの走査件数。
- * 「実際にランキングへ現れる戦術的な開始ターゲット」だけを教材にする。
+ * 「この残りから実戦で最初に考える得点ターゲット」として扱う上位件数。
+ *
+ * 出題する残り点を選ぶときだけに使う。取得点の多い順に見て、この本数の中に
+ * 安全な的と危険な的が混ざっている残りを教材にする。
+ * 採点は（この件数に関係なく）盤面上のすべてのトリプルを規則どおり判定する。
  */
-const FIRST_DART_SCAN = 60;
+const MAJOR_SCORING_TARGETS = 3;
 
 export interface SetupFirstDartOption {
   /** 狙う的（得点用のトリプル）。 */
@@ -613,11 +623,6 @@ export function setupFirstDartOptions(start: number): readonly SetupFirstDartOpt
   const cached = firstDartOptionCache.get(start);
   if (cached) return cached;
 
-  const ranked = rankSetupRoutes(start, DARTS_PER_VISIT, {
-    maxRoutes: FIRST_DART_SCAN,
-    includeSingleMissUnsafe: true,
-  });
-
   interface Draft {
     readonly dart: Dart;
     readonly idealLeave: number;
@@ -628,25 +633,22 @@ export function setupFirstDartOptions(start: number): readonly SetupFirstDartOpt
   }
 
   const drafts: Draft[] = [];
-  const seen = new Set<string>();
-  for (const route of ranked) {
-    const dart = route.darts[0];
-    if (dart.kind !== 'triple') continue;
-    if (seen.has(dart.id)) continue;
+  for (const dart of TRIPLE_DARTS) {
     const missDart = singleMissDartOf(dart);
     if (missDart === null) continue;
     const idealLeave = start - dart.score;
     if (idealLeave < MIN_CHECKOUT) continue;
     // 狙いどおり入った場合に、残り 2 本でテンパイを作れる的だけを候補にする。
     if (!canReachTenpai(idealLeave, DARTS_PER_VISIT - 1)) continue;
-    seen.add(dart.id);
+    const bestRoute = bestRouteStartingWith(start, dart);
+    if (bestRoute === null) continue;
     drafts.push({
       dart,
       idealLeave,
       missDart,
       missLeave: start - missDart.score,
       singleMissSafe: isSingleMissTenpaiSafe(start, dart, DARTS_PER_VISIT),
-      bestRoute: route,
+      bestRoute,
     });
   }
 
@@ -666,6 +668,24 @@ export function setupFirstDartOptions(start: number): readonly SetupFirstDartOpt
 
   firstDartOptionCache.set(start, options);
   return options;
+}
+
+/**
+ * その的から投げ始める最良ルート。
+ *
+ * 残りの 2 本は通常 Practice と同じ `rankSetupRoutes` に任せる。
+ * シングル落ち耐性のふるいは外す（危険な的も「狙いどおり入ればどうなるか」を
+ * 示す必要があるため）。教材としての良し悪しは safe / grade が表す。
+ */
+function bestRouteStartingWith(start: number, dart: Dart): RankedSetupRoute | null {
+  const rest = rankSetupRoutes(start - dart.score, DARTS_PER_VISIT - 1, {
+    maxRoutes: 1,
+    includeSingleMissUnsafe: true,
+  })[0];
+  if (rest === undefined) return null;
+  return evaluateSetupRoute(start, DARTS_PER_VISIT, [dart, ...rest.darts], {
+    includeSingleMissUnsafe: true,
+  });
 }
 
 function gradeOfFirstDart(
@@ -725,8 +745,21 @@ export function setupFirstDartCandidates(range: {
     const options = setupFirstDartOptions(start);
     const safeOptions = options.filter((option) => option.singleMissSafe);
     const unsafeOptions = options.filter((option) => !option.singleMissSafe);
-    // 安全な的と危険な的が両方あるときだけ、選択が学習になる。
     if (safeOptions.length === 0 || unsafeOptions.length === 0) continue;
+
+    /*
+     * 出題するのは「実戦で最初に考える得点ターゲット」の中で安全性が分かれる残りだけ。
+     *
+     * 盤面のトリプル 20 種すべてを見ると、T1 のような誰も狙わない的が危険というだけで
+     * 教材になってしまう。取得点の多い順に上位 3 つ（ふつうは T20 / T19 / T18）を見て、
+     * そこに安全な的と危険な的が混ざっている残りだけを出題する。
+     * 採点はこの絞り込みと無関係に、盤面上のすべてのトリプルを規則どおり判定する。
+     */
+    const major = [...options]
+      .sort((a, b) => b.dart.score - a.dart.score || a.dart.id.localeCompare(b.dart.id))
+      .slice(0, MAJOR_SCORING_TARGETS);
+    if (!major.some((option) => option.singleMissSafe)) continue;
+    if (!major.some((option) => !option.singleMissSafe)) continue;
 
     const recommended = safeOptions[0];
     // 主目標がそのまま安全なら「20 で良いと見抜く」問題、

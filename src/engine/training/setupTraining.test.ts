@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseRoute, requireDart } from '../../domain/dart';
-import { isBogey, isCheckoutable } from '../../domain/checkoutRules';
+import { TRIPLE_DARTS, parseRoute, requireDart } from '../../domain/dart';
+import { DARTS_PER_VISIT, isBogey, isCheckoutable } from '../../domain/checkoutRules';
+import { canReachTenpai, isSingleMissTenpaiSafe } from '../setup/enumerate';
 import { THIRD_DART_ADJUST_CASES, THIRD_DART_TRAP } from '../../data/setupReferenceCases';
 import {
   DEFAULT_TRAINING_SETTINGS,
@@ -511,6 +512,51 @@ describe('SETUP / FIRST DART', () => {
     expect(result.learningCorrect).toBe(true);
     const feedback = buildFeedback(question, answerOf('T18'), result);
     expect(feedback.alternativeTexts.length).toBeGreaterThan(0);
+  });
+
+  it('候補一覧の件数に関係なく、規則どおり安全なトリプルは正解になる（Codex P2 回帰）', () => {
+    // 299 / T9 は 272 で狙いどおり、S9 へ落ちても 290 でテンパイを作れる。
+    // 以前は「ランキング上位 60 件の 1 投目」だけを候補にしていたため、
+    // 規則を満たしているのに「得点ターゲットではない」と採点していた。
+    const question = firstDartQuestion(299);
+    const t9 = requireDart('T9');
+    expect(canReachTenpai(299 - t9.score, DARTS_PER_VISIT - 1)).toBe(true);
+    expect(isSingleMissTenpaiSafe(299, t9, DARTS_PER_VISIT)).toBe(true);
+
+    const result = gradeAnswer(question, [t9]);
+    expect(result.learningCorrect).toBe(true);
+    // ただし取得点が低いので、推奨度では差が付く。
+    expect(result.grade).not.toBe('S');
+  });
+
+  it('盤面のすべてのトリプルについて、採点と安全性判定が一致する', () => {
+    const violations: string[] = [];
+    for (const candidate of candidates) {
+      const question = buildSetupFirstDartQuestion(candidate, 0);
+      for (const dart of TRIPLE_DARTS) {
+        const ideal = candidate.startRemaining - dart.score;
+        if (ideal < 2) continue;
+        const viable = canReachTenpai(ideal, DARTS_PER_VISIT - 1);
+        const safe = isSingleMissTenpaiSafe(candidate.startRemaining, dart, DARTS_PER_VISIT);
+        const result = gradeAnswer(question, [dart]);
+        const expected = viable && safe;
+        if (result.learningCorrect !== expected) {
+          violations.push(`${candidate.startRemaining}/${dart.id}: ${result.learningCorrect} != ${expected}`);
+        }
+      }
+    }
+    expect(violations.slice(0, 10)).toEqual([]);
+  });
+
+  it('判定の推奨度と、回答ルートカードの推奨度が食い違わない（Codex P2 回帰）', () => {
+    const question = firstDartQuestion(299);
+    for (const dartId of ['T19', 'T18', 'T20', 'T9']) {
+      const result = gradeAnswer(question, [requireDart(dartId)]);
+      expect(result.setupEvaluation?.grade, dartId).toBe(result.grade);
+    }
+    // おすすめ側も第一ターゲットの推奨度で表示する。
+    const best = gradeAnswer(question, [requireDart('T20')]).bestSetup;
+    expect(best?.grade).toBe('S');
   });
 
   it('広いシングルを狙うのは「安全だから正解」にしない', () => {

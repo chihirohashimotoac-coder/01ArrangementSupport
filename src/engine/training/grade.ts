@@ -29,6 +29,7 @@ import {
   leaveVerdictOf,
   setupFirstDartOptions,
   type LeaveVerdict,
+  type SetupFirstDartOption,
 } from './setupQuestions';
 import type { TrainingQuestion } from './model';
 
@@ -254,6 +255,14 @@ function gradeSetupFirstDartAnswer(
         ? null
         : 'FIRST_DART_SINGLE_MISS_DEAD_END';
 
+  /*
+   * ルートカードに出す推奨度は、この問題の採点と同じ「第一ターゲットの推奨度」にする。
+   * bestRoute はその的から投げ切ったときの 3 投ルートなので、そのままだと
+   * 「判定は C なのにカードは S」のような食い違いになる。
+   */
+  const withFirstDartGrade = (option: SetupFirstDartOption | null): RankedSetupRoute | null =>
+    option === null ? null : { ...option.bestRoute, grade: option.grade };
+
   return {
     ruleValid: true,
     learningCorrect: failureCode === null,
@@ -261,9 +270,9 @@ function gradeSetupFirstDartAnswer(
     failureMessageJa: failureCode === null ? null : FAILURE_MESSAGES[failureCode],
     grade: chosen?.grade ?? 'C',
     checkoutEvaluation: null,
-    setupEvaluation: chosen?.bestRoute ?? null,
+    setupEvaluation: withFirstDartGrade(chosen),
     bestCheckout: null,
-    bestSetup: recommended?.bestRoute ?? null,
+    bestSetup: withFirstDartGrade(recommended),
     answerText: formatRoute(answer),
     finishDouble: null,
     // 1 投目のあとの残り。170 を超えていて当然なので verdict は付けない。
