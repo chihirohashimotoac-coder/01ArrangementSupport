@@ -16,6 +16,8 @@ import { rankSetupRoutes } from '../setup/enumerate';
 import {
   checkoutDifferenceJa,
   describeLeaveJa,
+  firstDartDifferenceJa,
+  firstDartMissOutcomeJa,
   setupDifferenceJa,
   setupFullDifferenceJa,
 } from '../../data/trainingExplanations';
@@ -23,10 +25,13 @@ import type { TrainingQuestion } from './model';
 import type { GradeResult } from './grade';
 import {
   adjustmentOutcomes,
+  findFirstDartOption,
   leaveVerdictOf,
   recommendedAdjustment,
   recommendedFullRoute,
+  setupFirstDartOptions,
   type LeaveVerdict,
+  type SetupFirstDartOption,
 } from './setupQuestions';
 
 export interface TrainingFeedback {
@@ -58,6 +63,10 @@ export function recommendedAnswerOf(question: TrainingQuestion): readonly Dart[]
   const fallback = question.expectedAnswer.map((id) => requireDart(id));
 
   if (question.kind === 'setup') {
+    if (question.format === 'setup-first-dart') {
+      const best = recommendedFirstDartOption(question);
+      return best ? [best.dart] : fallback;
+    }
     if (question.format === 'setup-adjustment') {
       const dart = recommendedAdjustment(question.currentRemaining);
       return dart ? [dart] : fallback;
@@ -108,8 +117,69 @@ export function alternativeAdjustments(
   return texts;
 }
 
+/**
+ * SETUP / FIRST DART で、推奨以外にも成立する第一ターゲット。
+ *
+ * 唯一の正解を固定しない（本仕様 5-6 節）。シングル落ち耐性を保ち、
+ * 実戦の SETUP として成立する的は、推奨度に差があっても正解として示す。
+ */
+export function alternativeFirstDarts(
+  question: TrainingQuestion,
+  recommendedId: string,
+  limit = 3,
+): readonly string[] {
+  if (question.format !== 'setup-first-dart') return [];
+  const texts: string[] = [];
+  for (const option of setupFirstDartOptions(question.currentRemaining)) {
+    if (!option.singleMissSafe) continue;
+    if (option.dart.id === recommendedId) continue;
+    texts.push(`${option.dart.id}（推奨度 ${option.grade}）→ ${option.missDart.id} でも ${option.missLeave}`);
+    if (texts.length >= limit) break;
+  }
+  return texts;
+}
+
+/** SETUP / FIRST DART でいちばん推奨する第一ターゲット。 */
+function recommendedFirstDartOption(question: TrainingQuestion): SetupFirstDartOption | null {
+  const options = setupFirstDartOptions(question.currentRemaining);
+  return options.find((option) => option.singleMissSafe) ?? options[0] ?? null;
+}
+
+/**
+ * 「シングルへ落ちたあと、そこからどうテンパイを作るか」の一例。
+ * 通常 Practice と同じ SETUP ランキングの第 1 候補をそのまま使う。
+ */
+function missRecoveryHintJa(missLeave: number, dartsAfterMiss: number): string | null {
+  if (dartsAfterMiss <= 0) return null;
+  const best = rankSetupRoutes(missLeave, dartsAfterMiss, { maxRoutes: 1 })[0];
+  if (best === undefined) return null;
+  if (leaveVerdictOf(best.leave) !== 'checkoutable') return null;
+  return `${best.routeText} で ${best.leave} 残しを作れます`;
+}
+
+function firstDartOutcomeJa(option: SetupFirstDartOption, dartsAfterMiss: number): string {
+  return firstDartMissOutcomeJa({
+    dartId: option.dart.id,
+    missDartId: option.missDart.id,
+    missLeave: option.missLeave,
+    dartsAfterMiss,
+    singleMissSafe: option.singleMissSafe,
+    recoveryHintJa: option.singleMissSafe
+      ? missRecoveryHintJa(option.missLeave, dartsAfterMiss)
+      : null,
+  });
+}
+
 function outcomeOfAnswer(question: TrainingQuestion, result: GradeResult): string {
   if (!result.ruleValid) return result.failureMessageJa ?? 'この回答は成立しません。';
+  if (question.format === 'setup-first-dart') {
+    const answerId = result.answerText;
+    const option = findFirstDartOption(question.currentRemaining, answerId);
+    if (option === null) {
+      return result.failureMessageJa ?? 'この残りの得点ターゲットとしては選びません。';
+    }
+    return firstDartOutcomeJa(option, question.visitDartsAvailable - 1);
+  }
   if (question.kind === 'setup') {
     return result.leave === null || result.leaveVerdict === null
       ? '—'
@@ -137,13 +207,33 @@ export function buildFeedback(
       ? `ルール上は成立しますが、学習目的では不正解 — ${result.failureMessageJa ?? ''}`
       : `成立しません — ${result.failureMessageJa ?? ''}`;
 
-  const recommendedOutcomeJa =
-    isSetup && recommendedVerdict !== null
+  const isFirstDart = question.format === 'setup-first-dart';
+  const dartsAfterMiss = question.visitDartsAvailable - 1;
+  const recommendedOption = isFirstDart ? recommendedFirstDartOption(question) : null;
+  const answeredOption =
+    isFirstDart && answer.length === 1
+      ? findFirstDartOption(question.currentRemaining, answer[0].id)
+      : null;
+
+  const recommendedOutcomeJa = isFirstDart
+    ? recommendedOption === null
+      ? '—'
+      : firstDartOutcomeJa(recommendedOption, dartsAfterMiss)
+    : isSetup && recommendedVerdict !== null
       ? describeLeaveJa(recommendedLeave, recommendedVerdict)
       : '上がりが成立します。';
 
   let differenceJa: string;
-  if (isSetup && question.format === 'setup-adjustment') {
+  if (isFirstDart) {
+    differenceJa = firstDartDifferenceJa({
+      answerDartId: answer.length === 1 ? answer[0].id : null,
+      answerSafe: answeredOption?.singleMissSafe === true,
+      answerIsCandidate: answeredOption !== null,
+      answerMissDartId: answeredOption?.missDart.id ?? null,
+      recommendedDartId: recommendedOption?.dart.id ?? recommended[0]?.id ?? '',
+      recommendedMissDartId: recommendedOption?.missDart.id ?? '',
+    });
+  } else if (isSetup && question.format === 'setup-adjustment') {
     differenceJa = setupDifferenceJa({
       answerDartId: answer.length === 1 ? answer[0].id : null,
       answerLeave: result.leave,
@@ -178,11 +268,13 @@ export function buildFeedback(
     recommendedText,
     recommendedOutcomeJa,
     differenceJa,
-    alternativeTexts: result.learningCorrect
-      ? []
-      : alternativeAdjustments(question, recommended[0]?.id ?? ''),
+    alternativeTexts: isFirstDart
+      ? alternativeFirstDarts(question, recommendedOption?.dart.id ?? '')
+      : result.learningCorrect
+        ? []
+        : alternativeAdjustments(question, recommended[0]?.id ?? ''),
     answerLeave: result.leave,
     answerLeaveVerdict: result.leaveVerdict,
-    recommendedLeave: isSetup ? recommendedLeave : null,
+    recommendedLeave: isSetup && !isFirstDart ? recommendedLeave : null,
   };
 }

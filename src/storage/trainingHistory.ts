@@ -68,10 +68,15 @@ const EMPTY_HISTORY: TrainingHistory = { version: 2, records: [], migrationSkipp
 const KINDS: readonly TrainingKind[] = ['checkout', 'setup', 'recovery'];
 const GRADES: readonly RouteGrade[] = ['S', 'A', 'B', 'C'];
 const DIFFICULTIES: readonly TrainingDifficulty[] = ['easy', 'medium', 'hard'];
+/**
+ * 保存済みレコードで受け付ける形式。
+ * `setup-full` は新規出題を停止したが、**過去の履歴を読めるよう残す**。
+ */
 const FORMATS: readonly TrainingFormat[] = [
   'checkout-route',
   'setup-adjustment',
   'setup-full',
+  'setup-first-dart',
   'recovery-route',
 ];
 

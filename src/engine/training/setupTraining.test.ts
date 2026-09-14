@@ -2,12 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { parseRoute, requireDart } from '../../domain/dart';
 import { isBogey, isCheckoutable } from '../../domain/checkoutRules';
 import { THIRD_DART_ADJUST_CASES, THIRD_DART_TRAP } from '../../data/setupReferenceCases';
-import { buildSetupAdjustmentQuestion, buildSetupFullQuestion } from './questions';
+import {
+  DEFAULT_TRAINING_SETTINGS,
+  buildPools,
+  buildSetupAdjustmentQuestion,
+  buildSetupFirstDartQuestion,
+  buildSetupFullQuestion,
+} from './questions';
 import {
   adjustmentOutcomes,
+  isDecisionRequiredAdjustment,
   leaveVerdictOf,
   recommendedAdjustment,
   setupAdjustmentCandidates,
+  setupFirstDartCandidates,
   setupFullCandidates,
   type SetupAdjustmentCandidate,
 } from './setupQuestions';
@@ -29,6 +37,10 @@ function findAdjustment(start: number, actualIds: readonly string[]): SetupAdjus
 
 function adjustmentQuestion(start: number, actualIds: readonly string[]): TrainingQuestion {
   return buildSetupAdjustmentQuestion(findAdjustment(start, actualIds), 0);
+}
+
+function answerOf(dartId: string) {
+  return [requireDart(dartId)];
 }
 
 describe('SETUP 1 投調整（226 / 必須ケース A）', () => {
@@ -402,5 +414,190 @@ describe('1 投の結果一覧', () => {
     const dart = recommendedAdjustment(186);
     expect(dart?.id).toBe('S19');
     expect(leaveVerdictOf(186 - (dart?.score ?? 0))).toBe('checkoutable');
+  });
+});
+
+/**
+ * v1.3.4: SETUP / FIRST DART（1 投目だけを選ぶ）。
+ *
+ * 3 投フル形式は「とりあえず T20 → T20 → T20」でも正解になる問題が多く、
+ * 「なぜ最初から 19 へ振るのか」を学べなかった。
+ * 1 投目だけを問い、シングル落ち耐性で採点する形式へ置き換えた。
+ */
+describe('SETUP / FIRST DART', () => {
+  const candidates = setupFirstDartCandidates(FULL_RANGE);
+
+  function firstDartQuestion(start: number): TrainingQuestion {
+    const candidate = candidates.find((item) => item.startRemaining === start);
+    if (!candidate) throw new Error(`1 投目問題の候補が見つかりません: ${start}`);
+    return buildSetupFirstDartQuestion(candidate, 0);
+  }
+
+  it('候補はすべて「安全な的と危険な的の両方がある」残りになる', () => {
+    expect(candidates.length).toBeGreaterThan(0);
+    const violations: string[] = [];
+    for (const candidate of candidates) {
+      if (candidate.safeOptions.length === 0) violations.push(`${candidate.startRemaining}: 安全な的が無い`);
+      if (candidate.unsafeOptions.length === 0) {
+        violations.push(`${candidate.startRemaining}: 危険な的が無い（考えなくても正解できる）`);
+      }
+      if (candidate.recommended.singleMissSafe !== true) {
+        violations.push(`${candidate.startRemaining}: おすすめが安全でない`);
+      }
+      // 候補は得点用トリプルだけ。
+      if (candidate.options.some((option) => option.dart.kind !== 'triple')) {
+        violations.push(`${candidate.startRemaining}: トリプル以外が候補に入っている`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it.each([
+    { start: 299, expected: 'T19' },
+    { start: 302, expected: 'T18' },
+    { start: 303, expected: 'T19' },
+    { start: 305, expected: 'T18' },
+    { start: 306, expected: 'T19' },
+    { start: 308, expected: 'T18' },
+    { start: 309, expected: 'T19' },
+  ])('$start は $expected を推奨する', ({ start, expected }) => {
+    const candidate = candidates.find((item) => item.startRemaining === start);
+    expect(candidate, `${start} が候補に無い`).toBeDefined();
+    expect(candidate!.recommended.dart.id).toBe(expected);
+  });
+
+  it.each([300, 301, 304, 307])('%i は T20 のままを推奨する', (start) => {
+    const candidate = candidates.find((item) => item.startRemaining === start);
+    expect(candidate, `${start} が候補に無い`).toBeDefined();
+    expect(candidate!.recommended.dart.id).toBe('T20');
+  });
+
+  it('299 で T20 と答えると、シングル落ちで失敗する理由を feedback できる', () => {
+    const question = firstDartQuestion(299);
+    expect(question.dartsAvailable).toBe(1);
+    expect(question.visitDartsAvailable).toBe(3);
+    expect(question.promptJa).toContain('1 投目');
+
+    const answer = parseRoute(['T20']);
+    const result = gradeAnswer(question, answer);
+    // ルール上は合法だが、学習目的では不正解。
+    expect(result.ruleValid).toBe(true);
+    expect(result.learningCorrect).toBe(false);
+    expect(result.failureCode).toBe('FIRST_DART_SINGLE_MISS_DEAD_END');
+
+    const feedback = buildFeedback(question, answer, result);
+    // S20 へ落ちた場合の残りと、テンパイ不能であることを伝える。
+    expect(feedback.answerOutcomeJa).toContain('S20');
+    expect(feedback.answerOutcomeJa).toContain('279');
+    expect(feedback.answerOutcomeJa).toContain('テンパイを作れません');
+    // おすすめ側は「シングルへ落ちても道が残る」ことを伝える。
+    expect(feedback.recommendedDartIds).toEqual(['T19']);
+    expect(feedback.recommendedOutcomeJa).toContain('S19');
+    expect(feedback.recommendedOutcomeJa).toContain('280');
+    expect(feedback.differenceJa).toContain('19');
+  });
+
+  it('299 で T19 と答えれば正解になる', () => {
+    const question = firstDartQuestion(299);
+    const result = gradeAnswer(question, parseRoute(['T19']));
+    expect(result.ruleValid).toBe(true);
+    expect(result.learningCorrect).toBe(true);
+    expect(result.grade).toBe('S');
+  });
+
+  it('唯一の正解を固定せず、安全な代替も正解にする（推奨度で差を付ける）', () => {
+    const question = firstDartQuestion(299);
+    const result = gradeAnswer(question, parseRoute(['T18']));
+    expect(result.learningCorrect).toBe(true);
+    const feedback = buildFeedback(question, answerOf('T18'), result);
+    expect(feedback.alternativeTexts.length).toBeGreaterThan(0);
+  });
+
+  it('広いシングルを狙うのは「安全だから正解」にしない', () => {
+    const question = firstDartQuestion(299);
+    const result = gradeAnswer(question, parseRoute(['S18']));
+    expect(result.ruleValid).toBe(true);
+    expect(result.learningCorrect).toBe(false);
+    expect(result.failureCode).toBe('FIRST_DART_NOT_SCORING_TARGET');
+  });
+
+  it('1 投で 170 以下にならなくても不正解にしない', () => {
+    // 299 - 57 = 242。3 投フルの採点（回答後 leave が checkoutable）を流用しない。
+    const question = firstDartQuestion(299);
+    const result = gradeAnswer(question, parseRoute(['T19']));
+    expect(result.leave).toBe(242);
+    expect(isCheckoutable(242, 3)).toBe(false);
+    expect(result.learningCorrect).toBe(true);
+  });
+
+  it('主目標がそのまま安全かどうかで難易度を分ける', () => {
+    const hard = candidates.filter((item) => item.difficulty === 'hard');
+    const medium = candidates.filter((item) => item.difficulty === 'medium');
+    expect(hard.length).toBeGreaterThan(0);
+    expect(medium.length).toBeGreaterThan(0);
+    expect(hard.map((item) => item.startRemaining)).toEqual(
+      expect.arrayContaining([299, 302, 303, 305, 306, 308, 309]),
+    );
+  });
+});
+
+/**
+ * v1.3.4: 1 投調整は「本当に調整判断が要る」問題だけを出す。
+ */
+describe('ラスト 1 投の decisionRequired', () => {
+  it.each([179, 182, 183, 185, 186, 188, 189])(
+    '現在 %i（ここまで T20）は調整判断が要る',
+    (current) => {
+      expect(isDecisionRequiredAdjustment(current, 'T20')).toBe(true);
+    },
+  );
+
+  it.each([184, 187])('現在 %i は 20 を続けても上がれるので出題しない', (current) => {
+    expect(isDecisionRequiredAdjustment(current, 'T20')).toBe(false);
+  });
+
+  it('現在 176 は、18 を続けても 20 へ戻しても上がれるので出題しない', () => {
+    // T18 → 122 / S18 → 158 / T20 → 116 / S20 → 156。どれも次ラウンドで上がれる。
+    expect(isDecisionRequiredAdjustment(176, 'T18')).toBe(false);
+    expect(isDecisionRequiredAdjustment(176, 'T20')).toBe(false);
+  });
+
+  it('出題 pool は decisionRequired だけになる', () => {
+    const pools = buildPools({ ...DEFAULT_TRAINING_SETTINGS, mode: 'setup' });
+    expect(pools.setupAdjustment.length).toBeGreaterThan(0);
+    expect(pools.setupAdjustment.every((candidate) => candidate.decisionRequired)).toBe(true);
+    // 新規出題では 3 投フルを使わない。
+    expect(pools.setupFull).toEqual([]);
+    expect(pools.setupFirstDart.length).toBeGreaterThan(0);
+  });
+
+  it('176 の問題は出題 pool に入らない', () => {
+    const pools = buildPools({ ...DEFAULT_TRAINING_SETTINGS, mode: 'setup' });
+    expect(
+      pools.setupAdjustment.some((candidate) => candidate.currentRemaining === 176),
+    ).toBe(false);
+  });
+
+  it.each([182, 183, 185, 186, 188, 189])('現在 %i の問題は出題 pool に入る', (current) => {
+    const pools = buildPools({ ...DEFAULT_TRAINING_SETTINGS, mode: 'setup' });
+    expect(
+      pools.setupAdjustment.some((candidate) => candidate.currentRemaining === current),
+    ).toBe(true);
+  });
+
+  it('推奨解答そのものは変えていない（182 → S18 / 183 → S19 …）', () => {
+    const expected: Readonly<Record<number, string>> = {
+      182: 'S18',
+      183: 'S19',
+      184: 'S20',
+      185: 'S18',
+      186: 'S19',
+      187: 'S20',
+      188: 'S18',
+      189: 'S19',
+    };
+    for (const [current, dartId] of Object.entries(expected)) {
+      expect(recommendedAdjustment(Number(current))?.id, current).toBe(dartId);
+    }
   });
 });

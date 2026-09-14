@@ -25,6 +25,7 @@ function checkoutQuestion(left: number, darts = DARTS_PER_VISIT): TrainingQuesti
     startRemaining: left,
     currentRemaining: left,
     dartsAvailable: darts,
+    visitDartsAvailable: darts,
     contextualThrows: [],
     promptJa: '',
     recovery: null,
@@ -111,7 +112,9 @@ describe('不成立の回答にも必ず推奨解答を返す', () => {
     const result = gradeAnswer(question, answer);
     expect(result.failureCode).toBe('NOT_FINISHED');
     const feedback = buildFeedback(question, answer, result);
-    expect(feedback.recommendedDartIds).toEqual(['T20', 'T20', 'S18']);
+    // v1.3.4 以降、302 の 3 本フルの推奨は「安全な 18 から入る」並びになる。
+    // 取得点（138）と残し（164）は資料どおりのまま。
+    expect(feedback.recommendedDartIds).toEqual(['S18', 'T20', 'T20']);
   });
 
   it('170 超えを残したときも推奨解答を返す', () => {

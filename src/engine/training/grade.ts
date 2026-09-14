@@ -24,7 +24,12 @@ import {
   rankSetupRoutes,
   type RankedSetupRoute,
 } from '../setup/enumerate';
-import { leaveVerdictOf, type LeaveVerdict } from './setupQuestions';
+import {
+  findFirstDartOption,
+  leaveVerdictOf,
+  setupFirstDartOptions,
+  type LeaveVerdict,
+} from './setupQuestions';
 import type { TrainingQuestion } from './model';
 
 /** 回答が成立しなかった / 学習目的を満たさなかった理由。 */
@@ -36,7 +41,9 @@ export type FailureCode =
   | 'TOTAL_MISMATCH'
   | 'NOT_FINISHED'
   | 'LEAVES_BOGEY'
-  | 'LEAVE_ABOVE_CHECKOUT_RANGE';
+  | 'LEAVE_ABOVE_CHECKOUT_RANGE'
+  | 'FIRST_DART_SINGLE_MISS_DEAD_END'
+  | 'FIRST_DART_NOT_SCORING_TARGET';
 
 /** ルール上そもそも成立しない理由（ruleValid = false になるもの）。 */
 export const RULE_INVALID_CODES: readonly FailureCode[] = [
@@ -81,6 +88,10 @@ const FAILURE_MESSAGES: Record<FailureCode, string> = {
   NOT_FINISHED: '使える本数ぶんすべてを選んでください。',
   LEAVES_BOGEY: 'ノーテンが残ります。次のラウンドで 3 本あっても上がれません。',
   LEAVE_ABOVE_CHECKOUT_RANGE: '残りが 170 を超えます。次のラウンドでは上がれません。',
+  FIRST_DART_SINGLE_MISS_DEAD_END:
+    'その的は、同じナンバーのシングルへ落ちると、このラウンドでテンパイを作れなくなります。',
+  FIRST_DART_NOT_SCORING_TARGET:
+    'この問題で選ぶのは、得点しながら組み立てられるトリプルです。',
 };
 
 function invalid(reason: FailureCode, answer: readonly Dart[]): GradeResult {
@@ -207,8 +218,65 @@ function gradeSetupAnswer(question: TrainingQuestion, answer: readonly Dart[]): 
   };
 }
 
+/**
+ * SETUP / FIRST DART の回答を採点する。
+ *
+ * この形式は 1 投しか答えないので、回答後に 170 以下になる必要はない。
+ * したがって `gradeSetupAnswer()` の「回答後 leave が checkoutable なら正解」は使えない。
+ *
+ *   ruleValid       … 盤面上の合法なターゲットを 1 つ選べている
+ *   learningCorrect … その的が「得点用の開始ターゲット」であり、かつ
+ *                     同ナンバーのシングルへ落ちても残り本数でテンパイを作れる
+ *
+ * 広いシングルを狙えば確かに外しようがないが、それは得点の組み立てを捨てている。
+ * この教材の主題は得点用トリプルの選択なので、候補外の的は正解にしない。
+ */
+function gradeSetupFirstDartAnswer(
+  question: TrainingQuestion,
+  answer: readonly Dart[],
+): GradeResult {
+  if (answer.length === 0) return invalid('EMPTY', answer);
+  if (answer.length > 1) return invalid('TOO_MANY_DARTS', answer);
+
+  const dart = answer[0];
+  const start = question.currentRemaining;
+  const result = applyDart(start, dart);
+  if (result.outcome !== 'continue') return invalid('BUST', answer);
+
+  const options = setupFirstDartOptions(start);
+  const chosen = findFirstDartOption(start, dart.id);
+  const recommended = options.find((option) => option.singleMissSafe) ?? null;
+
+  const failureCode: FailureCode | null =
+    chosen === null
+      ? 'FIRST_DART_NOT_SCORING_TARGET'
+      : chosen.singleMissSafe
+        ? null
+        : 'FIRST_DART_SINGLE_MISS_DEAD_END';
+
+  return {
+    ruleValid: true,
+    learningCorrect: failureCode === null,
+    failureCode,
+    failureMessageJa: failureCode === null ? null : FAILURE_MESSAGES[failureCode],
+    grade: chosen?.grade ?? 'C',
+    checkoutEvaluation: null,
+    setupEvaluation: chosen?.bestRoute ?? null,
+    bestCheckout: null,
+    bestSetup: recommended?.bestRoute ?? null,
+    answerText: formatRoute(answer),
+    finishDouble: null,
+    // 1 投目のあとの残り。170 を超えていて当然なので verdict は付けない。
+    leave: result.remainingAfter,
+    leaveVerdict: null,
+  };
+}
+
 /** 出題と回答から採点結果を作る。 */
 export function gradeAnswer(question: TrainingQuestion, answer: readonly Dart[]): GradeResult {
+  if (question.format === 'setup-first-dart') {
+    return gradeSetupFirstDartAnswer(question, answer);
+  }
   return question.kind === 'setup'
     ? gradeSetupAnswer(question, answer)
     : gradeCheckoutAnswer(question, answer);

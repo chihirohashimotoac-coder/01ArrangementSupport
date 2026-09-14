@@ -169,6 +169,16 @@
   color: var(--text-dim);
 }
 
+/* SETUP / FIRST DART の小さな見出し。既存のレイアウトは変えない。 */
+.training__format-note {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
 .training__answer {
   list-style: none;
   margin: 0;

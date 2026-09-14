@@ -334,9 +334,18 @@ export function TrainingPage() {
         <>
           <StatusBar
             remaining={question.currentRemaining}
-            dartsLeft={question.dartsAvailable}
+            dartsLeft={question.visitDartsAvailable}
             note={question.promptJa}
           />
+
+          {question.format === 'setup-first-dart' && (
+            <p
+              className="training__format-note"
+              data-testid="training-first-dart-note"
+            >
+              SETUP / FIRST DART — このラウンドの 1 投目だけを選びます。
+            </p>
+          )}
 
           {question.contextualThrows.length > 0 && (
             <section
@@ -383,7 +392,9 @@ export function TrainingPage() {
           </p>
 
           <p className="training__hint">
-            狙う場所を順にタップしてください（「そこへ刺さった」ではなく「そこを狙う」という回答です）。
+            {question.format === 'setup-first-dart'
+              ? '1 投目に狙う場所をタップしてください（「そこへ刺さった」ではなく「そこを狙う」という回答です）。'
+              : '狙う場所を順にタップしてください（「そこへ刺さった」ではなく「そこを狙う」という回答です）。'}
           </p>
 
           <Dartboard

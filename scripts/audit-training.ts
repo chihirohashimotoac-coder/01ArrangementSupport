@@ -12,15 +12,17 @@ import { requireDart } from '../src/domain/dart';
 import { isBogey, isCheckoutable, isLegalCheckoutRoute } from '../src/domain/checkoutRules';
 import {
   DEFAULT_TRAINING_SETTINGS,
+  buildPools,
   type TrainingSettings,
 } from '../src/engine/training/questions';
 import {
   generateQuestions,
   generateQuestionsWithReport,
   modeQuota,
-  setupCategoryQuota,
-  setupFullCount,
+  plannedSetupCategoryQuota,
+  setupFirstDartCount,
 } from '../src/engine/training/sampling';
+import type { SetupCategory } from '../src/engine/training/model';
 import { gradeAnswer } from '../src/engine/training/grade';
 import { recommendedAnswerOf } from '../src/engine/training/feedback';
 import { contextKeyOf, type TrainingKind, type TrainingQuestion } from '../src/engine/training/model';
@@ -55,8 +57,11 @@ interface ModeAudit {
   directOneDart: number;
   recoveryUnsolvable: number;
   setupAdjustment: number;
+  setupFirstDart: number;
   setupFull: number;
   setupBogeyAvoidance: number;
+  /** 1 投調整のうち「実際に調整判断が要る」問題の数。 */
+  setupDecisionRequired: number;
   /** 出題順の制約（本仕様 28 節）の違反セッション数。 */
   hardTripleSessions: number;
   firstHardSessions: number;
@@ -98,8 +103,10 @@ function emptyAudit(mode: string): ModeAudit {
     directOneDart: 0,
     recoveryUnsolvable: 0,
     setupAdjustment: 0,
+    setupFirstDart: 0,
     setupFull: 0,
     setupBogeyAvoidance: 0,
+    setupDecisionRequired: 0,
     hardTripleSessions: 0,
     firstHardSessions: 0,
     noFinalHardSessions: 0,
@@ -144,6 +151,12 @@ function verifyProblem(question: TrainingQuestion) {
     if (question.currentRemaining !== question.startRemaining - contextTotal) invalid = true;
     if (question.dartsAvailable !== 1) invalid = true;
   }
+  if (question.kind === 'setup' && question.format === 'setup-first-dart') {
+    if (question.currentRemaining !== question.startRemaining) invalid = true;
+    if (question.dartsAvailable !== 1) invalid = true;
+    if (question.visitDartsAvailable !== 3) invalid = true;
+    if (question.contextualThrows.length !== 0) invalid = true;
+  }
   if (question.kind === 'recovery') {
     const context = question.recovery;
     if (context === null || context.expectedRoute.length === 0) {
@@ -172,7 +185,9 @@ function verifyProblem(question: TrainingQuestion) {
   } else {
     const graded = gradeAnswer(question, recommended);
     if (!graded.ruleValid || !graded.learningCorrect) graderMismatch = true;
-    if (question.kind === 'setup') {
+    // setup-first-dart は 1 投しか投げないので、その時点の残りが 170 以下になる
+    // 必要はない（残り 2 本でテンパイを作れることは grader が確認している）。
+    if (question.kind === 'setup' && question.format !== 'setup-first-dart') {
       const leave = question.currentRemaining - recommended.reduce((s, d) => s + d.score, 0);
       if (!isCheckoutable(leave, 3) || isBogey(leave)) graderMismatch = true;
     }
@@ -222,26 +237,74 @@ function orderingViolationsOf(
   };
 }
 
+/**
+ * その設定で実際に出せる「1 投調整のカテゴリ」と「1 投目問題の件数」。
+ * 計画 quota を sampler と同じ式で求めるために使う。
+ */
+interface SetupPoolShape {
+  readonly availableAdjustmentCategories: readonly SetupCategory[];
+  readonly firstDartCandidateCount: number;
+  readonly adjustmentCapacity: Readonly<Partial<Record<SetupCategory, number>>>;
+}
+
+const poolShapeCache = new Map<string, SetupPoolShape>();
+
+function setupPoolShapeOf(settings: TrainingSettings): SetupPoolShape {
+  const key = `${settings.mode}/${settings.setupRange.min}-${settings.setupRange.max}`;
+  const cached = poolShapeCache.get(key);
+  if (cached) return cached;
+  const pools = buildPools(settings);
+  const adjustmentCapacity: Partial<Record<SetupCategory, number>> = {};
+  for (const candidate of pools.setupAdjustment) {
+    adjustmentCapacity[candidate.primaryCategory] =
+      (adjustmentCapacity[candidate.primaryCategory] ?? 0) + 1;
+  }
+  const shape: SetupPoolShape = {
+    availableAdjustmentCategories: [
+      ...new Set(pools.setupAdjustment.map((candidate) => candidate.primaryCategory)),
+    ],
+    firstDartCandidateCount: new Set(
+      pools.setupFirstDart.map((candidate) => candidate.startRemaining),
+    ).size,
+    adjustmentCapacity,
+  };
+  poolShapeCache.set(key, shape);
+  return shape;
+}
+
 /** SETUP の形式・カテゴリ quota を、そのセッションが満たしているか。 */
 function setupQuotaViolationsOf(
   questions: readonly TrainingQuestion[],
+  settings: TrainingSettings,
 ): { format: boolean; category: boolean } {
   const setup = questions.filter((question) => question.kind === 'setup');
   if (setup.length === 0) return { format: false, category: false };
 
-  const full = setup.filter((question) => question.format === 'setup-full').length;
-  const wantedFull = setupFullCount(setup.length);
-  const quota = setupCategoryQuota(setup.length);
+  const shape = setupPoolShapeOf(settings);
+  const firstDart = setup.filter((question) => question.format === 'setup-first-dart').length;
+  const wantedFirstDart = Math.min(
+    setupFirstDartCount(setup.length),
+    setup.length,
+    shape.firstDartCandidateCount,
+  );
+  const quota = plannedSetupCategoryQuota({ count: setup.length, ...shape });
   const counts: Counter = {};
   for (const question of setup) bump(counts, question.primaryCategory);
 
   return {
-    format: full !== wantedFull,
+    // 3 投フル形式は新規出題を停止したので、1 問でも出たら違反。
+    format:
+      firstDart !== wantedFirstDart ||
+      setup.some((question) => question.format === 'setup-full'),
     category: Object.entries(quota).some(([key, value]) => (counts[key] ?? 0) !== value),
   };
 }
 
-function auditSession(audit: ModeAudit, questions: readonly TrainingQuestion[]): void {
+function auditSession(
+  audit: ModeAudit,
+  questions: readonly TrainingQuestion[],
+  settings: TrainingSettings,
+): void {
   audit.sessions += 1;
   audit.generated += questions.length;
 
@@ -250,7 +313,7 @@ function auditSession(audit: ModeAudit, questions: readonly TrainingQuestion[]):
   if (ordering.firstHard) audit.firstHardSessions += 1;
   if (ordering.noFinalHard) audit.noFinalHardSessions += 1;
 
-  const quota = setupQuotaViolationsOf(questions);
+  const quota = setupQuotaViolationsOf(questions, settings);
   if (quota.format) audit.formatQuotaViolations += 1;
   if (quota.category) audit.categoryQuotaViolations += 1;
 
@@ -303,7 +366,12 @@ function auditSession(audit: ModeAudit, questions: readonly TrainingQuestion[]):
     if (question.learningTags.includes('direct-finish')) audit.directOneDart += 1;
 
     if (question.kind === 'setup') {
-      if (question.format === 'setup-adjustment') audit.setupAdjustment += 1;
+      if (question.format === 'setup-adjustment') {
+        audit.setupAdjustment += 1;
+        if (question.learningTags.includes('decision-required')) {
+          audit.setupDecisionRequired += 1;
+        }
+      } else if (question.format === 'setup-first-dart') audit.setupFirstDart += 1;
       else audit.setupFull += 1;
       if (question.learningTags.includes('bogey-avoidance')) audit.setupBogeyAvoidance += 1;
       const leave =
@@ -363,7 +431,7 @@ function runMode(
     const { questions, report } = generateQuestionsWithReport({ settings, seed, reviewTargets });
     audit.relaxCount += report.relaxCount;
     audit.quotaNormalizedCount += report.quotaNormalizedCount;
-    auditSession(audit, questions);
+    auditSession(audit, questions, settings);
   }
   return audit;
 }
@@ -434,13 +502,13 @@ function auditReviewComposition(seeds: number): {
     learningTags: ['bogey-avoidance', 'digits-0147'],
     weight: 100,
   });
-  const FULL = 'setup|v2|full|start=302|darts=3';
+  const FIRST_DART = 'setup|v2|first-dart|start=302|visitDarts=3';
   const ADJUST = 'setup|v2|adjust|start=302|ctx=T20,T20|current=182|darts=1';
 
   const specs = [
-    { label: 'SETUP 10 / full weak', mode: 'setup' as const, count: 10, targets: [setupTarget(FULL)], keys: [FULL] },
+    { label: 'SETUP 10 / first-dart weak', mode: 'setup' as const, count: 10, targets: [setupTarget(FIRST_DART)], keys: [FIRST_DART] },
     { label: 'SETUP 10 / adjust weak', mode: 'setup' as const, count: 10, targets: [setupTarget(ADJUST)], keys: [ADJUST] },
-    { label: 'SETUP 30 / 複数 weak', mode: 'setup' as const, count: 30, targets: [setupTarget(FULL), setupTarget(ADJUST)], keys: [FULL, ADJUST] },
+    { label: 'SETUP 30 / 複数 weak', mode: 'setup' as const, count: 30, targets: [setupTarget(FIRST_DART), setupTarget(ADJUST)], keys: [FIRST_DART, ADJUST] },
     { label: 'CHECKOUT 10 / legacy 122', mode: 'checkout' as const, count: 10, targets: [122], keys: ['checkout|v2|left=122|darts=3'] },
   ];
 
@@ -462,7 +530,11 @@ function auditReviewComposition(seeds: number): {
         seed,
       });
 
-      const quota = setupQuotaViolationsOf(withReview);
+      const quota = setupQuotaViolationsOf(withReview, {
+        ...DEFAULT_TRAINING_SETTINGS,
+        mode: spec.mode,
+        questionCount: spec.count,
+      });
       if (quota.format) formatViolations += 1;
       if (quota.category) categoryViolations += 1;
 
@@ -547,12 +619,14 @@ function auditNarrowRangeSweep(seeds: number): {
           const questions = generateQuestions({ settings, seed, reviewTargets });
           result.generated += questions.length;
 
-          const full = questions.filter((question) => question.format === 'setup-full').length;
-          const wantedFull = setupFullCount(questions.length);
-          if (full !== wantedFull) {
+          const quota = setupQuotaViolationsOf(questions, settings);
+          if (quota.format) {
             result.formatViolations += 1;
             if (result.examples.length < 5) {
-              result.examples.push(`seed=${seed}: full ${full} / 期待 ${wantedFull}`);
+              const firstDart = questions.filter(
+                (question) => question.format === 'setup-first-dart',
+              ).length;
+              result.examples.push(`seed=${seed}: first-dart ${firstDart}`);
             }
           }
 
@@ -664,7 +738,7 @@ function auditMixedReviewSweep(seeds: number): {
   const reviewTargets = [122, 302];
   const reviewKeys = [
     'checkout|v2|left=122|darts=3',
-    'setup|v2|full|start=302|darts=3',
+    'setup|v2|first-dart|start=302|visitDarts=3',
     'setup|v2|adjust|start=302|ctx=T20,T20|current=182|darts=1',
   ];
 
@@ -693,8 +767,11 @@ function auditMixedReviewSweep(seeds: number): {
     examples: [] as string[],
   };
 
-  const quota = setupCategoryQuota(10);
   const kindQuota = modeQuota(count);
+  const quota = plannedSetupCategoryQuota({
+    count: kindQuota.setup,
+    ...setupPoolShapeOf(settings),
+  });
 
   for (let seed = 0; seed < seeds; seed += 1) {
     const { questions, report } = generateQuestionsWithReport({ settings, seed, reviewTargets });
@@ -717,7 +794,7 @@ function auditMixedReviewSweep(seeds: number): {
 
     const setup = questions.filter((question) => question.kind === 'setup');
     if (setup.length > 0) {
-      if (setup.filter((question) => question.format === 'setup-full').length !== setupFullCount(setup.length)) {
+      if (setupQuotaViolationsOf(questions, settings).format) {
         result.formatViolations += 1;
       }
       const categoryCounts: Counter = {};
@@ -856,14 +933,24 @@ function main(): void {
     );
     console.log(`CHECKOUT direct 1-dart          : ${audit.directOneDart}`);
 
-    if (audit.setupAdjustment + audit.setupFull > 0) {
-      const setupTotal = audit.setupAdjustment + audit.setupFull;
+    if (audit.setupAdjustment + audit.setupFirstDart + audit.setupFull > 0) {
+      const setupTotal = audit.setupAdjustment + audit.setupFirstDart + audit.setupFull;
       console.log(
-        `SETUP adjustment / full         : ${audit.setupAdjustment} / ${audit.setupFull} (${(
-          (audit.setupAdjustment / setupTotal) *
+        `SETUP adjustment / first-dart   : ${audit.setupAdjustment} / ${
+          audit.setupFirstDart
+        } (${((audit.setupAdjustment / setupTotal) * 100).toFixed(1)}% / ${(
+          (audit.setupFirstDart / setupTotal) *
           100
-        ).toFixed(1)}% / ${((audit.setupFull / setupTotal) * 100).toFixed(1)}%)`,
+        ).toFixed(1)}%)`,
       );
+      console.log(`SETUP full（新規出題は停止）      : ${audit.setupFull}`);
+      if (audit.setupAdjustment > 0) {
+        console.log(
+          `SETUP adjustment decisionRequired: ${audit.setupDecisionRequired} / ${
+            audit.setupAdjustment
+          } (${((audit.setupDecisionRequired / audit.setupAdjustment) * 100).toFixed(1)}%)`,
+        );
+      }
       console.log(`SETUP bogey avoidance questions : ${audit.setupBogeyAvoidance}`);
       console.log(
         `SETUP recommended leave         : ${JSON.stringify(audit.setupRecommendedLeave)}`,
@@ -918,6 +1005,18 @@ function main(): void {
     }
     if (audit.categoryQuotaViolations !== 0) {
       failures.push(`${audit.mode}: SETUP カテゴリ quota 違反 = ${audit.categoryQuotaViolations}`);
+    }
+    if (audit.setupFull !== 0) {
+      failures.push(
+        `${audit.mode}: setup-full の新規出題 = ${audit.setupFull}（0 でなければならない）`,
+      );
+    }
+    if (audit.setupAdjustment !== audit.setupDecisionRequired) {
+      failures.push(
+        `${audit.mode}: 調整判断が要らない adjustment = ${
+          audit.setupAdjustment - audit.setupDecisionRequired
+        }`,
+      );
     }
     // trivial 上限（本仕様 47 節）は厳密に守る。1 件でも超過すれば失敗。
     if (audit.trivialOverCapSessions !== 0) {
