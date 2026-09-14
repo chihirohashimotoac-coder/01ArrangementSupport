@@ -30,7 +30,13 @@ import {
 import { INNER_BULL_SCORE } from '../../domain/scoring';
 import { DEFAULT_SETUP_MAIN_TARGET } from '../../data/rankingRules';
 import { evaluateLeave } from '../setup/leaveQuality';
-import { difficultyOf, sequenceTable, targetKeyOf } from '../setup/sequences';
+import {
+  difficultyOf,
+  mainTargetFirstSequenceTable,
+  sequenceTable,
+  targetKeyOf,
+  type SequenceEntry,
+} from '../setup/sequences';
 import {
   evaluateSetupRoute,
   rankSetupRoutes,
@@ -102,9 +108,44 @@ export interface NextVisitCandidate {
   readonly leaveScore: number;
   /** 得意ダブルの順位（0 = 第 1 希望）。対象外は最大値。 */
   readonly preferenceRank: number;
+  /**
+   * 主目標（T20 など）から投げ始めるルートか。
+   *
+   * 「どの順で狙うか」の話なので、投げる本数が 2 本以上のときだけ true になりうる。
+   * 残り 1 本は順番の問題ではなく「どこへ振るか」の問題なので、
+   * この軸では差を付けず、残しの質（halvingDepth など）で決める。
+   */
+  readonly mainTargetFirst: boolean;
+  /** 残しを半分にし続けられる回数（32 → 16 → 8 → 4 → 2 なら 5）。 */
+  readonly halvingDepth: number;
 }
 
 const NO_PREFERENCE = Number.MAX_SAFE_INTEGER;
+
+/**
+ * 残しを「半分にし続けられる」回数。
+ *
+ *   32 → 16 → 8 → 4 → 2 なら 5、16 → 8 → 4 → 2 なら 4、
+ *   40 → 20 → 10 で止まるので 3、28 → 14 で止まるので 2。
+ *
+ * 深いほど、次ラウンドでダブルを 1 本外しても「また偶数のダブル」が残り、
+ * 立て直しが続く。これは新しい戦術思想ではなく、
+ *  - `src/data/lowStandardRoutes.ts` の R2（奇数は 32 → 16 → 8 → 4 → 2 の順に
+ *    立て直しやすいダブルを作る / docs/APPROVALS.md A-4 で承認済み）
+ *  - `DOUBLE_QUALITY` が D16 を excellent とする理由（「half が続き、外しても
+ *    立て直しやすい」）
+ * と同じ考え方を、NEXT VISIT の残し選びで使えるよう数値にしたもの。
+ */
+export function halvingDepthOf(leave: number): number {
+  if (!Number.isInteger(leave) || leave < 2) return 0;
+  let depth = 0;
+  let value = leave;
+  while (value >= 2 && value % 2 === 0) {
+    depth += 1;
+    value /= 2;
+  }
+  return depth;
+}
 
 /** その残りを上がるダブル（A / B の残しは必ず 1 投ダブル上がり）。 */
 function finishingDoubleIdOf(leave: number): string | null {
@@ -115,13 +156,27 @@ function finishingDoubleIdOf(leave: number): string | null {
 /**
  * 候補の優先順位。数値が小さいほど上位。
  *
- * A / B（次ラウンド 1 投で上がれる残し）では
- *   1. いま投げるルートの難易度  2. 得意ダブル  3. 残しの質  4. 的の切替  5. キー
- * C / D / E では「小さい偶数を残したい」という実戦の要求を優先して
- *   1. いま投げるルートの難易度  2. 残しが小さい  3. 残しの質  4. キー
+ * 共通の前半（tier → 難易度 → 主目標始動）が、v1.3.4 で入れた
+ * **MAIN TARGET FIRST** にあたる。
  *
- * どちらも第 1 基準は「いま投げるルートの難易度」。
+ *   1. NEXT VISIT Tier（残しが次ラウンド何本で上がれるか）
+ *   2. いま投げるルートの難易度
+ *   3. 主目標（既定 T20）から自然に始められるか
+ *
+ * そのうえで
+ *   A / B（次ラウンド 1 投で上がれる残し）
+ *     4. 得意ダブル  5. 残しの質  6. 上がりダブルの扱いやすさ
+ *     7. 取得点が多い（= 残しが小さい）  8. 的の切替  9. 順番の good practice  10. キー
+ *   C / D / E
+ *     4. 残しが小さい  5. 残しの質  6. 順番の good practice  7. キー
+ *
+ * 第 1 基準はどちらも Tier、次が「いま投げるルートの難易度」。
  * 得意ダブルのために、いま余計なトリプルを要求してはいけない。
+ *
+ * 3 番目に主目標始動を置くのは、同じ取得点・同じ残し・同じ難易度なら
+ * 実戦で最初に狙うのは主目標だからで、ここを決めずに残すと最後の
+ * 表記の辞書順が戦術判断を決めてしまう（T11 → T20 のような並び）。
+ * 残り 1 本の場面は「順番」の問題ではないので、この軸は効かない。
  */
 export function compareNextVisitCandidates(a: NextVisitCandidate, b: NextVisitCandidate): number {
   const tier = TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier);
@@ -129,9 +184,14 @@ export function compareNextVisitCandidates(a: NextVisitCandidate, b: NextVisitCa
 
   if (a.difficulty !== b.difficulty) return a.difficulty - b.difficulty;
 
+  if (a.mainTargetFirst !== b.mainTargetFirst) return a.mainTargetFirst ? -1 : 1;
+
   if (a.tier === 'A' || a.tier === 'B') {
     if (a.preferenceRank !== b.preferenceRank) return a.preferenceRank - b.preferenceRank;
     if (a.leaveScore !== b.leaveScore) return b.leaveScore - a.leaveScore;
+    if (a.halvingDepth !== b.halvingDepth) return b.halvingDepth - a.halvingDepth;
+    // ここまで同じなら、取得点の多い方（= 残しの小さい方）を取る。
+    if (a.leave !== b.leave) return a.leave - b.leave;
     if (a.switchCount !== b.switchCount) return a.switchCount - b.switchCount;
     if (a.intrinsic !== b.intrinsic) return b.intrinsic - a.intrinsic;
     return a.key.localeCompare(b.key);
@@ -176,27 +236,30 @@ export function buildNextVisitCandidates(
 ): readonly NextVisitCandidate[] {
   const mainTarget = options.mainTarget ?? DEFAULT_SETUP_MAIN_TARGET;
   const preferred = options.fallbackPreferredDoubles ?? [];
-  const table = sequenceTable(dartsLeft, mainTarget);
   const candidates: NextVisitCandidate[] = [];
+  const seen = new Set<string>();
 
-  for (let total = 0; total < table.length; total += 1) {
-    const bucket = table[total];
-    if (bucket.length === 0) continue;
+  const addBucket = (bucket: readonly SequenceEntry[], total: number): void => {
+    if (bucket.length === 0) return;
     const leave = remaining - total;
-    if (leave < MIN_CHECKOUT) continue;
+    if (leave < MIN_CHECKOUT) return;
     const tier = nextVisitTierOf(leave);
-    if (tier === null) continue;
+    if (tier === null) return;
 
     const leaveScore = evaluateLeave(leave).score;
     const doubleId = finishingDoubleIdOf(leave);
     const index = doubleId === null ? -1 : preferred.indexOf(doubleId);
     const preferenceRank = index >= 0 ? index : NO_PREFERENCE;
+    const halvingDepth = halvingDepthOf(leave);
 
     for (const entry of bucket) {
       if (!isLegalLeaveRoute(remaining, entry.darts, dartsLeft)) continue;
+      const key = routeKey(entry.darts);
+      if (seen.has(key)) continue;
+      seen.add(key);
       candidates.push({
         darts: entry.darts,
-        key: routeKey(entry.darts),
+        key,
         leave,
         tier,
         difficulty: entry.darts.reduce((sum, dart) => sum + difficultyOf(dart), 0),
@@ -204,9 +267,28 @@ export function buildNextVisitCandidates(
         intrinsic: entry.intrinsic,
         leaveScore,
         preferenceRank,
+        mainTargetFirst: entry.darts.length >= 2 && entry.darts[0].id === mainTarget,
+        halvingDepth,
       });
     }
-  }
+  };
+
+  /*
+   * 候補は 2 つの表から作る。
+   *
+   *  - sequenceTable(): 取得点ごとの代表シーケンス（既存）
+   *  - mainTargetFirstSequenceTable(): 主目標始動のシーケンス（枝刈りなし）
+   *
+   * 前者は取得点ごとに上位 8 件へ枝刈りし、同点は表記の辞書順で残す。
+   * そのため「主目標から入る同点のルート」が表から落ちることがあり
+   * （例: 125 / 2 本の T20 → T11）、比較の前に候補そのものが無くなる。
+   * 主目標始動だけを別に全件持つことで、辞書順ではなく戦術で選べるようにする。
+   */
+  const table = sequenceTable(dartsLeft, mainTarget);
+  for (let total = 0; total < table.length; total += 1) addBucket(table[total], total);
+
+  const mainFirst = mainTargetFirstSequenceTable(dartsLeft, mainTarget);
+  for (let total = 0; total < mainFirst.length; total += 1) addBucket(mainFirst[total], total);
 
   return candidates;
 }

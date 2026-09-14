@@ -14,6 +14,7 @@ import {
   NEXT_VISIT_PRIORITY_LEAVES,
   buildNextVisitCandidates,
   compareNextVisitCandidates,
+  halvingDepthOf,
   nextVisitTierOf,
   selectNextVisitRoute,
 } from './nextVisitSelection';
@@ -173,6 +174,72 @@ describe('候補生成（既存 sequenceTable の再利用）', () => {
   });
 });
 
+/**
+ * v1.3.4 MAIN TARGET FIRST。
+ *
+ * 同じ Tier・同じ難易度のルートが並んだとき、最後に表記の辞書順で決まって
+ * 「T11 → T20」のような実戦的に不自然な並びが上位に来ていた。
+ * 主目標（既定 T20）から投げ始めるルートを、得意ダブルより先に優先する。
+ */
+describe('v1.3.4 MAIN TARGET FIRST', () => {
+  it('125 / 2 本では T20 → T11 が T11 → T20 より上位になる', () => {
+    const candidates = buildNextVisitCandidates(125, 2);
+    const mainFirst = candidates.find((c) => c.key === 'T20-T11');
+    const other = candidates.find((c) => c.key === 'T11-T20');
+
+    // 枝刈りで主目標始動が落ちていないこと（これが元の原因）。
+    expect(mainFirst, 'T20 → T11 が候補に無い').toBeDefined();
+    expect(other).toBeDefined();
+    // 取得点も残しも難易度も同じ。
+    expect(mainFirst!.leave).toBe(32);
+    expect(other!.leave).toBe(32);
+    expect(mainFirst!.difficulty).toBe(other!.difficulty);
+    expect(compareNextVisitCandidates(mainFirst!, other!)).toBeLessThan(0);
+
+    expect(selectNextVisitRoute(125, 2)!.routeText).toBe('T20 → T11');
+  });
+
+  it('130 / 2 本では T20 → T18 が T15 → T15 より上位になる', () => {
+    const candidates = buildNextVisitCandidates(130, 2);
+    const mainFirst = candidates.find((c) => c.key === 'T20-T18');
+    const other = candidates.find((c) => c.key === 'T15-T15');
+    expect(mainFirst).toBeDefined();
+    expect(other).toBeDefined();
+    expect(compareNextVisitCandidates(mainFirst!, other!)).toBeLessThan(0);
+
+    const route = selectNextVisitRoute(130, 2)!;
+    expect(route.routeText).toBe('T20 → T18');
+    // 130 - 60 - 54 = 16。次ラウンドは D8 の 1 投上がり。
+    expect(route.leave).toBe(16);
+    expect(minDartsToCheckout(16)).toBe(1);
+  });
+
+  it('半分にし続けられる残しを優先する（32 → 16 → 8 → 4 → 2）', () => {
+    expect(halvingDepthOf(32)).toBe(5);
+    expect(halvingDepthOf(16)).toBe(4);
+    expect(halvingDepthOf(40)).toBe(3);
+    expect(halvingDepthOf(28)).toBe(2);
+    expect(halvingDepthOf(39)).toBe(0);
+  });
+
+  it('残り 1 本は「順番」の問題ではないので、主目標を強制しない', () => {
+    // 68 / 1 本は T20 で 8 残し、T12 で 32 残し。どちらも 1 投上がりだが、
+    // 32 の方が外したあとも半分が続く。
+    for (const candidate of buildNextVisitCandidates(68, 1)) {
+      expect(candidate.mainTargetFirst).toBe(false);
+    }
+    expect(selectNextVisitRoute(68, 1)!.leave).toBe(32);
+  });
+
+  it('奇数残りの 1 投調整が、基準ルートの R2（32 → 16 → 8）と同じ形になる', () => {
+    // 19 → S3 → 16（D8）/ 35 → S3 → 32（D16）。
+    expect(selectNextVisitRoute(19, 1)!.routeText).toBe('S3');
+    expect(selectNextVisitRoute(19, 1)!.leave).toBe(16);
+    expect(selectNextVisitRoute(35, 1)!.routeText).toBe('S3');
+    expect(selectNextVisitRoute(35, 1)!.leave).toBe(32);
+  });
+});
+
 describe('Case 1 / 2: 119 残り 2 本（実機で見つかった事故）', () => {
   it('T20 → S19 を選び、40 残し（次ラウンド 1 投）を作る', () => {
     const suggestion = suggestFor(119, 2);
@@ -245,7 +312,7 @@ describe('Case 3: 難易度が同じなら得意ダブルが効く', () => {
     expect(changed.length).toBeGreaterThan(0);
   });
 
-  it('比較関数そのものが、難易度 → 得意ダブルの順で決める', () => {
+  it('比較関数そのものが、難易度 → 主目標始動 → 得意ダブルの順で決める', () => {
     const base = {
       darts: [],
       leave: 32,
@@ -253,6 +320,8 @@ describe('Case 3: 難易度が同じなら得意ダブルが効く', () => {
       switchCount: 0,
       leaveScore: 0,
       intrinsic: 0,
+      mainTargetFirst: false,
+      halvingDepth: halvingDepthOf(32),
     };
     const easyNoPreference = { ...base, key: 'A', difficulty: 2, preferenceRank: 99 };
     const hardPreferred = { ...base, key: 'B', difficulty: 4, preferenceRank: 0 };
@@ -262,6 +331,19 @@ describe('Case 3: 難易度が同じなら得意ダブルが効く', () => {
     const samePreferred = { ...base, key: 'B', difficulty: 2, preferenceRank: 0 };
     // 難易度が同じなら、得意ダブルが効く。
     expect(compareNextVisitCandidates(samePreferred, easyNoPreference)).toBeLessThan(0);
+
+    // ただし主目標始動は得意ダブルより先に効く（v1.3.4）。
+    const mainTargetFirstNoPreference = {
+      ...base,
+      key: 'C',
+      difficulty: 2,
+      preferenceRank: 99,
+      mainTargetFirst: true,
+    };
+    expect(compareNextVisitCandidates(mainTargetFirstNoPreference, samePreferred)).toBeLessThan(0);
+    // 難易度が違えば、主目標始動でも難易度が優先される。
+    const hardMainTargetFirst = { ...base, key: 'D', difficulty: 4, preferenceRank: 99, mainTargetFirst: true };
+    expect(compareNextVisitCandidates(easyNoPreference, hardMainTargetFirst)).toBeLessThan(0);
   });
 });
 

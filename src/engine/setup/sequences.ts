@@ -11,7 +11,7 @@
  *
  * これにより、毎回 62^3 を走査せずに済む（表の構築は 1 回だけ）。
  */
-import { THROWABLE_DARTS, type Dart } from '../../domain/dart';
+import { THROWABLE_DARTS, findDart, type Dart } from '../../domain/dart';
 import { DARTS_PER_VISIT } from '../../domain/checkoutRules';
 import type { SetupReasonCode } from '../../domain/reasonCodes';
 import {
@@ -182,7 +182,55 @@ export function sequenceTable(dartCount: number, mainTarget: string): SequenceTa
   return buckets;
 }
 
+const mainTargetFirstCache = new Map<string, SequenceTable>();
+
+/**
+ * 主目標から投げ始めるシーケンスだけを、取得点ごとに **枝刈りせず** 並べた表。
+ *
+ * `sequenceTable()` は取得点ごとに上位 8 件しか残さない。同点のときの残し方は
+ * 表記の辞書順なので、たとえば取得 93 点（2 本）では T11-T20 … T18-T13 が残り、
+ * **T20-T11 が落ちる**。「同じ結果なら主目標から入る」という戦術判断を
+ * 辞書順に決めさせないために、主目標始動のシーケンスだけを別に全件持っておく。
+ *
+ * 1 本目が固定なので、3 本でも 62^2 = 3844 通りで済む（表の構築は 1 回だけ）。
+ * 評価は `sequenceTable()` と同じ `analyzeSequence()` を通すので、
+ * 新しい重みも新しい評価軸もここには入らない。
+ */
+export function mainTargetFirstSequenceTable(
+  dartCount: number,
+  mainTarget: string,
+): SequenceTable {
+  const cacheKey = `${dartCount}/${mainTarget}`;
+  const cached = mainTargetFirstCache.get(cacheKey);
+  if (cached) return cached;
+
+  const depthLimit = Math.min(Math.max(dartCount, 1), DARTS_PER_VISIT);
+  const size = MAX_TOTAL_PER_DART * depthLimit + 1;
+  const buckets: SequenceEntry[][] = Array.from({ length: size }, () => []);
+  const first = findDart(mainTarget);
+
+  if (first !== undefined && THROWABLE_DARTS.includes(first)) {
+    const acc: Dart[] = [first];
+    const walk = (depth: number, total: number): void => {
+      if (depth === 0) {
+        buckets[total].push(analyzeSequence([...acc], mainTarget));
+        return;
+      }
+      for (const dart of THROWABLE_DARTS) {
+        acc.push(dart);
+        walk(depth - 1, total + dart.score);
+        acc.pop();
+      }
+    };
+    walk(depthLimit - 1, first.score);
+  }
+
+  mainTargetFirstCache.set(cacheKey, buckets);
+  return buckets;
+}
+
 /** テスト用にキャッシュを空にする。 */
 export function clearSequenceTableCache(): void {
   tableCache.clear();
+  mainTargetFirstCache.clear();
 }
