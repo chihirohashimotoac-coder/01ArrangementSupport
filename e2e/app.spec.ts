@@ -131,7 +131,7 @@ test('Bogey を入れると理由を示して候補を出さない', async ({ pa
   await expect(page.getByTestId('no-routes')).toContainText('ノーテン');
 });
 
-test('SETUP 305 は T20 → T20 → S18 で 167 残しを提案する', async ({ page }) => {
+test('SETUP 305 は T20 を 2 本と S18 で 167 残しを提案する', async ({ page }) => {
   await openSetup(page, 305);
   await expect(page.getByTestId('score-input')).toHaveValue('305');
   const best = page.getByTestId('standard-route');
@@ -930,4 +930,138 @@ test('v1.3.3: ルートを選んでも、ボタンも答えの位置も増えな
   expect(after.standardTop).toBe(before.standardTop);
   // スクロール量も増えていない。
   expect(after.scrollHeight).toBe(before.scrollHeight);
+});
+
+// ---------------------------------------------------------------------------
+// v1.3.4
+// ---------------------------------------------------------------------------
+
+test('v1.3.4: 130 から S5 を刺した 125 / 2 本で、T20 始動を案内する', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openCheckout(page, 130);
+  await openRecovery(page);
+
+  // 実際の着弾は S5。130 - 5 = 125、残り 2 本。
+  await page.getByTestId('segment-s5-outer').click();
+  await expect(page.getByTestId('status-bar')).toContainText('125');
+
+  const card = page.getByTestId('next-visit-route');
+  await expect(card).toBeVisible();
+  // T11 → T20 ではなく T20 → T11。取得点も残しも同じなら主目標から入る。
+  await expect(card).toContainText('T20');
+  await expect(card).toContainText('T11');
+  await expect(card).toContainText('取得 93 点 → 残り 32');
+  const routeText = (await card.textContent()) ?? '';
+  expect(routeText.indexOf('T20')).toBeLessThan(routeText.indexOf('T11'));
+});
+
+test('v1.3.4: 130 / 2 本も T20 始動になり、得意ダブルの設定はそのまま効く', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  /*
+   * 既定の得意ダブルは D16 → D20 → D8 …。130 / 2 本で D16 の 32 残しは作れないので、
+   * 次の希望である D20 の 40 残し（T20 → T10）が選ばれる。
+   * どちらにしても T15 → T15 のような並びにはならず、主目標から入る。
+   */
+  // 135 から S5（5 点）を刺すと 130 / 2 本。
+  await openCheckout(page, 135);
+  await openRecovery(page);
+  await page.getByTestId('segment-s5-outer').click();
+  await expect(page.getByTestId('status-bar')).toContainText('130');
+
+  const card = page.getByTestId('next-visit-route');
+  await expect(card).toBeVisible();
+  const withPreference = (await card.textContent()) ?? '';
+  expect(withPreference).toContain('T20');
+  expect(withPreference.indexOf('T20')).toBe(
+    Math.min(...['T20', 'T15', 'T10', 'T18'].map((id) => {
+      const at = withPreference.indexOf(id);
+      return at < 0 ? Number.MAX_SAFE_INTEGER : at;
+    })),
+  );
+
+  // 得意ダブルを空にすると、残しの質だけで決まって T20 → T18（16 残し）になる。
+  await page.getByTestId('nav-settings').click();
+  for (const id of ['D16', 'D20', 'D8', 'D10', 'D18']) {
+    await page.getByTestId(`select-${id}`).click();
+  }
+  await expect(page.getByTestId('preferred-doubles')).not.toContainText('D20');
+
+  await openCheckout(page, 135);
+  await openRecovery(page);
+  await page.getByTestId('segment-s5-outer').click();
+  const plain = page.getByTestId('next-visit-route');
+  await expect(plain).toContainText('T20');
+  await expect(plain).toContainText('T18');
+  // 130 - 60 - 54 = 16。次ラウンドは D8 の 1 投上がり。
+  await expect(plain).toContainText('取得 114 点 → 残り 16');
+});
+
+test('v1.3.4: SETUP 299 の BEST は 19 系から始まる', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openSetup(page, 299);
+
+  const best = page.getByTestId('standard-route');
+  await expect(best).toBeVisible();
+  // S19 → T20 → T20。T20 始動は S20 へ落ちるとテンパイを作れなくなる。
+  await expect(best).toContainText('S19');
+  await expect(best).toContainText('残り 160');
+  const text = (await best.textContent()) ?? '';
+  expect(text.indexOf('S19')).toBeLessThan(text.indexOf('T20'));
+  // なぜそうなのかが理由として出る。
+  await expect(best).toContainText('シングル落ち');
+});
+
+/** SETUP / FIRST DART の問題が出るまで進める。 */
+async function openSetupFirstDart(page: Page) {
+  await page.getByTestId('nav-training').click();
+  await page.getByTestId('training-mode-setup').click();
+  await page.getByTestId('start-training').click();
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if ((await page.getByTestId('training-first-dart-note').count()) > 0) return;
+    await page.getByTestId('segment-s20-outer').click();
+    await page.getByTestId('training-submit').click();
+    await page.getByTestId('training-next').click();
+  }
+  throw new Error('SETUP / FIRST DART の問題が出題されませんでした');
+}
+
+test('v1.3.4: TRAINING の SETUP で 1 投目だけを答える問題が出る', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openSetupFirstDart(page);
+
+  await expect(page.getByTestId('training-first-dart-note')).toContainText('FIRST DART');
+  // このラウンドは 3 投あるが、回答は 1 投だけ。
+  await expect(page.getByTestId('status-darts')).toHaveText('3');
+  await expect(page.getByTestId('answer-0')).toHaveText('—');
+  await expect(page.getByTestId('answer-1')).toHaveCount(0);
+  // ここまでの投球は無い（ラウンドの 1 投目なので）。
+  await expect(page.getByTestId('training-context')).toHaveCount(0);
+
+  const left = Number(await page.getByTestId('status-left').textContent());
+  expect(left).toBeGreaterThanOrEqual(171);
+});
+
+test('v1.3.4: 1 投目問題の feedback に「シングルへ落ちた場合」が出る', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openSetupFirstDart(page);
+
+  await page.getByTestId('segment-t20').click();
+  await expect(page.getByTestId('answer-0')).toHaveText('T20');
+  await page.getByTestId('training-submit').click();
+
+  await expect(page.getByTestId('training-result')).toBeVisible();
+  // あなたの回答・おすすめのどちらにも「S◯◯ へ落ちると …」が出る。
+  await expect(page.getByTestId('training-your-answer')).toContainText('へ落ちると');
+  await expect(page.getByTestId('training-recommended')).toContainText('へ落ちると');
+  await expect(page.getByTestId('training-difference')).toBeVisible();
+
+  // 横スクロールを増やさない。
+  const overflows = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflows, '1 投目問題で横スクロールが出ている').toBe(false);
 });
