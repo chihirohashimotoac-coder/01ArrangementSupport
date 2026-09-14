@@ -89,6 +89,8 @@
 - 「とりあえず TON」の罠を警告する
 - S-BULL を正式な調整手段として扱う
 - テンパイを作れない残りでは、その事実を伝える
+- **第一ターゲットのトリプル狙いが同ナンバーのシングルへ落ちても、
+  残り本数でテンパイを作れる入り方を優先する**（v1.3.4 / `SETUP_THEORY.md` §10）
 
 ### 4-3. RECOVERY（CHECKOUT / SETUP の両方に内蔵）
 
@@ -121,16 +123,30 @@ SETUP は合法に投げ切れても、残りが Bogey / 170 超えなら
 **主 UI の正答率は `learningCorrect` で数える。**
 「合法に 3 投投げただけ」を正解にしない。
 
-#### SETUP TRAINING の形式（v1.3）
+#### SETUP TRAINING の形式（v1.3.4）
 
-主教材は **1 投調整**（80%）、補助が **3 投フル**（20%）。
+主教材は **1 投調整**（80%）、補助が **1 投目の選択**（20%）。
 10 問なら 8 / 2、30 問なら 24 / 6。
+
+v1.3.3 までの **3 投フル形式（`setup-full`）は新規出題を停止**した。
+「とりあえず T20 を 3 本」でも正解になる問題が多く、
+「なぜ最初から 19 へ振るのか」を学べなかったため。
+保存済み履歴を読むために、型・採点・feedback は残してある。
 
 1 投調整では「開始残り」「ここまでに実際に入った 2 投」「現在の残り」「残り 1 投」を提示し、
 最後の 1 投だけを答える。ここまでの 2 投は**ユーザーの回答ではなく実際の結果**なので、
 読み取り専用で表示し、回答欄へ入れない。
+出題は **`decisionRequired`（本当に調整判断が要る場面）** に絞る。
 
-推奨解答は通常 Practice と同じ `rankSetupRoutes` の第 1 候補を使う。
+1 投目の選択では「残り点」と「このラウンドは 3 投ある」ことを提示し、
+**1 投目だけ**を答える。この形式では回答後に 170 以下になる必要がないため、
+1 投調整とは別の採点ロジックを使う。
+
+- `ruleValid` … 盤面上の合法なターゲットを 1 つ選べている
+- `learningCorrect` … 得点用の開始ターゲットであり、かつ同ナンバーのシングルへ
+  落ちても残り本数でテンパイを作れる
+
+推奨解答は通常 Practice と同じ `rankSetupRoutes` から取る。
 推奨以外でも、次のラウンドで上がれる残りを作る合法な回答は `learningCorrect` とする。
 
 #### 出題（v1.3）
@@ -138,7 +154,7 @@ SETUP は合法に投げ切れても、残りが Bogey / 170 超えなら
 単純な random pick ではなく、category / difficulty / mode / review / 直近履歴を考慮した
 sampler で決める（`src/engine/training/sampling.ts`）。random retry loop は使わない。
 
-- SETUP は 9 つの教育カテゴリの quota を満たす
+- SETUP は教育カテゴリの quota を満たす（出題できるカテゴリへ決定論的に再配分する）
 - CHECKOUT / RECOVERY は難易度 quota を満たす
 - MIXED は mode bag（10 問で 4 / 3 / 3、30 問で 10 / 10 / 10）
 - 同じ問題は直近 5 問、同じ状況は直近 3 問に出さない
@@ -155,7 +171,11 @@ sampler で決める（`src/engine/training/sampling.ts`）。random retry loop 
 
 **すべての不成立理由で推奨解答を返す**（EMPTY / TOO_MANY_DARTS / BUST /
 NOT_DOUBLE_FINISH / TOTAL_MISMATCH / NOT_FINISHED / LEAVES_BOGEY /
-LEAVE_ABOVE_CHECKOUT_RANGE）。
+LEAVE_ABOVE_CHECKOUT_RANGE / FIRST_DART_SINGLE_MISS_DEAD_END /
+FIRST_DART_NOT_SCORING_TARGET）。
+
+1 投目の選択では、「あなたの回答」「おすすめ」の両方について
+**シングルへ落ちた場合の残りと、その後テンパイを作れるか**を並べて見せる。
 
 #### 出題設定
 
