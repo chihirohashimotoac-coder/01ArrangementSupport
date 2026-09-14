@@ -1119,6 +1119,26 @@ function planSlots(input: {
       return best.difficulty === expectedDifficultyOf(slot, all, reviewTargets);
     };
 
+    /*
+     * 「間違えた問題そのもの」を出せる slot を最優先で確保する。
+     *
+     * 復習 ring は slot の形式・カテゴリに合わせて絞るので、
+     * 復習枠が別カテゴリの slot に置かれると、その問題は二度と配られない。
+     * 1 投目の選択（setup-first-dart）のように枠が 20% しか無い形式では、
+     * 均等に散らした位置がほぼ必ず 1 投調整の slot に当たり、
+     * 苦手として登録した問題の露出がまったく増えなかった。
+     */
+    const exactKeys = new Set(
+      reviewTargets
+        .map((target) => target.problemKey)
+        .filter((key): key is string => key !== null),
+    );
+    const hasExactMatch = (slot: Slot): boolean =>
+      exactKeys.size > 0 &&
+      compatible(slot).some((candidate) => exactKeys.has(candidate.problemKey));
+    const exactAndKeepsDifficulty = (slot: Slot): boolean =>
+      hasExactMatch(slot) && keepsDifficulty(slot);
+
     // 均等に散らした位置を起点に、近い順で両立する slot を探す。
     const anchors: number[] = [];
     for (let r = 0; r < Math.min(wantedReview, count); r += 1) {
@@ -1126,9 +1146,10 @@ function planSlots(input: {
     }
 
     const taken = new Set<number>();
-    // 1 巡目は「計画した難易度を変えない slot」だけを使い、
-    // 足りなければ 2 巡目で両立する slot から埋める。
-    for (const acceptable of [keepsDifficulty, matches]) {
+    // 1 巡目は「間違えた問題そのものを出せて、計画した難易度も変えない slot」、
+    // 2 巡目は「計画した難易度を変えない slot」、
+    // 足りなければ 3 巡目で両立する slot から埋める。
+    for (const acceptable of [exactAndKeepsDifficulty, keepsDifficulty, matches]) {
       for (const anchor of anchors) {
         if (taken.size >= wantedReview) break;
         for (let distance = 0; distance < count; distance += 1) {

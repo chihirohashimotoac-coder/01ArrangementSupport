@@ -625,12 +625,7 @@ describe('reviewWeakFirst', () => {
       keys: readonly string[];
       expectMoreExposure: boolean;
     }> = [
-      /*
-       * 1 投目問題の候補は 16 件しかなく、1 セッション 10 問なら 2 件が必ず出る。
-       * つまり復習を切っても露出はもともと高いので、この形式では
-       * 「露出が増えること」ではなく「出題構成を崩さずに必ず出ること」を見る。
-       */
-      { label: 'first-dart のみ', targets: [setupTarget(FIRST_DART)], keys: [FIRST_DART], expectMoreExposure: false },
+      { label: 'first-dart のみ', targets: [setupTarget(FIRST_DART)], keys: [FIRST_DART], expectMoreExposure: true },
       { label: 'adjustment のみ', targets: [setupTarget(ADJUST)], keys: [ADJUST], expectMoreExposure: true },
       {
         label: '複数 weak',
