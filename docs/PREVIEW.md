@@ -5,7 +5,28 @@ PR の内容を、マージ前にブラウザで確認するための仕組み�
 
 ---
 
-## 1. なぜ GitHub Pages を使わないか
+## 1. 現在の構成
+
+このリポジトリには **Vercel の GitHub App が接続済み**です。
+PR を作る／push するたびに Vercel が自動でビルドし、PR へプレビュー URL をコメントします。
+
+```
+https://01-arrangement-support-git-<branch>-<owner>.vercel.app
+```
+
+- リポジトリ側に workflow も Secrets も要りません（Vercel 側の Git 連携で動きます）
+- ブランチごとに URL が固定で、push のたびに中身が更新されます
+- **本番の URL は変わりません**:
+  https://chihirohashimotoac-coder.github.io/01ArrangementSupport/
+
+Vite のプリセットで `npm run build` → `dist` が配信されます。
+`vite.config.ts` の `base` は既定 `/` なので、プレビュー用の追加設定は不要です。
+アプリは URL ルーティングを持たない（画面の切り替えは内部 state）ため、
+SPA fallback の設定も要りません。
+
+---
+
+## 2. なぜ GitHub Pages でプレビューしないか
 
 このリポジトリの本番配信は **GitHub Actions をソース**にした GitHub Pages です
 （`.github/workflows/ci-deploy.yml` の `build-pages` → `deploy`）。
@@ -16,66 +37,34 @@ PR の内容を、マージ前にブラウザで確認するための仕組み�
 - `deploy-pages` は成果物でサイト全体を置き換えるため、PR から実行すると
   次に main が deploy されるまで本番がプレビューに差し替わってしまいます。
 
-そのため、プレビューだけを外部（Cloudflare Pages）へ出す構成にしています。
+そのため、プレビューだけを外部（Vercel）へ出す構成にしています。
+`ci-deploy.yml` の `build-pages` / `deploy` は、これまでどおり
+**main への push でだけ**動きます（`if: github.event_name != 'pull_request'`）。
 
 ---
 
-## 2. 仕組み
+## 3. 運用ルール
 
-`.github/workflows/pr-preview.yml` が PR の `opened` / `synchronize` / `reopened` で動きます。
-
-1. `VITE_BASE_PATH=/` でビルドする（プレビューはサブドメインのルートで配信されるため）
-2. `wrangler pages deploy dist` で Cloudflare Pages へ配信する
-3. PR へプレビュー URL のコメントを 1 件だけ出す（push のたびに同じコメントを更新）
-
-**設定が無いリポジトリでは全ステップを飛ばし、チェックは success のままにします。**
-fork からの PR にも Secrets は渡らないので、同じ経路で安全に skip されます。
-つまり、下の設定をしなくても CI が落ちることはありません。
-
----
-
-## 3. 設定手順（1 回だけ）
-
-### 3-1. Cloudflare 側
-
-1. [Cloudflare ダッシュボード](https://dash.cloudflare.com/) にログインする
-2. **Workers & Pages → Create → Pages → Upload assets** で空のプロジェクトを作る
-   - プロジェクト名は `01arrangementsupport`（既定値）
-   - Git 連携は**不要**です。配信は GitHub Actions から行います
-3. **My Profile → API Tokens → Create Token** で
-   テンプレート **「Edit Cloudflare Workers」** を選ぶ
-   （必要な権限は `Account / Cloudflare Pages / Edit` です）
-4. 発行されたトークンと、**Account ID**（Workers & Pages の右側に表示）を控える
-
-### 3-2. GitHub 側
-
-このリポジトリの **Settings → Secrets and variables → Actions** で登録します。
-
-| 種別 | 名前 | 値 |
-| --- | --- | --- |
-| Secret | `CLOUDFLARE_API_TOKEN` | 3-1 で発行したトークン |
-| Secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare の Account ID |
-| Variable（任意） | `CLOUDFLARE_PAGES_PROJECT` | プロジェクト名。既定は `01arrangementsupport` |
-
-登録後、対象 PR で **Re-run all jobs** すればプレビュー URL がコメントされます。
-
----
-
-## 4. プレビュー URL の形
-
-```
-https://pr-<PR番号>.<プロジェクト名>.pages.dev
-```
-
-PR ごとに固定で、push のたびに中身が更新されます。
-
----
-
-## 5. 注意
-
+- **PR を作ったら、説明か最終報告にプレビュー URL を必ず載せる。**
 - プレビューは**公開 URL** です。未公開にしたい内容は載せないでください。
 - Service Worker が登録されるため、同じブラウザで複数のプレビューを見比べるときは
   シークレットウィンドウを使うか、開発者ツールの
   **Application → Service Workers → Unregister** をしてください。
-- 本番の URL は変わりません:
-  https://chihirohashimotoac-coder.github.io/01ArrangementSupport/
+
+---
+
+## 4. Vercel の接続が外れた場合
+
+Vercel ダッシュボードの **Project → Settings → Git** で、
+このリポジトリを再接続すれば元に戻ります。Build 設定は Vite のプリセットのままで動きます。
+
+| 項目 | 値 |
+| --- | --- |
+| Framework Preset | Vite |
+| Build Command | `npm run build` |
+| Output Directory | `dist` |
+| Install Command | `npm ci` |
+
+**Production Branch は設定しないでください**（本番は GitHub Pages 側です）。
+Vercel 側の本番 deploy が要らない場合は、Settings → Git の
+**Ignored Build Step** で `main` を除外できます。
