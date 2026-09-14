@@ -231,14 +231,15 @@ describe('PR #1 レビュー指摘の回帰テスト', () => {
 });
 
 describe('SETUP 画面', () => {
-  it('305 で T20 → T20 → S18 を最上位に出し、残り 167 を示す', async () => {
+  it('305 は T20 が 2 本と S18 で、残り 167 を示す', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openSetupWith(user, '305');
 
     expect(screen.getByTestId('score-input')).toHaveValue('305');
     const best = screen.getByTestId('standard-route');
-    // T20 → T20 → S18 なので T20 は 2 つ現れる。
+    // v1.3.4 以降は S18 → T20 → T20（シングル落ちに耐える並び）。
+    // 取得点も残りも資料どおりなので、T20 は 2 つ現れる。
     expect(within(best).getAllByText('T20')).toHaveLength(2);
     expect(within(best).getByText('S18')).toBeInTheDocument();
     expect(best.textContent).toContain('残り 167');
@@ -1583,25 +1584,25 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     render(<App />);
     await openSetupWith(user, '302');
 
-    await user.click(chipOf(screen.getByTestId('setup-T20-T20-S15'), 1));
+    await user.click(chipOf(screen.getByTestId('setup-S15-T20-T20'), 1));
     expect(highlightedDarts()).toEqual(['S15', 'T20'].sort());
 
+    await user.click(screen.getByTestId('segment-s15-outer'));
+    // 287 / 2 本の BEST（T20 → T20）と同じ並びだが、これは選んだ続きの案内。
+    expect(nextRoute()).toEqual(['T20', 'T20']);
     await user.click(screen.getByTestId('segment-t20'));
-    // 242 / 2 本の BEST（S18 → T18）ではなく、選んだ続き。
-    expect(nextRoute()).toEqual(['T20', 'S15']);
-    await user.click(screen.getByTestId('segment-t20'));
-    expect(nextRoute()).toEqual(['S15']);
+    expect(nextRoute()).toEqual(['T20']);
   });
 
   it('SETUP の OTHER ROUTE で外したら、現在の BEST へ自動で戻る', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openSetupWith(user, '302');
-    await user.click(chipOf(screen.getByTestId('setup-T20-T20-S15'), 1));
+    await user.click(chipOf(screen.getByTestId('setup-S15-T20-T20'), 1));
 
-    // T20 の予定に対して T19。302 - 57 = 245 / 2 本。
+    // S15 の予定に対して T19。302 - 57 = 245 / 2 本の BEST へ戻る。
     await user.click(screen.getByTestId('segment-t19'));
-    expect(nextRoute()).toEqual(['T20', 'S18']);
+    expect(nextRoute()).toEqual(['S18', 'T20']);
   });
 
   it('別のルートのチップを押したら、確認なしでそちらへ切り替わる', async () => {
@@ -1623,7 +1624,7 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     render(<App />);
     await openSetupWith(user, '302');
 
-    await user.click(chipOf(screen.getByTestId('setup-T20-T20-S15'), 1));
+    await user.click(chipOf(screen.getByTestId('setup-S15-T20-T20'), 1));
     expect(highlightedDarts()).toEqual(['S15', 'T20'].sort());
 
     await user.click(chipOf(screen.getByTestId('standard-route'), 1));

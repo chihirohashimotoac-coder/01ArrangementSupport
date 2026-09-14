@@ -138,6 +138,12 @@ export const SETUP_REASON_WEIGHTS: Readonly<Record<SetupReasonCode, number>> = {
   SETUP_LOW_SCORE: -18,
   // 得点・調整のためにダブルリングを狙うのは、細い的をわざわざ選ぶことになる。
   SETUP_THIN_TARGET: 0, // 難易度モデル（SEGMENT_DIFFICULTY）へ統合したため 0。表示のみに使う。
+
+  // 第一ターゲットのシングル落ち耐性（v1.3.4 / docs/APPROVALS.md A-9）。
+  // これは「重みで順位を作る」観点ではなく、rankSetupRoutes が先に適用する
+  // 明示的な戦術ふるいなので、スコアへは足さない（表示のみの 0）。
+  SETUP_SINGLE_MISS_TENPAI_SAFE: 0,
+  SETUP_SINGLE_MISS_DEAD_END: 0,
 };
 
 /**

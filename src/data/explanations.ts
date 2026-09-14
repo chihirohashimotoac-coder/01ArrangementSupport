@@ -331,6 +331,28 @@ const SETUP_TEMPLATES: Record<SetupReasonCode, ReasonTemplate> = {
       detail: 'ダブルリングは細く、刻みの的としては割に合いません。シングルか S-BULL の方が安定します。',
     }),
   },
+  SETUP_SINGLE_MISS_TENPAI_SAFE: {
+    polarity: 'positive',
+    label: 'シングル落ちに強い',
+    render: (ctx) => ({
+      summary:
+        ctx.missDartId === null || ctx.missLeave === null
+          ? '1 投目を外してもテンパイへの道が残ります。'
+          : `1 投目が ${ctx.missDartId} へ落ちても ${ctx.missLeave} / 残り ${ctx.dartsAfterMiss} 本でテンパイを作れます。`,
+      detail: '理想の着弾だけでなく、いちばん起きるミスを通してもテンパイが残る入り方です。',
+    }),
+  },
+  SETUP_SINGLE_MISS_DEAD_END: {
+    polarity: 'negative',
+    label: 'シングル落ちで詰む',
+    render: (ctx) => ({
+      summary:
+        ctx.missDartId === null || ctx.missLeave === null
+          ? '1 投目を外すと、このラウンドではテンパイを作れなくなります。'
+          : `1 投目が ${ctx.missDartId} へ落ちると ${ctx.missLeave} が残り、残り ${ctx.dartsAfterMiss} 本ではテンパイを作れません。`,
+      detail: '狙いどおり入れば良い残りでも、シングルへ落ちた時点でこのラウンドが終わります。',
+    }),
+  },
 };
 
 export function renderCheckoutReason(
