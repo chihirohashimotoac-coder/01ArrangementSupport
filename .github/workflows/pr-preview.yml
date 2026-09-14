@@ -1,0 +1,118 @@
+name: PR Preview
+
+# PR 単位のプレビューを Cloudflare Pages へ配信する。
+#
+# 本番（GitHub Pages）とは完全に別系統で、この workflow は
+# GitHub Pages の設定にも本番 deploy にも一切触れない。
+# ci-deploy.yml の build-pages / deploy は main への push でだけ動く。
+#
+# 必要な設定（Secrets / Variables）が無いリポジトリでは各ステップを飛ばし、
+# チェックは success のままにする。fork からの PR でも Secrets は渡らないので、
+# 同じ経路で安全に skip される。
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Cloudflare へ渡すのは build 成果物だけ。リポジトリは読み取りのみ。
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Deploy preview
+    runs-on: ubuntu-latest
+    # Secrets は job 単位の env でだけ参照し、各ステップは真偽値で分岐する。
+    env:
+      HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+      PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT || '01arrangementsupport' }}
+    steps:
+      - name: Report missing configuration
+        if: env.HAS_CLOUDFLARE != 'true'
+        run: |
+          echo "### PR Preview は未設定です" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Cloudflare Pages の Secrets が設定されていないため、プレビューを飛ばしました。" >> "$GITHUB_STEP_SUMMARY"
+          echo "設定手順は \`docs/PREVIEW.md\` を参照してください。" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v4
+        if: env.HAS_CLOUDFLARE == 'true'
+
+      - uses: actions/setup-node@v4
+        if: env.HAS_CLOUDFLARE == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: env.HAS_CLOUDFLARE == 'true'
+        run: npm ci
+
+      # プレビューはサブドメインのルートで配信されるので base は "/"。
+      # GitHub Pages 用のサブパスビルドは ci-deploy.yml 側のまま。
+      - name: Build
+        if: env.HAS_CLOUDFLARE == 'true'
+        run: npm run build
+        env:
+          VITE_BASE_PATH: /
+
+      - name: Deploy to Cloudflare Pages
+        if: env.HAS_CLOUDFLARE == 'true'
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy dist
+            --project-name=${{ env.PROJECT_NAME }}
+            --branch=pr-${{ github.event.pull_request.number }}
+
+      - name: Comment preview URL
+        if: env.HAS_CLOUDFLARE == 'true' && steps.deploy.outputs.deployment-url != ''
+        uses: actions/github-script@v7
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.deployment-url }}
+        with:
+          script: |
+            const marker = '<!-- pr-preview -->';
+            const body = [
+              marker,
+              '### 🔍 Preview',
+              '',
+              `${process.env.PREVIEW_URL}`,
+              '',
+              `\`${context.sha.slice(0, 7)}\` の内容です。push するたびに更新されます。`,
+              '本番（GitHub Pages）には影響しません。',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find(
+              (comment) => comment.user.type === 'Bot' && comment.body.includes(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

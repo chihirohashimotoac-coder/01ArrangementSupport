@@ -26,6 +26,8 @@
 - **他の AI の作業 branch を勝手に編集しない**。Claude Code と Codex が同一 feature branch を同時編集する運用は禁止。
 - **PR 必須**。CI がすべて成功していない PR はレビュー対象にしない。
 - **自動 merge は行わない**。最終 merge には人間の確認が必要。
+- **PR には Preview URL を出す**。仕組みと設定は `docs/PREVIEW.md`。
+  未設定のリポジトリでは自動で skip されるので、CI が落ちることはない。
 
 ---
 
