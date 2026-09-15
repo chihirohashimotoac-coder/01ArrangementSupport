@@ -543,7 +543,7 @@ async function openSetupAdjustment(page: Page) {
 
   for (let attempt = 0; attempt < 6; attempt += 1) {
     if ((await page.getByTestId('training-context').count()) > 0) return;
-    await page.getByTestId('aim-number-20').click();
+    await page.getByTestId('wedge-20').click();
     await page.getByTestId('training-submit').click();
     await page.getByTestId('training-next').click();
   }
@@ -567,11 +567,12 @@ test('TRAINING: SETUP は開始残り・ここまでの結果・現在の残り�
 test('TRAINING: SETUP の 1 投調整は自動確定せず、Undo できる', async ({ page }) => {
   await openSetupAdjustment(page);
 
-  // v1.3.5: 盤面ではなく「狙うナンバー」で答える。
+  // v1.3.5: 62 区画ではなく、1 ナンバーぶんのエリアをタップして答える。
   await expect(page.getByTestId('training-adjustment-note')).toContainText('ナンバー');
-  await expect(page.getByTestId('segment-s20-outer')).toHaveCount(0);
+  await expect(page.getByTestId('dartboard')).toHaveAttribute('data-mode', 'wedge');
+  await expect(page.getByTestId('wedge-20')).toHaveAttribute('role', 'button');
 
-  await page.getByTestId('aim-number-20').click();
+  await page.getByTestId('wedge-20').click();
   await expect(page.getByTestId('answer-0')).toHaveText('20');
   await expect(page.getByTestId('answer-1')).toHaveCount(0);
   await expect(page.getByTestId('training-result')).toHaveCount(0);
@@ -579,7 +580,7 @@ test('TRAINING: SETUP の 1 投調整は自動確定せず、Undo できる', as
   await page.getByTestId('training-undo').click();
   await expect(page.getByTestId('answer-0')).toHaveText('—');
 
-  await page.getByTestId('aim-number-19').click();
+  await page.getByTestId('wedge-19').click();
   await page.getByTestId('training-submit').click();
   await expect(page.getByTestId('training-result')).toBeVisible();
 });
@@ -587,7 +588,7 @@ test('TRAINING: SETUP の 1 投調整は自動確定せず、Undo できる', as
 test('TRAINING: SETUP の結果は「あなたの回答」と「おすすめ」を並べて見せる', async ({ page }) => {
   await openSetupAdjustment(page);
 
-  await page.getByTestId('aim-number-20').click();
+  await page.getByTestId('wedge-20').click();
   await page.getByTestId('training-submit').click();
 
   await expect(page.getByTestId('training-verdict')).toBeVisible();
@@ -629,8 +630,8 @@ test('TRAINING: RECOVERY でも不成立の回答におすすめを出す', asyn
  * SETUP はナンバー選択（v1.3.5）、CHECKOUT / RECOVERY は盤面。
  */
 async function answerOne(page: Page) {
-  if ((await page.getByTestId('aim-number-20').count()) > 0) {
-    await page.getByTestId('aim-number-20').click();
+  if ((await page.getByTestId('wedge-20').count()) > 0) {
+    await page.getByTestId('wedge-20').click();
     return;
   }
   await page.getByTestId('segment-t20').click();
@@ -1053,7 +1054,7 @@ async function openSetupFirstDart(page: Page) {
 
   for (let attempt = 0; attempt < 10; attempt += 1) {
     if ((await page.getByTestId('training-first-dart-note').count()) > 0) return;
-    await page.getByTestId('aim-number-20').click();
+    await page.getByTestId('wedge-20').click();
     await page.getByTestId('training-submit').click();
     await page.getByTestId('training-next').click();
   }
@@ -1080,7 +1081,7 @@ test('v1.3.4: 1 投目問題の feedback に「シングルへ落ちた場合」
   await page.setViewportSize({ width: 390, height: 844 });
   await openSetupFirstDart(page);
 
-  await page.getByTestId('aim-number-20').click();
+  await page.getByTestId('wedge-20').click();
   await expect(page.getByTestId('answer-0')).toHaveText('20');
   await page.getByTestId('training-submit').click();
 

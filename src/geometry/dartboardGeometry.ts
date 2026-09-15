@@ -144,3 +144,35 @@ export function buildWireLines(): Array<{ x1: number; y1: number; x2: number; y2
     return { x1: round(from.x), y1: round(from.y), x2: round(to.x), y2: round(to.y) };
   });
 }
+
+export interface WedgeArea {
+  /** 盤面のナンバー（1〜20）。 */
+  value: number;
+  /** BOARD_NUMBERS 上の位置。 */
+  index: number;
+  /** SVG パス。 */
+  d: string;
+  /** ラベルを置く座標（ウェッジの中ほど）。 */
+  labelX: number;
+  labelY: number;
+}
+
+/**
+ * ナンバー 1 つぶんのウェッジ（シングル・トリプル・ダブルをまとめた扇形）。
+ *
+ * 「どのナンバーを狙うか」だけを答える画面で、タップ領域として使う。
+ * BULL は含めない（中心は 20 個のウェッジが 1 点に集まり、狙いが決まらないため）。
+ */
+export function buildWedgeAreas(): WedgeArea[] {
+  return BOARD_NUMBERS.map((value, index) => {
+    const { start, end } = angleRangeOf(index);
+    const label = polarToCartesian((RADII.outerBull + RADII.doubleOuter) / 2, centerAngleOf(index));
+    return {
+      value,
+      index,
+      d: annularSectorPath(RADII.outerBull, RADII.doubleOuter, start, end),
+      labelX: round(label.x),
+      labelY: round(label.y),
+    };
+  });
+}

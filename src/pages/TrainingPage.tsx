@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Dartboard } from '../components/Dartboard';
-import { NumberPicker } from '../components/NumberPicker';
 import { RouteCard } from '../components/RouteCard';
 import { StatusBar } from '../components/StatusBar';
 import { requireDart, type Dart } from '../domain/dart';
@@ -82,7 +81,8 @@ export function TrainingPage() {
 
   /*
    * SETUP の回答は「どのナンバーを狙うか」なので、盤面の 62 セグメントではなく
-   * ナンバーだけを選ばせる（v1.3.5）。内部では代表するセグメントを 1 つ持つ。
+   * 1 ナンバーぶんのウェッジをそのままタップさせる（v1.3.5）。
+   * 内部では代表するセグメントを 1 つ持つ。
    *   - 1 投調整   … シングル面（S18 など）。実際の採点はウェッジ全体で行う
    *   - 1 投目の選択 … 得点用のトリプル（T19 など）
    */
@@ -413,21 +413,25 @@ export function TrainingPage() {
 
           <p className="training__hint">
             {question.format === 'setup-first-dart'
-              ? '1 投目に狙うナンバーをタップしてください。狙いどおりトリプルに入った場合と、同じナンバーのシングルへ落ちた場合の両方で採点します。'
+              ? '1 投目に狙うナンバーのエリアをタップしてください。狙いどおりトリプルに入った場合と、同じナンバーのシングルへ落ちた場合の両方で採点します。'
               : question.format === 'setup-adjustment'
-                ? '最後の 1 投で狙うナンバーをタップしてください。トリプルに入った場合と、シングルに入った場合の両方で採点します。'
+                ? '最後の 1 投で狙うナンバーのエリアをタップしてください。トリプルに入った場合と、シングルに入った場合の両方で採点します。'
                 : '狙う場所を順にタップしてください（「そこへ刺さった」ではなく「そこを狙う」という回答です）。'}
           </p>
 
           {usesNumberPicker ? (
-            <NumberPicker
-              selected={answer[0]?.baseNumber ?? null}
-              disabled={result !== null}
-              onSelect={(aimNumber) => {
-                if (result !== null) return;
-                setAnswer([requireDart(`${aimNumberPrefix}${aimNumber}`)]);
+            <Dartboard
+              wedgeSelection={{
+                selected: answer[0]?.baseNumber ?? null,
+                onSelect: (aimNumber) => {
+                  if (result !== null) return;
+                  setAnswer([requireDart(`${aimNumberPrefix}${aimNumber}`)]);
+                },
+                ariaLabelOf: (aimNumber) => `${aimNumber} を狙う`,
               }}
-              ariaLabel="狙うナンバー。1 つ選んでください。"
+              disabled={result !== null}
+              disabledReason="採点済みです。"
+              ariaLabel="ダーツボード。狙うナンバーのエリアを 1 つ選んでください。"
             />
           ) : (
             <Dartboard
