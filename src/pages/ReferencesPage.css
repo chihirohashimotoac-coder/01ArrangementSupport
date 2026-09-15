@@ -1,0 +1,305 @@
+.references {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  max-width: 52rem;
+  margin: 0 auto;
+  min-width: 0;
+}
+
+/* バージョン履歴と同じ「トップへ戻る」。追従位置もセーフエリアの扱いも揃える。 */
+.references__bar {
+  position: sticky;
+  top: calc(var(--app-safe-top, 0px) + 0.35rem);
+  z-index: 3;
+  display: flex;
+  padding: 0.3rem 0;
+  background: linear-gradient(
+    to bottom,
+    var(--background) 65%,
+    color-mix(in srgb, var(--background) 60%, transparent)
+  );
+}
+
+.references__back {
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0 0.95rem;
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 740;
+  color: var(--text-secondary);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--inner-highlight), var(--shadow-sm);
+  cursor: pointer;
+}
+
+.references__back::before {
+  content: '←';
+  margin-right: 0.35rem;
+}
+
+.references__back:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.references__head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0 0.25rem;
+}
+
+.references__title {
+  margin: 0;
+  font-size: clamp(1.2rem, 5.5vw, 1.5rem);
+  font-weight: 820;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.references__subtitle {
+  margin: 0;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+}
+
+.references__lead {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.references__legend,
+.references__note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.85rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: var(--inner-highlight), var(--shadow-sm);
+}
+
+.references__legend-title,
+.references__note-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.references__legend-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.references__legend-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.5rem;
+  min-width: 0;
+}
+
+.references__legend-item dt {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.references__legend-item dd {
+  flex: 1 1 14rem;
+  margin: 0;
+  min-width: 0;
+  font-size: 0.74rem;
+  line-height: 1.6;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.references__note p {
+  margin: 0;
+  font-size: 0.77rem;
+  line-height: 1.75;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.references__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.references__section-title {
+  margin: 0.35rem 0 0;
+  padding: 0 0.25rem;
+  font-size: 0.95rem;
+  font-weight: 820;
+  color: var(--text);
+}
+
+.references__section-lead {
+  margin: 0;
+  padding: 0 0.25rem;
+  font-size: 0.74rem;
+  line-height: 1.65;
+  color: var(--text-dim);
+}
+
+.references__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.references__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.9rem;
+  background: linear-gradient(145deg, var(--surface-elevated), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: var(--inner-highlight), var(--shadow-sm);
+}
+
+.references__item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.4rem;
+  min-width: 0;
+}
+
+.references__role {
+  flex: 0 0 auto;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.references__role--source-of-truth {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.references__role--reference {
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+}
+
+.references__role--project-doc {
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+}
+
+.references__origin {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.references__item-title {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.45;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* 長い URL でも画面外へはみ出さないよう、どこでも折り返す。 */
+.references__link {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 0.7rem;
+  line-height: 1.55;
+  color: var(--accent);
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+.references__link-hint {
+  color: var(--text-dim);
+  word-break: normal;
+}
+
+.references__link:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 0.35rem;
+}
+
+.references__fields {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.references__fields > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.references__fields dt {
+  margin: 0;
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.references__fields dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.77rem;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.references__footnote {
+  margin: 0;
+  padding: 0 0.25rem 0.25rem;
+  font-size: 0.7rem;
+  line-height: 1.65;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 22rem) {
+  .references__item,
+  .references__legend,
+  .references__note {
+    padding: 0.75rem;
+  }
+}

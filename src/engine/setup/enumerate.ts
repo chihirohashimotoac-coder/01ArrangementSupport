@@ -113,7 +113,7 @@ export function scoreSetupRoute(
       break;
     }
   }
-  if (continuityTargetId !== null) codes.push('SETUP_MAIN_TARGET_CONTINUITY');
+  if (continuityTargetId !== null) codes.push('SETUP_TARGET_CONTINUITY');
 
   const last = darts[darts.length - 1];
   const headIsMainTarget =

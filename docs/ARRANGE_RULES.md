@@ -156,7 +156,8 @@ STANDARD とは完全に分離します。
 
 v1.3.4 では、この「順序」を決める軸を 2 つ足しました。
 
-- SETUP: 第一ターゲットのシングル落ち耐性（`docs/SETUP_THEORY.md` §10 / APPROVALS A-11）
+- SETUP: 第一ターゲットのシングル落ち耐性と、狙う得点用トリプルの選び方
+  （`docs/SETUP_THEORY.md` §10 / APPROVALS A-11・A-18）
 - NEXT VISIT: 主目標始動（§8）
 
 どちらも**重みではなく明示的な比較**として実装しています。

@@ -35,7 +35,7 @@ export function targetKeyOf(dart: Dart): string {
 export interface SequenceEntry {
   readonly darts: readonly Dart[];
   readonly total: number;
-  /** 残り点に依存しない評価（難易度・的の継続・調整・S-BULL）。 */
+  /** 残り点に依存しない評価（難易度・同一ナンバー継続・調整・S-BULL）。 */
   readonly intrinsic: number;
   /** 残り点に依存しない理由コード。 */
   readonly codes: readonly SetupReasonCode[];
@@ -58,7 +58,7 @@ function analyzeSequence(darts: readonly Dart[], mainTarget: string): SequenceEn
       break;
     }
   }
-  if (continuityTargetId !== null) codes.push('SETUP_MAIN_TARGET_CONTINUITY');
+  if (continuityTargetId !== null) codes.push('SETUP_TARGET_CONTINUITY');
 
   const last = darts[darts.length - 1];
   const headIsMainTarget =
@@ -109,7 +109,7 @@ function intrinsicOf(darts: readonly Dart[], difficulty: number, mainTarget: str
 
   for (let i = 1; i < darts.length; i += 1) {
     if (targetKeyOf(darts[i]) === targetKeyOf(darts[i - 1])) {
-      value += SETUP_REASON_WEIGHTS.SETUP_MAIN_TARGET_CONTINUITY;
+      value += SETUP_REASON_WEIGHTS.SETUP_TARGET_CONTINUITY;
       break;
     }
   }

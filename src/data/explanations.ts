@@ -280,15 +280,20 @@ const SETUP_TEMPLATES: Record<SetupReasonCode, ReasonTemplate> = {
       detail: ctx.doubleReason,
     }),
   },
-  SETUP_MAIN_TARGET_CONTINUITY: {
+  /*
+   * 判定条件は「隣り合う 2 投が同じ base number か」であって、
+   * 主目標（T20）であるかどうかは見ていない。T15 → T15 でも成立する。
+   * 表示もその実際の意味（同一ナンバー継続）に合わせる。
+   */
+  SETUP_TARGET_CONTINUITY: {
     polarity: 'positive',
-    label: '主目標を継続',
+    label: '同じナンバーを継続',
     render: (ctx) => ({
       summary:
         ctx.continuityTargetId === null
-          ? '主目標を続けて狙えます。'
-          : `${ctx.continuityTargetId} を続けて狙えます。`,
-      detail: null,
+          ? '同じナンバーを続けて狙えます。'
+          : `${ctx.continuityTargetId} と、同じナンバーを続けて狙えます。`,
+      detail: '狙う的を変えずに投げられるぶん、腕の振りを作り直さずに済みます。',
     }),
   },
   SETUP_THIRD_DART_ADJUST: {

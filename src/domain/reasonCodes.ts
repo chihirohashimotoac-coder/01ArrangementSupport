@@ -63,8 +63,11 @@ export const SETUP_REASON_CODES = [
   'LEAVE_REQUIRES_BULL',
   /** 残りの基準ルートが扱いやすいダブルで終わる。 */
   'LEAVE_GOOD_FINISH_DOUBLE',
-  /** 主目標（T20 など）を続けて狙える。 */
-  'SETUP_MAIN_TARGET_CONTINUITY',
+  /**
+   * 隣り合う 2 投で同じナンバーを続けて狙える（T20 → T20 だけでなく T15 → T15 も）。
+   * 判定は「同じ base number か」であり、主目標であるかどうかは見ていない。
+   */
+  'SETUP_TARGET_CONTINUITY',
   /** 3 投目だけで着地を調整している（最大得点より整えることを優先）。 */
   'SETUP_THIRD_DART_ADJUST',
   /** S-BULL（25点）を調整に使っている。 */

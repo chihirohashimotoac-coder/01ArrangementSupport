@@ -3,13 +3,14 @@ import { PracticePage } from './pages/PracticePage';
 import { TrainingPage } from './pages/TrainingPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { VersionHistoryPage } from './pages/VersionHistoryPage';
+import { ReferencesPage } from './pages/ReferencesPage';
 import { sequenceTable } from './engine/setup/sequences';
 import { DEFAULT_SETUP_MAIN_TARGET } from './data/rankingRules';
 import { usePreferences } from './hooks/usePreferences';
 import type { Theme } from './storage/preferences';
 import './App.css';
 
-type Tab = 'home' | 'checkout' | 'setup' | 'training' | 'settings' | 'history';
+type Tab = 'home' | 'checkout' | 'setup' | 'training' | 'settings' | 'history' | 'references';
 
 const TABS: ReadonlyArray<{ id: Tab; label: string; sub: string }> = [
   { id: 'checkout', label: 'CHECKOUT', sub: '2〜170・この3投で上がる' },
@@ -47,6 +48,10 @@ function HomePage({ onSelect }: { onSelect: (tab: Tab) => void }) {
         <li>1 投ごとに実際の着弾を入れると、残り本数から候補を再計算します。</li>
         <li>成立するルートを不正解にはせず、推奨度（S / A / B / C）と理由を示します。</li>
       </ul>
+      {/*
+        トップページの下部・右寄せに、控えめな導線だけを置く。
+        固定表示にはしない（盤面へ重ねない / モバイルの操作とセーフエリアを塞がない）。
+      */}
       <div className="home__more">
         <button
           type="button"
@@ -55,6 +60,14 @@ function HomePage({ onSelect }: { onSelect: (tab: Tab) => void }) {
           onClick={() => onSelect('history')}
         >
           バージョン履歴
+        </button>
+        <button
+          type="button"
+          className="home__history"
+          data-testid="home-references"
+          onClick={() => onSelect('references')}
+        >
+          参考資料・出典
         </button>
       </div>
     </div>
@@ -84,7 +97,7 @@ export default function App() {
     return () => window.clearTimeout(handle);
   }, []);
 
-  // バージョン履歴のスクロール位置をトップページへ持ち越さない。
+  // バージョン履歴・参考資料のスクロール位置をトップページへ持ち越さない。
   const backToHome = useCallback(() => {
     setTab('home');
     document.documentElement.scrollTop = 0;
@@ -137,6 +150,7 @@ export default function App() {
           <SettingsPage theme={preferences.theme} onThemeChange={setTheme} />
         )}
         {tab === 'history' && <VersionHistoryPage onBack={backToHome} />}
+        {tab === 'references' && <ReferencesPage onBack={backToHome} />}
       </main>
 
       <footer className="app__footer">
