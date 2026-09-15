@@ -9,7 +9,7 @@
  *   1 判定 → 2 あなたの回答 → 3 その結果 → 4 おすすめ → 5 その結果 → 6 違いの理由 → 7 他の成立回答
  * とし、UI 側はこの構造をそのまま並べるだけでよいようにする。
  */
-import { formatRoute, requireDart, type Dart } from '../../domain/dart';
+import { findDart, formatRoute, requireDart, type Dart } from '../../domain/dart';
 import { DARTS_PER_VISIT } from '../../domain/checkoutRules';
 import { rankCheckoutRoutes } from '../ranking/checkoutRanking';
 import { rankSetupRoutes } from '../setup/enumerate';
@@ -20,19 +20,29 @@ import {
   firstDartMissOutcomeJa,
   setupDifferenceJa,
   setupFullDifferenceJa,
+  type WedgeLanding,
 } from '../../data/trainingExplanations';
 import type { TrainingQuestion } from './model';
 import type { GradeResult } from './grade';
 import {
-  adjustmentOutcomes,
+  aimClassOfDart,
   findFirstDartOption,
   leaveVerdictOf,
   recommendedAdjustment,
   recommendedFullRoute,
+  safeAimNumbersOf,
   setupFirstDartOptions,
+  wedgeDartsOfDart,
   type LeaveVerdict,
   type SetupFirstDartOption,
 } from './setupQuestions';
+
+const LEAVE_VERDICT_SHORT_JA: Readonly<Record<LeaveVerdict, string>> = {
+  checkoutable: '上がれる',
+  bogey: 'ノーテン',
+  'above-range': '170 超え',
+  bust: 'Bust',
+};
 
 export interface TrainingFeedback {
   /** 1. 判定 */
@@ -99,22 +109,26 @@ export function alternativeAdjustments(
 ): readonly string[] {
   if (question.format !== 'setup-adjustment') return [];
 
-  const leaveOf = new Map(
-    adjustmentOutcomes(question.currentRemaining)
-      .filter((outcome) => outcome.verdict === 'checkoutable')
-      .map((outcome) => [outcome.dart.id, outcome.leave]),
-  );
-
+  const current = question.currentRemaining;
+  const recommendedNumber = requireDart(recommendedId === '' ? 'S20' : recommendedId).baseNumber;
   const texts: string[] = [];
-  for (const route of rankSetupRoutes(question.currentRemaining, 1)) {
-    const dart = route.darts[0];
-    if (dart === undefined || dart.id === recommendedId) continue;
-    const leave = leaveOf.get(dart.id);
-    if (leave === undefined) continue;
-    texts.push(`${dart.id} → 残り ${leave}`);
+  for (const aimNumber of safeAimNumbersOf(current)) {
+    if (aimNumber === recommendedNumber) continue;
+    texts.push(`${aimNumber} → ${wedgeLandingsOf(current, `S${aimNumber}`).map((landing) => `${landing.dartId} なら ${landing.leave}`).join(' / ')}`);
     if (texts.length >= limit) break;
   }
   return texts;
+}
+
+/** そのナンバーへ投げたときの 2 つの着弾（表示用）。 */
+function wedgeLandingsOf(current: number, dartId: string): readonly WedgeLanding[] {
+  const dart = findDart(dartId);
+  if (!dart) return [];
+  return wedgeDartsOfDart(dart).map((item) => ({
+    dartId: item.id,
+    leave: current - item.score,
+    verdict: leaveVerdictOf(current - item.score),
+  }));
 }
 
 /**
@@ -180,6 +194,19 @@ function outcomeOfAnswer(question: TrainingQuestion, result: GradeResult): strin
     }
     return firstDartOutcomeJa(option, question.visitDartsAvailable - 1);
   }
+  if (question.format === 'setup-adjustment') {
+    const answerId = result.answerText;
+    const landings = wedgeLandingsOf(question.currentRemaining, answerId);
+    if (landings.length === 0) {
+      return result.leave === null || result.leaveVerdict === null
+        ? '—'
+        : describeLeaveJa(result.leave, result.leaveVerdict);
+    }
+    const text = landings
+      .map((landing) => `${landing.dartId} → 残り ${landing.leave}（${LEAVE_VERDICT_SHORT_JA[landing.verdict]}）`)
+      .join(' / ');
+    return text;
+  }
   if (question.kind === 'setup') {
     return result.leave === null || result.leaveVerdict === null
       ? '—'
@@ -234,11 +261,18 @@ export function buildFeedback(
       recommendedMissDartId: recommendedOption?.missDart.id ?? '',
     });
   } else if (isSetup && question.format === 'setup-adjustment') {
+    const answerId = answer.length === 1 ? answer[0].id : null;
     differenceJa = setupDifferenceJa({
-      answerDartId: answer.length === 1 ? answer[0].id : null,
-      answerLeave: result.leave,
-      answerVerdict: result.leaveVerdict,
+      answerDartId: answerId,
+      answerLandings: answerId === null ? [] : wedgeLandingsOf(question.currentRemaining, answerId),
+      answerSafe:
+        answerId !== null &&
+        aimClassOfDart(question.currentRemaining, requireDart(answerId)) === 'safe',
       recommendedDartId: recommended[0]?.id ?? '',
+      recommendedLandings:
+        recommended.length === 1
+          ? wedgeLandingsOf(question.currentRemaining, recommended[0].id)
+          : [],
       recommendedLeave,
     });
   } else if (isSetup) {

@@ -352,7 +352,7 @@ export function buildSetupAdjustmentQuestion(
     contextualThrows: candidate.contextualThrows,
     promptJa: `開始 ${candidate.startRemaining} 点。ここまで ${formatContext(
       candidate.contextualThrows,
-    )} で、現在 ${candidate.currentRemaining} 点。次のラウンドで上がれる残りにするには、最後の 1 投をどこへ狙いますか？`,
+    )} で、現在 ${candidate.currentRemaining} 点。次のラウンドで上がれる残りにするには、最後の 1 投をどのナンバーへ狙いますか？シングルに外れる場合も考慮して選んでください。`,
     recovery: null,
     expectedAnswer: [candidate.recommended.id],
     trivial: candidate.trivial,

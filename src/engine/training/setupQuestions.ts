@@ -96,13 +96,23 @@ export function hasGoodAdjustment(current: number): boolean {
 
 /**
  * 1 投調整の推奨解答。
- * 通常 Practice と同じランキングの第 1 候補をそのまま使う。
+ *
+ * 並びは通常 Practice と同じランキング（`rankSetupRoutes`）のまま。
+ * そのうえで、**シングル面に入っても上がれるナンバー**があるなら、その中の
+ * 最上位を推奨にする（v1.3.5）。ラスト 1 投の調整は外れ方まで含めた選択なので、
+ * 「狙いどおり入ればよい残り」だけで推奨を決めない。
+ *
+ * 安全なナンバーが 1 つも無い残り（190 以上など、どのシングル面でも 170 を
+ * 超える場面）では、これまでどおりランキング第 1 候補をそのまま使う。
  */
 export function recommendedAdjustment(current: number): Dart | null {
-  const ranked = rankSetupRoutes(current, 1, { maxRoutes: 1 });
-  const dart = ranked.length > 0 ? ranked[0].darts[0] : null;
-  if (dart === undefined || dart === null) return null;
-  return leaveVerdictOf(current - dart.score) === 'checkoutable' ? dart : null;
+  const ranked = rankSetupRoutes(current, 1).map((route) => route.darts[0]);
+  const reachable = ranked.filter(
+    (dart): dart is Dart =>
+      dart !== undefined && dart !== null && leaveVerdictOf(current - dart.score) === 'checkoutable',
+  );
+  if (reachable.length === 0) return null;
+  return reachable.find((dart) => aimClassOfDart(current, dart) === 'safe') ?? reachable[0];
 }
 
 /** 3 投フル組み立ての推奨解答。 */
@@ -121,49 +131,124 @@ export function continuationDartOf(actualDartId: string): Dart | null {
 }
 
 /**
- * ラスト 1 投で「自然に狙う」的の候補。
+ * ラスト 1 投で狙える「ナンバー」。
+ *
+ * この教材が扱うのは「どのナンバーのウェッジへ投げるか」であって、
+ * 62 セグメントのどれに刺すかではない。狙ったナンバーのウェッジに入れば、
+ * 実際の着弾はシングル面かトリプル面のどちらかになる。
+ *
+ * BULL エリアは対象外にする。「狙って外すと同じナンバーのシングル面」という
+ * モデルが当てはまらず（外れれば周囲のどのナンバーにも散る）、
+ * `singleMissDartOf()` が BULL を対象外にしているのと同じ理由による。
+ */
+export const AIM_NUMBERS: readonly number[] = Array.from({ length: 20 }, (_, index) => index + 1);
+
+/** そのナンバーを狙ったときに起きうる着弾（シングル面とトリプル面）。 */
+export function wedgeDartsOf(aimNumber: number): readonly Dart[] {
+  const single = findDart(`S${aimNumber}`);
+  const triple = findDart(`T${aimNumber}`);
+  return [single, triple].filter((dart): dart is Dart => dart !== undefined && dart !== null);
+}
+
+/**
+ * その的を狙ったときに起きうる着弾。
+ *
+ * 採点では 1〜20 に限らず、回答として渡された的をそのまま解釈する
+ * （BULL エリアを選んだ回答は S-BULL / BULL の 2 つで見る）。
+ */
+export function wedgeDartsOfDart(dart: Dart): readonly Dart[] {
+  if (dart.baseNumber === null) {
+    const sb = findDart('SB');
+    const bull = findDart('BULL');
+    return [sb, bull].filter((item): item is Dart => item !== undefined && item !== null);
+  }
+  return wedgeDartsOf(dart.baseNumber);
+}
+
+/**
+ * ナンバーの安全度。
+ *
+ *   safe    … シングル面でもトリプル面でも、次のラウンドで上がれる残りになる
+ *   partial … 片方でしか上がれない（ふつうはトリプルに入ったときだけ）
+ *   dead    … どちらに入っても上がれない
+ */
+export type AimClass = 'safe' | 'partial' | 'dead';
+
+export function aimClassOfDarts(current: number, wedge: readonly Dart[]): AimClass {
+  // Bust する着弾は、この教材が扱う「悪い残り」ではない（本仕様 6-1 節の列挙は
+  // Bogey / 170 超え / テンパイ不能）。Bust を避ける判断は CHECKOUT 側の話。
+  const reachable = wedge.filter((dart) => leaveVerdictOf(current - dart.score) !== 'bust');
+  if (reachable.length === 0) return 'dead';
+  const good = reachable.filter(
+    (dart) => leaveVerdictOf(current - dart.score) === 'checkoutable',
+  );
+  if (good.length === reachable.length) return 'safe';
+  return good.length > 0 ? 'partial' : 'dead';
+}
+
+export function aimClassOf(current: number, aimNumber: number): AimClass {
+  return aimClassOfDarts(current, wedgeDartsOf(aimNumber));
+}
+
+/** 回答として渡された的の安全度。 */
+export function aimClassOfDart(current: number, dart: Dart): AimClass {
+  return aimClassOfDarts(current, wedgeDartsOfDart(dart));
+}
+
+/** そのウェッジで「次のラウンドで上がれない」着弾（採点の説明に使う）。 */
+export function unsafeLandingsOf(current: number, dart: Dart): readonly AdjustmentOutcome[] {
+  return wedgeDartsOfDart(dart)
+    .map((item) => ({ dart: item, leave: current - item.score, verdict: leaveVerdictOf(current - item.score) }))
+    .filter((outcome) => outcome.verdict !== 'checkoutable' && outcome.verdict !== 'bust');
+}
+
+/** そのウェッジで「次のラウンドで上がれる」着弾。 */
+export function safeLandingsOf(current: number, dart: Dart): readonly AdjustmentOutcome[] {
+  return wedgeDartsOfDart(dart)
+    .map((item) => ({ dart: item, leave: current - item.score, verdict: leaveVerdictOf(current - item.score) }))
+    .filter((outcome) => outcome.verdict === 'checkoutable');
+}
+
+/** シングル面でもトリプル面でも上がれる残りになるナンバー。 */
+export function safeAimNumbersOf(current: number): readonly number[] {
+  return AIM_NUMBERS.filter((aimNumber) => aimClassOf(current, aimNumber) === 'safe');
+}
+
+/**
+ * ラスト 1 投で「自然に狙う」ナンバー。
  *
  *  - 直前に入ったナンバーをそのまま続ける（継続）
  *  - 主目標（既定 T20）の 20 へ戻る
- *
- * その的を狙ったときに実際に起きうる着弾は、同じウェッジのシングル面と
- * トリプル面の 2 つ（BULL エリアなら S-BULL と BULL）。
  */
-function naturalTargetOutcomesOf(lastActualId: string): Dart[][] {
-  const numbers = new Set<number | null>();
+export function naturalAimNumbersOf(lastActualId: string): readonly number[] {
+  const numbers = new Set<number>();
   const last = findDart(lastActualId);
-  if (last) numbers.add(last.baseNumber);
+  if (last && last.baseNumber !== null) numbers.add(last.baseNumber);
   const main = findDart(DEFAULT_SETUP_MAIN_TARGET);
-  if (main) numbers.add(main.baseNumber);
-
-  const groups: Dart[][] = [];
-  for (const number of numbers) {
-    if (number === null) {
-      const sb = findDart('SB');
-      const bull = findDart('BULL');
-      if (sb && bull) groups.push([sb, bull]);
-      continue;
-    }
-    const single = findDart(`S${number}`);
-    const triple = findDart(`T${number}`);
-    if (single && triple) groups.push([single, triple]);
-  }
-  return groups;
+  if (main && main.baseNumber !== null) numbers.add(main.baseNumber);
+  return [...numbers];
 }
 
 /**
  * その 1 投調整が「本当に調整判断を必要とするか」。
  *
- * 自然に狙う的（直前と同じナンバー / 主目標の 20）のうち、
- * **どこへ入っても次ラウンドで上がれる**ものが 1 つでもあるなら、
- * 実戦では何も考えずに投げて問題ない。教材としては弱いので false を返す。
+ * 判断が要るのは、**狙うナンバーを変えると結果が変わる**ときだけ。
+ *
+ *   1. シングル面でもトリプル面でも上がれるナンバーが存在する
+ *   2. しかし自然に狙うナンバー（継続 / 主目標の 20）はどれもそうではない
  *
  * 例:
  *   現在 176（ここまで T18 → T18）
- *     18 を続ける: T18 → 122 ○ / S18 → 158 ○   → 判断不要
- *     20 へ戻る  : T20 → 116 ○ / S20 → 156 ○   → 判断不要
+ *     18: S18 → 158 ○ / T18 → 122 ○ → 自然な的が safe   → 出題しない
  *   現在 182（ここまで T20 → T20）
- *     20 を続ける: T20 → 122 ○ / S20 → 162 ×   → 判断が要る
+ *     20: S20 → 162 ×（ノーテン） / T20 → 122 ○ → partial
+ *     18: S18 → 164 ○ / T18 → 128 ○            → safe    → 出題する
+ *   現在 192（ここまで T20 → T20）
+ *     20: S20 → 172 ×（170 超え） / T20 → 132 ○ → partial
+ *     ほかに safe なナンバーが無い（どのシングル面でも 170 を超える）
+ *       → どこを狙っても同じなので出題しない
+ *   現在 194（ここまで S20 → S1）
+ *     1 も 20 も safe ではなく、safe なナンバーも無い → 出題しない
  *
  * 固定の下限（182 以上など）ではなく計算で決めるので、
  * 179（S20 で 159 のノーテン）のような残りも候補に入る。
@@ -172,20 +257,10 @@ export function isDecisionRequiredAdjustment(
   currentRemaining: number,
   lastActualDartId: string,
 ): boolean {
-  for (const outcomes of naturalTargetOutcomesOf(lastActualDartId)) {
-    // Bust する着弾は、この教材が扱う「悪い残り」ではない（本仕様 6-1 節の列挙は
-    // Bogey / 170 超え / テンパイ不能）。Bust を避ける判断は CHECKOUT 側の話なので、
-    // ここでは残る着弾だけを見る。
-    const reachable = outcomes.filter(
-      (dart) => leaveVerdictOf(currentRemaining - dart.score) !== 'bust',
-    );
-    if (reachable.length === 0) continue;
-    const alwaysSafe = reachable.every(
-      (dart) => leaveVerdictOf(currentRemaining - dart.score) === 'checkoutable',
-    );
-    if (alwaysSafe) return false;
-  }
-  return true;
+  if (safeAimNumbersOf(currentRemaining).length === 0) return false;
+  return !naturalAimNumbersOf(lastActualDartId).some(
+    (aimNumber) => aimClassOf(currentRemaining, aimNumber) === 'safe',
+  );
 }
 
 // ---------------------------------------------------------------------------

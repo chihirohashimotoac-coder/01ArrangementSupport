@@ -83,10 +83,10 @@ describe('不成立の回答にも必ず推奨解答を返す', () => {
       expected: 'EMPTY',
     },
     {
-      label: 'LEAVES_BOGEY',
+      label: 'ADJUST_WEDGE_SINGLE_MISS',
       question: adjustment(226, ['S20', 'S20']),
       answer: ['S20'],
-      expected: 'LEAVES_BOGEY',
+      expected: 'ADJUST_WEDGE_SINGLE_MISS',
     },
   ];
 

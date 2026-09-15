@@ -408,17 +408,41 @@ describe('SETUP セッションの構成', () => {
     ).toBe(true);
   });
 
-  it('復習を切れば、カテゴリ配分は計画と完全に一致する（200 seeds）', () => {
+  /*
+   * v1.3.5 で 1 投調整の pool が「判断が要る 7 つの残り（179 / 182 / 183 /
+   * 185 / 186 / 188 / 189）」だけになったため、30 問セッションでは
+   * 同じ現在残りを何度も配ることになる。候補が 4 件しかないカテゴリ
+   * （setup-landing-95-105）は、直近 3 問に同じ状況を出さない制約と
+   * 両立できない seed が出る。
+   *
+   * そのときカテゴリを 1 枠ぶん外すのは仕様どおり（F-008: 直近履歴より
+   * 内側でカテゴリを外す）。ここでは「形式の 80/20 は必ず守る」ことと
+   * 「カテゴリのズレは 1 枠まで」を固定する。
+   */
+  it('復習を切れば、カテゴリ配分は計画どおり（ズレても 1 枠まで・200 seeds）', () => {
     const settings = settingsOf({ mode: 'setup', questionCount: 30, reviewWeakFirst: false });
     const planned = plannedCategoriesOf(settings, 30);
+    const plannedAdjustment = Object.entries(planned)
+      .filter(([category]) => category !== 'setup-first-dart-safety')
+      .reduce((sum, [, wanted]) => sum + wanted, 0);
     const violations: string[] = [];
     for (let seed = 1; seed <= 200; seed += 1) {
       const { report } = generateQuestionsWithReport({ settings, seed });
+      let adjustment = 0;
       for (const [category, wanted] of Object.entries(planned)) {
-        if ((report.categoryDistribution[category] ?? 0) !== wanted) {
-          violations.push(`seed=${seed}: ${category}`);
+        const actual = report.categoryDistribution[category] ?? 0;
+        if (category !== 'setup-first-dart-safety') adjustment += actual;
+        if (Math.abs(actual - wanted) > 1) {
+          violations.push(`seed=${seed}: ${category} 計画 ${wanted} → 実際 ${actual}`);
           break;
         }
+      }
+      // 形式の 80/20（1 投調整 24 / 1 投目 6）は 1 枠も動かさない。
+      if (adjustment !== plannedAdjustment) {
+        violations.push(`seed=${seed}: 1 投調整の合計 ${adjustment} ≠ ${plannedAdjustment}`);
+      }
+      if ((report.categoryDistribution['setup-first-dart-safety'] ?? 0) !== planned['setup-first-dart-safety']) {
+        violations.push(`seed=${seed}: 1 投目の枠`);
       }
     }
     expect(violations.slice(0, 5)).toEqual([]);

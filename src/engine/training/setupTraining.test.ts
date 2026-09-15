@@ -12,7 +12,9 @@ import {
 } from './questions';
 import {
   adjustmentOutcomes,
+  aimClassOf,
   isDecisionRequiredAdjustment,
+  safeAimNumbersOf,
   leaveVerdictOf,
   recommendedAdjustment,
   setupAdjustmentCandidates,
@@ -61,13 +63,23 @@ describe('SETUP 1 投調整（226 / 必須ケース A）', () => {
     expect(question.contextualThrows.every((item) => item.intendedDartId !== null)).toBe(true);
   });
 
-  it('S20 を続けると 166 が残り、ノーテンなので learningCorrect にならない', () => {
+  it('20 を続けると、シングル面に入ったとき 166 のノーテンになるので不正解', () => {
     const result = gradeAnswer(question, parseRoute(['S20']));
     expect(result.leave).toBe(166);
     expect(isBogey(166)).toBe(true);
     expect(result.ruleValid).toBe(true);
     expect(result.learningCorrect).toBe(false);
-    expect(result.failureCode).toBe('LEAVES_BOGEY');
+    expect(result.failureCode).toBe('ADJUST_WEDGE_SINGLE_MISS');
+    expect(result.failureMessageJa).toContain('166');
+  });
+
+  it('T20 に入れば 126 で上がれるが、20 というナンバー選択としては不正解', () => {
+    // 答えるのは「どのナンバーを狙うか」なので、トリプルに入った場合だけで正解にしない。
+    const result = gradeAnswer(question, parseRoute(['T20']));
+    expect(result.leave).toBe(126);
+    expect(leaveVerdictOf(126)).toBe('checkoutable');
+    expect(result.learningCorrect).toBe(false);
+    expect(result.failureCode).toBe('ADJUST_WEDGE_SINGLE_MISS');
   });
 
   it('S19 へずらすと 167 が残り、正解になる', () => {
@@ -107,7 +119,8 @@ describe('SETUP 1 投調整（226 / 必須ケース A）', () => {
     const answer = parseRoute(['S20']);
     const feedback = buildFeedback(question, answer, gradeAnswer(question, answer));
     expect(feedback.alternativeTexts.length).toBeGreaterThan(0);
-    expect(feedback.alternativeTexts.join(' / ')).toContain('残り');
+    // 代替も「ナンバー」で示し、シングル面・トリプル面の両方を書く。
+    expect(feedback.alternativeTexts.join(' / ')).toMatch(/S\d+ なら \d+/);
   });
 });
 
@@ -128,7 +141,7 @@ describe('SETUP 1 投調整（302〜309）', () => {
     const result = gradeAnswer(question, parseRoute([`S${THIRD_DART_TRAP.badThirdDart}`]));
     expect(result.leave).toBe(THIRD_DART_TRAP.badLeave);
     expect(result.learningCorrect).toBe(false);
-    expect(result.failureCode).toBe('LEAVES_BOGEY');
+    expect(result.failureCode).toBe('ADJUST_WEDGE_SINGLE_MISS');
   });
 
   it('305 → S18 → 167 / 308 → S18 → 170', () => {
@@ -241,7 +254,8 @@ describe('ラスト 1 投の 3 投目調整（現在残りからの逆算）', (
       expect(isBogey(keepLeave)).toBe(true);
       expect(kept.ruleValid).toBe(true);
       expect(kept.learningCorrect).toBe(false);
-      expect(kept.failureCode).toBe('LEAVES_BOGEY');
+      // 20 はトリプルに入れば上がれるが、シングル面に入るとノーテン。
+      expect(kept.failureCode).toBe('ADJUST_WEDGE_SINGLE_MISS');
 
       const shifted = gradeAnswer(question, parseRoute([shift]));
       expect(shifted.leave).toBe(shiftLeave);
@@ -335,7 +349,7 @@ describe('ラスト 1 投の 3 投目調整（現在残りからの逆算）', (
       expect(feedback.answerOutcomeJa).toContain(String(keepLeave));
       expect(feedback.recommendedDartIds).toEqual([shift]);
       expect(feedback.recommendedOutcomeJa).toContain(String(shiftLeave));
-      expect(feedback.differenceJa).toContain('20 を狙うと');
+      expect(feedback.differenceJa).toContain('20 は');
       expect(feedback.differenceJa).toContain(String(keepLeave));
       expect(feedback.differenceJa).toContain(shift.replace('S', ''));
       expect(feedback.differenceJa).toContain(String(shiftLeave));
@@ -352,7 +366,7 @@ describe('ラスト 1 投の 3 投目調整（現在残りからの逆算）', (
     // ただし推奨として提示するのはシングルのずらしを優先する。
     const answer = parseRoute(['S20']);
     const feedback = buildFeedback(question, answer, gradeAnswer(question, answer));
-    expect(feedback.alternativeTexts[0]).toBe('S15 → 残り 167');
+    expect(feedback.alternativeTexts[0]).toBe('12 → S12 なら 170 / T12 なら 146');
   });
 });
 
@@ -645,5 +659,101 @@ describe('ラスト 1 投の decisionRequired', () => {
     for (const [current, dartId] of Object.entries(expected)) {
       expect(recommendedAdjustment(Number(current))?.id, current).toBe(dartId);
     }
+  });
+});
+
+/**
+ * v1.3.5: 1 投調整は「狙うナンバーを変えると結果が変わる」問題だけを出し、
+ * 採点もナンバー単位（シングル面・トリプル面の両方）で行う。
+ */
+describe('v1.3.5 ナンバーで答える 1 投調整', () => {
+  it('現在 192 は、どのナンバーを狙っても同じなので出題しない', () => {
+    // 312 開始・T20 → T20 の場面。T20 なら 132 で普通にテンパイ、
+    // S20 に落ちれば 172。ほかのどのナンバーでもシングル面は 170 を超えるので、
+    // 「20 以外を選ぶ理由」が無い。
+    expect(aimClassOf(192, 20)).toBe('partial');
+    expect(safeAimNumbersOf(192)).toEqual([]);
+    expect(isDecisionRequiredAdjustment(192, 'T20')).toBe(false);
+  });
+
+  it('現在 194 も、どのシングル面でも上がれないので出題しない', () => {
+    // 215 開始・S20 → S1 の場面。T20 の 134 が唯一の道で、判断の余地が無い。
+    expect(safeAimNumbersOf(194)).toEqual([]);
+    expect(isDecisionRequiredAdjustment(194, 'S1')).toBe(false);
+  });
+
+  it('出題されるのは 179 / 182 / 183 / 185 / 186 / 188 / 189 の 7 つだけ', () => {
+    const pools = buildPools({ ...DEFAULT_TRAINING_SETTINGS, mode: 'setup' });
+    const currents = [
+      ...new Set(pools.setupAdjustment.map((candidate) => candidate.currentRemaining)),
+    ].sort((a, b) => a - b);
+    // Bogey Number（159 / 162 / 163 / 165 / 166 / 168 / 169）+ 20。
+    // 固定表ではなく、シングル面に落ちたときの残りから計算して決まる。
+    expect(currents).toEqual([179, 182, 183, 185, 186, 188, 189]);
+  });
+
+  it('出題されるすべての問題に、シングル面でも上がれるナンバーがある', () => {
+    const pools = buildPools({ ...DEFAULT_TRAINING_SETTINGS, mode: 'setup' });
+    const violations: string[] = [];
+    for (const candidate of pools.setupAdjustment) {
+      const safe = safeAimNumbersOf(candidate.currentRemaining);
+      if (safe.length === 0) violations.push(`${candidate.currentRemaining}: safe なし`);
+      if (candidate.recommended.baseNumber === null) {
+        violations.push(`${candidate.currentRemaining}: 推奨が BULL`);
+        continue;
+      }
+      if (!safe.includes(candidate.recommended.baseNumber)) {
+        violations.push(`${candidate.currentRemaining}: 推奨 ${candidate.recommended.id} が safe でない`);
+      }
+      const question = buildSetupAdjustmentQuestion(candidate, 0);
+      for (const aimNumber of safe) {
+        const graded = gradeAnswer(question, [requireDart(`S${aimNumber}`)]);
+        if (!graded.learningCorrect) violations.push(`${candidate.currentRemaining}: ${aimNumber} が不正解`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('182 では、T20 に入れば上がれても 20 という選択は不正解', () => {
+    const question = adjustmentQuestion(302, ['T20', 'T20']);
+    expect(question.currentRemaining).toBe(182);
+    expect(question.promptJa).toContain('どのナンバー');
+    expect(question.promptJa).toContain('シングルに外れる場合');
+
+    const twenty = gradeAnswer(question, [requireDart('T20')]);
+    expect(twenty.learningCorrect).toBe(false);
+    expect(twenty.failureCode).toBe('ADJUST_WEDGE_SINGLE_MISS');
+    expect(twenty.failureMessageJa).toContain('162');
+
+    const eighteen = gradeAnswer(question, [requireDart('S18')]);
+    expect(eighteen.learningCorrect).toBe(true);
+    const eighteenTriple = gradeAnswer(question, [requireDart('T18')]);
+    expect(eighteenTriple.learningCorrect).toBe(true);
+  });
+
+  it('判定と推奨度が食い違わない（不正解なら推奨度も C）', () => {
+    const question = adjustmentQuestion(302, ['T20', 'T20']);
+    const wrong = gradeAnswer(question, [requireDart('S20')]);
+    expect(wrong.learningCorrect).toBe(false);
+    expect(wrong.grade).toBe('C');
+    expect(wrong.setupEvaluation?.grade).toBeDefined();
+  });
+
+  it('安全なナンバーが存在しない残りでは、従来どおり「作った残り」で採点する', () => {
+    // 190 以上は、どのシングル面でも 170 を超える。存在しない安全さは要求しない。
+    const question = {
+      ...adjustmentQuestion(302, ['T20', 'T20']),
+      currentRemaining: 192,
+      startRemaining: 312,
+    };
+    expect(safeAimNumbersOf(192)).toEqual([]);
+    const triple = gradeAnswer(question, [requireDart('T20')]);
+    expect(triple.leave).toBe(132);
+    expect(triple.learningCorrect).toBe(true);
+
+    const single = gradeAnswer(question, [requireDart('S20')]);
+    expect(single.leave).toBe(172);
+    expect(single.learningCorrect).toBe(false);
+    expect(single.failureCode).toBe('LEAVE_ABOVE_CHECKOUT_RANGE');
   });
 });

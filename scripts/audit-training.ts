@@ -69,6 +69,8 @@ interface ModeAudit {
   /** 出題構成の quota 違反セッション数。 */
   formatQuotaViolations: number;
   categoryQuotaViolations: number;
+  /** カテゴリが 1 枠だけずれたセッション（仕様どおりの正規化。失敗ではない）。 */
+  categoryQuotaShiftedSessions: number;
   trivialOverCapSessions: number;
   maxTrivialOverCap: number;
   directOverCapSessions: number;
@@ -112,6 +114,7 @@ function emptyAudit(mode: string): ModeAudit {
     noFinalHardSessions: 0,
     formatQuotaViolations: 0,
     categoryQuotaViolations: 0,
+    categoryQuotaShiftedSessions: 0,
     trivialOverCapSessions: 0,
     maxTrivialOverCap: 0,
     directOverCapSessions: 0,
@@ -276,9 +279,9 @@ function setupPoolShapeOf(settings: TrainingSettings): SetupPoolShape {
 function setupQuotaViolationsOf(
   questions: readonly TrainingQuestion[],
   settings: TrainingSettings,
-): { format: boolean; category: boolean } {
+): { format: boolean; category: boolean; categoryShifted: boolean } {
   const setup = questions.filter((question) => question.kind === 'setup');
-  if (setup.length === 0) return { format: false, category: false };
+  if (setup.length === 0) return { format: false, category: false, categoryShifted: false };
 
   const shape = setupPoolShapeOf(settings);
   const firstDart = setup.filter((question) => question.format === 'setup-first-dart').length;
@@ -291,12 +294,24 @@ function setupQuotaViolationsOf(
   const counts: Counter = {};
   for (const question of setup) bump(counts, question.primaryCategory);
 
+  /*
+   * カテゴリのズレは 1 枠までを許容する（v1.3.5）。
+   *
+   * 1 投調整の pool は「判断が要る 7 つの残り」だけになった。候補が 4 件しか
+   * 無いカテゴリは、直近 3 問に同じ状況を出さない制約と両立できない seed がある。
+   * そのときカテゴリを 1 枠外すのは仕様どおり（F-008: 直近履歴より内側で
+   * カテゴリを外す）。2 枠以上ずれたら設計の破綻として扱う。
+   */
+  const deviations = Object.entries(quota).map(
+    ([key, value]) => Math.abs((counts[key] ?? 0) - value),
+  );
   return {
     // 3 投フル形式は新規出題を停止したので、1 問でも出たら違反。
     format:
       firstDart !== wantedFirstDart ||
       setup.some((question) => question.format === 'setup-full'),
-    category: Object.entries(quota).some(([key, value]) => (counts[key] ?? 0) !== value),
+    category: deviations.some((deviation) => deviation > 1),
+    categoryShifted: deviations.some((deviation) => deviation > 0),
   };
 }
 
@@ -316,6 +331,7 @@ function auditSession(
   const quota = setupQuotaViolationsOf(questions, settings);
   if (quota.format) audit.formatQuotaViolations += 1;
   if (quota.category) audit.categoryQuotaViolations += 1;
+  if (quota.categoryShifted) audit.categoryQuotaShiftedSessions += 1;
 
   const trivialOver =
     questions.filter((question) => question.trivial).length - trivialCapOf(questions.length);
@@ -917,6 +933,10 @@ function main(): void {
     console.log(`末尾 2 問に HARD 無しセッション    : ${audit.noFinalHardSessions}`);
     console.log(`SETUP 形式 quota 違反            : ${audit.formatQuotaViolations}`);
     console.log(`SETUP カテゴリ quota 違反         : ${audit.categoryQuotaViolations}`);
+    console.log(
+      `SETUP カテゴリ 1 枠ずれ           : ${audit.categoryQuotaShiftedSessions} セッション` +
+        `（候補の少ないカテゴリと anti-repeat の両立。仕様どおり）`,
+    );
     console.log(
       `trivial 上限超過セッション         : ${audit.trivialOverCapSessions}` +
         ` (最大 +${audit.maxTrivialOverCap} 問, ${((audit.trivialOverCapSessions / Math.max(audit.sessions, 1)) * 100).toFixed(3)}%)`,
