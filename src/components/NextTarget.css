@@ -130,3 +130,59 @@
 .next-target__label { border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent); border-radius: 999px; }
 .next-target__darts li { font-size: 1.12rem; color: var(--text); }
 .next-target__undo { align-self: flex-end; background: transparent; color: var(--text-secondary); }
+
+/*
+ * 次ラウンドへの残しの候補（最大 3 件・v1.3.6）。
+ * 盤面の下に置くので、1 件 1 行で「ルート / 残り / 選び方」を並べる。
+ */
+.next-target__proposals {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.next-target__proposals .next-target__label {
+  align-self: flex-start;
+}
+
+.next-target__proposal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.next-target__proposal-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 0.5rem;
+  row-gap: 0.1rem;
+  padding: 0.35rem 0.5rem;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.next-target__proposal-route {
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.next-target__proposal-leave {
+  font-size: 1.05rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.next-target__proposal-note {
+  grid-column: 1 / -1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-dim);
+}

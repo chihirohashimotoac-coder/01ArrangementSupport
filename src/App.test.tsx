@@ -1458,6 +1458,15 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     );
   }
 
+  /** 上がれない場面で出る「次ラウンドへの残し」候補（v1.3.6）。 */
+  function nextVisitProposals() {
+    const list = screen.queryByTestId('recovery-next-visit');
+    if (list === null) return null;
+    return Array.from(within(list).getByLabelText('次ラウンドへの残しの候補').children).map(
+      (item) => item.textContent ?? '',
+    );
+  }
+
   const STANDARD_122 = ['BULL', 'S18', 'T18'];
 
   async function selectMyRouteAt122(user: User) {
@@ -1541,8 +1550,10 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
 
     expect(screen.getByTestId('status-left')).toHaveTextContent('122');
     expect(screen.getByTestId('next-visit-route')).toBeInTheDocument();
-    // v1.3.2 の NEXT VISIT をそのまま使う。
-    expect(nextRoute()).toEqual(['S18']);
+    // v1.3.2 の NEXT VISIT をそのまま使う。投げたあとの残りも一緒に出す（v1.3.6）。
+    const proposals = nextVisitProposals();
+    expect(proposals?.[0]).toContain('S18');
+    expect(proposals?.[0]).toContain('104');
   });
 
   it('CHECKOUT の OTHER ROUTE も、予定どおりのあいだは選んだ続きを案内する', async () => {
@@ -1582,7 +1593,7 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     await user.click(screen.getByTestId('segment-miss'));
 
     expect(screen.getByTestId('next-visit-route')).toBeInTheDocument();
-    expect(nextRoute()).toEqual(['S19']);
+    expect(nextVisitProposals()?.[0]).toContain('S19');
   });
 
   it('SETUP の OTHER ROUTE も、予定どおりのあいだは選んだ続きを案内する', async () => {
@@ -1730,5 +1741,45 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     await user.click(chipOf(screen.getByTestId('my-route'), 1));
     expect(screen.getAllByRole('button').length).toBe(before);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  /**
+   * v1.3.6: 上がれない場面の実戦入力では、
+   * 「投げるルート」だけでなく「投げたあと何点残るか」と、選び方の違う案を出す。
+   */
+  it('135 から S5 を刺すと、残し候補を 3 つ・残り点つきで出す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '135');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-s5-outer'));
+
+    expect(screen.getByTestId('status-left')).toHaveTextContent('130');
+    // 上がれないので、通常の NEXT 行ではなく残しの候補を出す。
+    expect(screen.queryByTestId('recovery-next-route')).toBeNull();
+
+    const rows = nextVisitProposals();
+    expect(rows).toHaveLength(3);
+    expect(rows?.[0]).toContain('T20 → T18');
+    expect(rows?.[0]).toContain('16');
+    expect(rows?.[1]).toContain('T20 → T10');
+    expect(rows?.[1]).toContain('40');
+    expect(rows?.[1]).toContain('得意ダブル D20');
+    expect(rows?.[2]).toContain('T19 → T19');
+    expect(rows?.[2]).toContain('16');
+    // 同じルートを 2 回出さない。
+    expect(new Set(rows).size).toBe(3);
+  });
+
+  it('上がれる場面では、これまでどおり NEXT の 1 行だけを出す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '122');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-t20'));
+
+    expect(screen.getByTestId('status-left')).toHaveTextContent('62');
+    expect(screen.queryByTestId('recovery-next-visit')).toBeNull();
+    expect(nextRoute()?.length ?? 0).toBeGreaterThan(0);
   });
 });

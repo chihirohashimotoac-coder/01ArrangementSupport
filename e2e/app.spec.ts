@@ -972,7 +972,7 @@ test('v1.3.4: 130 から S5 を刺した 125 / 2 本で、T20 始動を案内す
   expect(routeText.indexOf('T20')).toBeLessThan(routeText.indexOf('T11'));
 });
 
-test('v1.3.5: 135 から S5 で 130 / 2 本になると、既定設定でも T20 → T18', async ({
+test('v1.3.5 / v1.3.6: 135 から S5 で 130 / 2 本。既定設定でも T20 → T18 で、候補を 3 件出す', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -993,6 +993,26 @@ test('v1.3.5: 135 から S5 で 130 / 2 本になると、既定設定でも T20
   await expect(card).toContainText('T18');
   // 130 - 60 - 54 = 16。次ラウンドは D8 の 1 投上がり。
   await expect(card).toContainText('取得 114 点 → 残り 16');
+
+  /*
+   * v1.3.6: 盤面直下にも、投げたあとの残り点つきで候補を最大 3 件出す。
+   * 得意ダブルを考慮しない案・考慮した案・同じナンバーを続ける案。
+   */
+  const proposals = page.getByTestId('recovery-next-visit');
+  await expect(proposals).toBeVisible();
+  await expect(page.getByTestId('recovery-next-visit-leave-quality')).toContainText('T20 → T18');
+  await expect(page.getByTestId('recovery-next-visit-leave-quality')).toContainText('16');
+  await expect(page.getByTestId('recovery-next-visit-preferred-double')).toContainText('T20 → T10');
+  await expect(page.getByTestId('recovery-next-visit-preferred-double')).toContainText('40');
+  await expect(page.getByTestId('recovery-next-visit-alternative')).toContainText('T19 → T19');
+  // 上がれない場面では、これまでの 1 行表示は出さない。
+  await expect(page.getByTestId('recovery-next-route')).toHaveCount(0);
+
+  // 横スクロールを増やさない。
+  const overflows = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflows, 'NEXT VISIT の候補表示で横スクロールが出ている').toBe(false);
 
   // D20 を第 1 希望にしたユーザーには、これまでどおり 40 残しを出す。
   await page.getByTestId('nav-settings').click();

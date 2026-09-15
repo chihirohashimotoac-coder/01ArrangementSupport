@@ -537,6 +537,7 @@ export function PracticePage({ mode }: PracticePageProps) {
             status={visit.status}
             hasThrown={visit.thrown.length > 0}
             dartIds={nextDartIds}
+            nextVisitProposals={suggestion?.nextVisitProposals ?? []}
             onUndo={handleUndo}
           />
           <VisitTrail
