@@ -1116,19 +1116,23 @@ describe('v1.3 TRAINING 教育設計', () => {
     expect(screen.getByTestId('status-left')).toHaveTextContent(String(current));
   });
 
-  it('SETUP の 1 投調整では 1 投しか選べず、自動確定もしない', async () => {
+  it('SETUP の 1 投調整はナンバーで答え、自動確定もしない（v1.3.5）', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openSetupAdjustment(user);
 
-    await user.click(screen.getByTestId('segment-s20-outer'));
-    expect(screen.getByTestId('answer-0')).toHaveTextContent('S20');
+    // 盤面の 62 セグメントではなく、狙うナンバーだけを選ぶ。
+    expect(screen.queryByTestId('segment-s20-outer')).toBeNull();
+    expect(screen.getByTestId('training-adjustment-note')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('aim-number-20'));
+    expect(screen.getByTestId('answer-0')).toHaveTextContent('20');
     expect(screen.queryByTestId('answer-1')).toBeNull();
     expect(screen.queryByTestId('training-result')).toBeNull();
 
-    // 2 投目は受け付けない。
-    await user.click(screen.getByTestId('segment-s19-outer'));
-    expect(screen.getByTestId('answer-0')).toHaveTextContent('S20');
+    // 選び直しは上書きで、2 投目にはならない。
+    await user.click(screen.getByTestId('aim-number-19'));
+    expect(screen.getByTestId('answer-0')).toHaveTextContent('19');
 
     await user.click(screen.getByTestId('training-undo'));
     expect(screen.getByTestId('answer-0')).toHaveTextContent('—');
@@ -1139,7 +1143,7 @@ describe('v1.3 TRAINING 教育設計', () => {
     render(<App />);
     await openSetupAdjustment(user);
 
-    await user.click(screen.getByTestId('segment-s20-outer'));
+    await user.click(screen.getByTestId('aim-number-20'));
     await user.click(screen.getByTestId('training-submit'));
 
     const result = screen.getByTestId('training-result');
@@ -1153,6 +1157,7 @@ describe('v1.3 TRAINING 教育設計', () => {
     expect(precedes(yours, recommended)).toBe(true);
     expect(precedes(recommended, difference)).toBe(true);
     expect(yours).toHaveTextContent('S20');
+    expect(screen.getByTestId('training-your-answer').textContent).toContain('20');
     expect(recommended.textContent).toMatch(/[A-Z]?\d|BULL/);
     expect(difference.textContent?.length ?? 0).toBeGreaterThan(0);
   });
@@ -1172,18 +1177,19 @@ describe('v1.3 TRAINING 教育設計', () => {
     expect(screen.getByTestId('training-difference').textContent).toContain('上がれます');
   });
 
-  it('SETUP でノーテンを残した回答は正答率へ加算しない', async () => {
+  it('SETUP でシングルに落ちると上がれないナンバーは正答率へ加算しない', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openSetupAdjustment(user);
 
     const current = Number(screen.getByTestId('training-context-current').textContent);
-    await user.click(screen.getByTestId('segment-s20-outer'));
+    await user.click(screen.getByTestId('aim-number-20'));
     await user.click(screen.getByTestId('training-submit'));
 
-    const leave = current - 20;
+    // 20 を選んだときの正解判定は、S20 と T20 の両方で上がれるかどうか。
     const bogeys = [159, 162, 163, 165, 166, 168, 169];
-    const correct = leave >= 2 && leave <= 170 && !bogeys.includes(leave);
+    const good = (leave: number) => leave >= 2 && leave <= 170 && !bogeys.includes(leave);
+    const correct = good(current - 20) && good(current - 60);
     expect(screen.getByTestId('stat-attempts')).toHaveTextContent('1');
     expect(screen.getByTestId('stat-accuracy')).toHaveTextContent(correct ? '100%' : '0%');
   });

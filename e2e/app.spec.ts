@@ -543,7 +543,7 @@ async function openSetupAdjustment(page: Page) {
 
   for (let attempt = 0; attempt < 6; attempt += 1) {
     if ((await page.getByTestId('training-context').count()) > 0) return;
-    await page.getByTestId('segment-s20-outer').click();
+    await page.getByTestId('aim-number-20').click();
     await page.getByTestId('training-submit').click();
     await page.getByTestId('training-next').click();
   }
@@ -567,15 +567,19 @@ test('TRAINING: SETUP は開始残り・ここまでの結果・現在の残り�
 test('TRAINING: SETUP の 1 投調整は自動確定せず、Undo できる', async ({ page }) => {
   await openSetupAdjustment(page);
 
-  await page.getByTestId('segment-s20-outer').click();
-  await expect(page.getByTestId('answer-0')).toHaveText('S20');
+  // v1.3.5: 盤面ではなく「狙うナンバー」で答える。
+  await expect(page.getByTestId('training-adjustment-note')).toContainText('ナンバー');
+  await expect(page.getByTestId('segment-s20-outer')).toHaveCount(0);
+
+  await page.getByTestId('aim-number-20').click();
+  await expect(page.getByTestId('answer-0')).toHaveText('20');
   await expect(page.getByTestId('answer-1')).toHaveCount(0);
   await expect(page.getByTestId('training-result')).toHaveCount(0);
 
   await page.getByTestId('training-undo').click();
   await expect(page.getByTestId('answer-0')).toHaveText('—');
 
-  await page.getByTestId('segment-s19-outer').click();
+  await page.getByTestId('aim-number-19').click();
   await page.getByTestId('training-submit').click();
   await expect(page.getByTestId('training-result')).toBeVisible();
 });
@@ -583,7 +587,7 @@ test('TRAINING: SETUP の 1 投調整は自動確定せず、Undo できる', as
 test('TRAINING: SETUP の結果は「あなたの回答」と「おすすめ」を並べて見せる', async ({ page }) => {
   await openSetupAdjustment(page);
 
-  await page.getByTestId('segment-s20-outer').click();
+  await page.getByTestId('aim-number-20').click();
   await page.getByTestId('training-submit').click();
 
   await expect(page.getByTestId('training-verdict')).toBeVisible();
@@ -619,6 +623,19 @@ test('TRAINING: RECOVERY でも不成立の回答におすすめを出す', asyn
   await expect(page.getByTestId('training-difference')).toContainText('上がれます');
 });
 
+/**
+ * その問題の入力方法で 1 つだけ答える。
+ *
+ * SETUP はナンバー選択（v1.3.5）、CHECKOUT / RECOVERY は盤面。
+ */
+async function answerOne(page: Page) {
+  if ((await page.getByTestId('aim-number-20').count()) > 0) {
+    await page.getByTestId('aim-number-20').click();
+    return;
+  }
+  await page.getByTestId('segment-t20').click();
+}
+
 test('TRAINING: MIXED で 10 問を終えられる', async ({ page }) => {
   await page.getByTestId('nav-training').click();
   await page.getByTestId('training-mode-mixed').click();
@@ -626,7 +643,7 @@ test('TRAINING: MIXED で 10 問を終えられる', async ({ page }) => {
 
   for (let i = 0; i < 10; i += 1) {
     await expect(page.getByTestId('training-progress')).toHaveText(`${i + 1} / 10 問目`);
-    await page.getByTestId('segment-t20').click();
+    await answerOne(page);
     await page.getByTestId('training-submit').click();
     await expect(page.getByTestId('training-result')).toBeVisible();
     await page.getByTestId('training-next').click();
@@ -644,7 +661,7 @@ test('TRAINING: 無限モードは 10 問を超えても続く', async ({ page }
 
   for (let i = 0; i < 11; i += 1) {
     await expect(page.getByTestId('training-progress')).toHaveText(`${i + 1} 問目`);
-    await page.getByTestId('segment-t20').click();
+    await answerOne(page);
     await page.getByTestId('training-submit').click();
     await page.getByTestId('training-next').click();
   }
@@ -955,17 +972,16 @@ test('v1.3.4: 130 から S5 を刺した 125 / 2 本で、T20 始動を案内す
   expect(routeText.indexOf('T20')).toBeLessThan(routeText.indexOf('T11'));
 });
 
-test('v1.3.4: 130 / 2 本も T20 始動になり、得意ダブルの設定はそのまま効く', async ({
+test('v1.3.5: 135 から S5 で 130 / 2 本になると、既定設定でも T20 → T18', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
 
   /*
-   * 既定の得意ダブルは D16 → D20 → D8 …。130 / 2 本で D16 の 32 残しは作れないので、
-   * 次の希望である D20 の 40 残し（T20 → T10）が選ばれる。
-   * どちらにしても T15 → T15 のような並びにはならず、主目標から入る。
+   * 既定の得意ダブル（D16 → D20 → D8 → D10 → D18）のままでも、
+   * 16 残し（D8）が 40 残し（D20）に負けないこと。
+   * 得意ダブルが残しの質より優先されるのは第 1 希望だけ（v1.3.5）。
    */
-  // 135 から S5（5 点）を刺すと 130 / 2 本。
   await openCheckout(page, 135);
   await openRecovery(page);
   await page.getByTestId('segment-s5-outer').click();
@@ -973,30 +989,25 @@ test('v1.3.4: 130 / 2 本も T20 始動になり、得意ダブルの設定は�
 
   const card = page.getByTestId('next-visit-route');
   await expect(card).toBeVisible();
-  const withPreference = (await card.textContent()) ?? '';
-  expect(withPreference).toContain('T20');
-  expect(withPreference.indexOf('T20')).toBe(
-    Math.min(...['T20', 'T15', 'T10', 'T18'].map((id) => {
-      const at = withPreference.indexOf(id);
-      return at < 0 ? Number.MAX_SAFE_INTEGER : at;
-    })),
-  );
+  await expect(card).toContainText('T20');
+  await expect(card).toContainText('T18');
+  // 130 - 60 - 54 = 16。次ラウンドは D8 の 1 投上がり。
+  await expect(card).toContainText('取得 114 点 → 残り 16');
 
-  // 得意ダブルを空にすると、残しの質だけで決まって T20 → T18（16 残し）になる。
+  // D20 を第 1 希望にしたユーザーには、これまでどおり 40 残しを出す。
   await page.getByTestId('nav-settings').click();
   for (const id of ['D16', 'D20', 'D8', 'D10', 'D18']) {
     await page.getByTestId(`select-${id}`).click();
   }
-  await expect(page.getByTestId('preferred-doubles')).not.toContainText('D20');
+  await page.getByTestId('select-D20').click();
+  await expect(page.getByTestId('preferred-doubles')).toContainText('D20');
 
   await openCheckout(page, 135);
   await openRecovery(page);
   await page.getByTestId('segment-s5-outer').click();
-  const plain = page.getByTestId('next-visit-route');
-  await expect(plain).toContainText('T20');
-  await expect(plain).toContainText('T18');
-  // 130 - 60 - 54 = 16。次ラウンドは D8 の 1 投上がり。
-  await expect(plain).toContainText('取得 114 点 → 残り 16');
+  const preferred = page.getByTestId('next-visit-route');
+  await expect(preferred).toContainText('T20');
+  await expect(preferred).toContainText('残り 40');
 });
 
 test('v1.3.4: SETUP 299 の BEST は 19 系から始まる', async ({ page }) => {
@@ -1022,7 +1033,7 @@ async function openSetupFirstDart(page: Page) {
 
   for (let attempt = 0; attempt < 10; attempt += 1) {
     if ((await page.getByTestId('training-first-dart-note').count()) > 0) return;
-    await page.getByTestId('segment-s20-outer').click();
+    await page.getByTestId('aim-number-20').click();
     await page.getByTestId('training-submit').click();
     await page.getByTestId('training-next').click();
   }
@@ -1049,8 +1060,8 @@ test('v1.3.4: 1 投目問題の feedback に「シングルへ落ちた場合」
   await page.setViewportSize({ width: 390, height: 844 });
   await openSetupFirstDart(page);
 
-  await page.getByTestId('segment-t20').click();
-  await expect(page.getByTestId('answer-0')).toHaveText('T20');
+  await page.getByTestId('aim-number-20').click();
+  await expect(page.getByTestId('answer-0')).toHaveText('20');
   await page.getByTestId('training-submit').click();
 
   await expect(page.getByTestId('training-result')).toBeVisible();
