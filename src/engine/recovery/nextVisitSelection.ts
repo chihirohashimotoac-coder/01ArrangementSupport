@@ -106,7 +106,19 @@ export interface NextVisitCandidate {
   readonly intrinsic: number;
   /** 既存 evaluateLeave() による残しの質。 */
   readonly leaveScore: number;
-  /** 得意ダブルの順位（0 = 第 1 希望）。対象外は最大値。 */
+  /**
+   * 第 1 希望の得意ダブルちょうどで上がれる残しか。
+   *
+   * 得意ダブルの設定は順位付きのリストだが、「残しの質より優先する」のは
+   * **第 1 希望だけ**にする。第 2 希望以下まで残しの質より優先すると、
+   * 既定値（D16 → D20 → D8 → D10 → D18）がそのまま戦術判断になってしまい、
+   * ユーザーが何も設定していないのに 16 残しより 40 残しが選ばれる（v1.3.5）。
+   */
+  readonly primaryPreferredFinish: boolean;
+  /**
+   * 得意ダブルの順位（0 = 第 1 希望）。対象外は最大値。
+   * 第 2 希望以下は、残しの質が完全に並んだときの同点処理にだけ使う。
+   */
   readonly preferenceRank: number;
   /**
    * 主目標（T20 など）から投げ始めるルートか。
@@ -165,13 +177,19 @@ function finishingDoubleIdOf(leave: number): string | null {
  *
  * そのうえで
  *   A / B（次ラウンド 1 投で上がれる残し）
- *     4. 得意ダブル  5. 残しの質  6. 上がりダブルの扱いやすさ
- *     7. 取得点が多い（= 残しが小さい）  8. 的の切替  9. 順番の good practice  10. キー
+ *     4. 第 1 希望の得意ダブル  5. 残しの質  6. 上がりダブルの扱いやすさ
+ *     7. 第 2 希望以下の得意ダブル（同点処理）
+ *     8. 取得点が多い（= 残しが小さい）  9. 的の切替  10. 順番の good practice  11. キー
  *   C / D / E
  *     4. 残しが小さい  5. 残しの質  6. 順番の good practice  7. キー
  *
  * 第 1 基準はどちらも Tier、次が「いま投げるルートの難易度」。
  * 得意ダブルのために、いま余計なトリプルを要求してはいけない。
+ *
+ * 得意ダブルが効くのは **第 1 希望だけ**（v1.3.5）。順位付きリスト全体を
+ * 残しの質より上に置くと、既定値（D16 → D20 → D8 → D10 → D18）が
+ * そのまま戦術判断になり、130 / 2 本で 16 残し（D8・第 3 希望）より
+ * 40 残し（D20・第 2 希望）が選ばれてしまう。
  *
  * 3 番目に主目標始動を置くのは、同じ取得点・同じ残し・同じ難易度なら
  * 実戦で最初に狙うのは主目標だからで、ここを決めずに残すと最後の
@@ -187,9 +205,13 @@ export function compareNextVisitCandidates(a: NextVisitCandidate, b: NextVisitCa
   if (a.mainTargetFirst !== b.mainTargetFirst) return a.mainTargetFirst ? -1 : 1;
 
   if (a.tier === 'A' || a.tier === 'B') {
-    if (a.preferenceRank !== b.preferenceRank) return a.preferenceRank - b.preferenceRank;
+    if (a.primaryPreferredFinish !== b.primaryPreferredFinish) {
+      return a.primaryPreferredFinish ? -1 : 1;
+    }
     if (a.leaveScore !== b.leaveScore) return b.leaveScore - a.leaveScore;
     if (a.halvingDepth !== b.halvingDepth) return b.halvingDepth - a.halvingDepth;
+    // 残しの質がまったく並んだときだけ、第 2 希望以下の得意ダブルを見る。
+    if (a.preferenceRank !== b.preferenceRank) return a.preferenceRank - b.preferenceRank;
     // ここまで同じなら、取得点の多い方（= 残しの小さい方）を取る。
     if (a.leave !== b.leave) return a.leave - b.leave;
     if (a.switchCount !== b.switchCount) return a.switchCount - b.switchCount;
@@ -250,6 +272,7 @@ export function buildNextVisitCandidates(
     const doubleId = finishingDoubleIdOf(leave);
     const index = doubleId === null ? -1 : preferred.indexOf(doubleId);
     const preferenceRank = index >= 0 ? index : NO_PREFERENCE;
+    const primaryPreferredFinish = index === 0;
     const halvingDepth = halvingDepthOf(leave);
 
     for (const entry of bucket) {
@@ -266,6 +289,7 @@ export function buildNextVisitCandidates(
         switchCount: switchCountOf(entry.darts),
         intrinsic: entry.intrinsic,
         leaveScore,
+        primaryPreferredFinish,
         preferenceRank,
         mainTargetFirst: entry.darts.length >= 2 && entry.darts[0].id === mainTarget,
         halvingDepth,

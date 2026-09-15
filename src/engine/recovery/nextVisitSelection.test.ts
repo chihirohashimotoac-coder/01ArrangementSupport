@@ -31,6 +31,7 @@ import {
   minDartsToCheckout,
 } from '../../domain/checkoutRules';
 import { THROWABLE_DARTS } from '../../domain/dart';
+import { DEFAULT_PREFERENCES } from '../../storage/preferences';
 
 const DARTS_LEFT = [1, 2, 3] as const;
 const SEGMENT_IDS = new Set(THROWABLE_DARTS.map((dart) => dart.id));
@@ -323,13 +324,31 @@ describe('Case 3: 難易度が同じなら得意ダブルが効く', () => {
       mainTargetFirst: false,
       halvingDepth: halvingDepthOf(32),
     };
-    const easyNoPreference = { ...base, key: 'A', difficulty: 2, preferenceRank: 99 };
-    const hardPreferred = { ...base, key: 'B', difficulty: 4, preferenceRank: 0 };
+    const easyNoPreference = {
+      ...base,
+      key: 'A',
+      difficulty: 2,
+      primaryPreferredFinish: false,
+      preferenceRank: 99,
+    };
+    const hardPreferred = {
+      ...base,
+      key: 'B',
+      difficulty: 4,
+      primaryPreferredFinish: true,
+      preferenceRank: 0,
+    };
     // 難易度が違えば、得意ダブルより難易度が優先される。
     expect(compareNextVisitCandidates(easyNoPreference, hardPreferred)).toBeLessThan(0);
 
-    const samePreferred = { ...base, key: 'B', difficulty: 2, preferenceRank: 0 };
-    // 難易度が同じなら、得意ダブルが効く。
+    const samePreferred = {
+      ...base,
+      key: 'B',
+      difficulty: 2,
+      primaryPreferredFinish: true,
+      preferenceRank: 0,
+    };
+    // 難易度が同じなら、第 1 希望の得意ダブルが効く。
     expect(compareNextVisitCandidates(samePreferred, easyNoPreference)).toBeLessThan(0);
 
     // ただし主目標始動は得意ダブルより先に効く（v1.3.4）。
@@ -337,13 +356,42 @@ describe('Case 3: 難易度が同じなら得意ダブルが効く', () => {
       ...base,
       key: 'C',
       difficulty: 2,
+      primaryPreferredFinish: false,
       preferenceRank: 99,
       mainTargetFirst: true,
     };
     expect(compareNextVisitCandidates(mainTargetFirstNoPreference, samePreferred)).toBeLessThan(0);
     // 難易度が違えば、主目標始動でも難易度が優先される。
-    const hardMainTargetFirst = { ...base, key: 'D', difficulty: 4, preferenceRank: 99, mainTargetFirst: true };
+    const hardMainTargetFirst = {
+      ...base,
+      key: 'D',
+      difficulty: 4,
+      primaryPreferredFinish: false,
+      preferenceRank: 99,
+      mainTargetFirst: true,
+    };
     expect(compareNextVisitCandidates(easyNoPreference, hardMainTargetFirst)).toBeLessThan(0);
+
+    // 第 2 希望以下は、残しの質が完全に並んだときの同点処理にだけ使う（v1.3.5）。
+    const deepLeaveNoPreference = {
+      ...base,
+      key: 'E',
+      difficulty: 2,
+      primaryPreferredFinish: false,
+      preferenceRank: 99,
+      halvingDepth: 4,
+    };
+    const shallowLeaveSecondPreference = {
+      ...base,
+      key: 'F',
+      difficulty: 2,
+      primaryPreferredFinish: false,
+      preferenceRank: 1,
+      halvingDepth: 3,
+    };
+    expect(
+      compareNextVisitCandidates(deepLeaveNoPreference, shallowLeaveSecondPreference),
+    ).toBeLessThan(0);
   });
 });
 
@@ -531,5 +579,105 @@ describe('Case 15: 通常 SETUP 171〜350 × 1〜3 本の完全回帰', () => {
 
     expect(violations).toEqual([]);
     expect(covered).toBe(540);
+  });
+});
+
+/**
+ * v1.3.5「得意ダブルの既定値が戦術判断を決めてしまう」問題の回帰。
+ *
+ * 135 から S5 が入ると 130 / 2 本になる。取得点も難易度も同じまま
+ * 16 残し（D8）と 40 残し（D20）が並ぶが、アプリの既定の得意ダブルは
+ * D16 → D20 → D8 → D10 → D18 なので、第 2 希望の D20 が第 3 希望の D8 に勝ち、
+ * ユーザーが何も設定していないのに 40 残しが選ばれていた。
+ *
+ * 得意ダブルが残しの質より優先されるのは **第 1 希望だけ**にする。
+ */
+describe('v1.3.5 得意ダブルは第 1 希望だけが残しの質より優先される', () => {
+  const APP_DEFAULT = DEFAULT_PREFERENCES.preferredDoubles;
+
+  it('135 から S5 で 130 / 2 本になると、既定設定でも T20 → T18（16 残し）', () => {
+    const suggestion = suggestFor(130, 2, { fallbackPreferredDoubles: APP_DEFAULT });
+    expect(suggestion.checkoutRoutes).toHaveLength(0);
+    expect(suggestion.nextVisitRoute?.routeText).toBe('T20 → T18');
+    expect(suggestion.nextVisitRoute?.leave).toBe(16);
+  });
+
+  it('D20 を第 1 希望にしたユーザーには、これまでどおり 40 残しを出す', () => {
+    const d20First = ['D20', 'D16', 'D8', 'D10', 'D18'];
+    expect(selectNextVisitRoute(130, 2, { fallbackPreferredDoubles: d20First })?.leave).toBe(40);
+    expect(selectNextVisitRoute(103, 2, { fallbackPreferredDoubles: d20First })?.routeText).toBe(
+      'T20 → S3',
+    );
+    // 第 1 希望が D16 のままなら 32 残し（v1.3.4 で固定したケース）。
+    expect(selectNextVisitRoute(103, 2, { fallbackPreferredDoubles: APP_DEFAULT })?.routeText).toBe(
+      'T20 → S11',
+    );
+    expect(selectNextVisitRoute(125, 2, { fallbackPreferredDoubles: APP_DEFAULT })?.routeText).toBe(
+      'T20 → T11',
+    );
+    expect(selectNextVisitRoute(119, 2, { fallbackPreferredDoubles: APP_DEFAULT })?.routeText).toBe(
+      'T20 → S19',
+    );
+  });
+
+  it('既定の得意ダブルは、どの状態でも「未設定のときの残し」を変えない', () => {
+    /*
+     * 第 2 希望以下が残しの質より前に出ていたため、130 / 2 本のほかにも
+     * 27 状態（61 / 1 本の T7 など）で浅い残しが選ばれていた。
+     * 既定値のままなら、得意ダブル未設定と同じ結論になることを固定する。
+     */
+    const violations: string[] = [];
+    for (let remaining = MIN_CHECKOUT; remaining <= MAX_CHECKOUT; remaining += 1) {
+      for (const dartsLeft of DARTS_LEFT) {
+        if (rankCheckoutRoutes(remaining, dartsLeft).length > 0) continue;
+        const withDefault = selectNextVisitRoute(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        const withNone = selectNextVisitRoute(remaining, dartsLeft, {
+          fallbackPreferredDoubles: [],
+        });
+        if (withDefault === null || withNone === null) continue;
+        if (withDefault.key !== withNone.key) {
+          violations.push(`${remaining}/${dartsLeft}: ${withDefault.key} ≠ ${withNone.key}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('残しが浅くなる入れ替え（16 → 40、24 → 36）が起きない', () => {
+    const violations: string[] = [];
+    for (let remaining = MIN_CHECKOUT; remaining <= MAX_CHECKOUT; remaining += 1) {
+      for (const dartsLeft of DARTS_LEFT) {
+        if (rankCheckoutRoutes(remaining, dartsLeft).length > 0) continue;
+        const chosen = selectNextVisitRoute(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        if (chosen === null) continue;
+        const candidates = buildNextVisitCandidates(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        const picked = candidates.find((candidate) => candidate.key === chosen.key);
+        if (picked === undefined) continue;
+        // 次ラウンド 1 投で上がれる残し（Tier A / B）どうしの比較だけを見る。
+        // Tier C / D / E は「取得点の多さ」が先なので、半分の深さでは比べない。
+        if (picked.tier !== 'A' && picked.tier !== 'B') continue;
+        // 同じ Tier・同じ難易度・同じ残しの質で、より深い残しがあったら負け。
+        const better = candidates.find(
+          (candidate) =>
+            candidate.tier === picked.tier &&
+            candidate.difficulty === picked.difficulty &&
+            candidate.mainTargetFirst === picked.mainTargetFirst &&
+            candidate.leaveScore === picked.leaveScore &&
+            candidate.halvingDepth > picked.halvingDepth &&
+            !candidate.primaryPreferredFinish &&
+            !picked.primaryPreferredFinish,
+        );
+        if (better !== undefined) {
+          violations.push(`${remaining}/${dartsLeft}: ${picked.key} より ${better.key} が深い`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
   });
 });
