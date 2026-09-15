@@ -131,12 +131,12 @@ test('Bogey を入れると理由を示して候補を出さない', async ({ pa
   await expect(page.getByTestId('no-routes')).toContainText('ノーテン');
 });
 
-test('SETUP 305 は T20 を 2 本と S18 で 167 残しを提案する', async ({ page }) => {
+test('SETUP 305 の第一ターゲットは、狙う得点用トリプル T18 になる（v1.3.7）', async ({ page }) => {
   await openSetup(page, 305);
   await expect(page.getByTestId('score-input')).toHaveValue('305');
   const best = page.getByTestId('standard-route');
-  await expect(best).toContainText('S18');
-  await expect(best).toContainText('残り 167');
+  // 1 投目のチップが「狙う的」。T20 はシングルへ落ちると立て直せないので 18 から入る。
+  await expect(best.getByRole('button', { name: /^1 投目/ })).toHaveAttribute('data-dart', 'T18');
 });
 
 test('SETUP 269 でとりあえず TON の罠を警告する', async ({ page }) => {
@@ -1047,19 +1047,32 @@ test('v1.3.5 / v1.3.6: 135 から S5 の 130 / 2 本。未設定なら候補 2 �
   await expect(page.getByTestId('recovery-next-visit-leave-quality')).toContainText('T20 → T10');
 });
 
-test('v1.3.4: SETUP 299 の BEST は 19 系から始まる', async ({ page }) => {
+test('v1.3.7: SETUP 299 は T19 を「狙う」（S19 はその実着弾）', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openSetup(page, 299);
 
   const best = page.getByTestId('standard-route');
   await expect(best).toBeVisible();
-  // S19 → T20 → T20。T20 始動は S20 へ落ちるとテンパイを作れなくなる。
-  await expect(best).toContainText('S19');
-  await expect(best).toContainText('残り 160');
-  const text = (await best.textContent()) ?? '';
-  expect(text.indexOf('S19')).toBeLessThan(text.indexOf('T20'));
-  // なぜそうなのかが理由として出る。
+  // 第一ターゲットは得点用トリプル。T20 始動は S20 へ落ちるとテンパイを作れなくなる。
+  await expect(best.getByRole('button', { name: /^1 投目/ })).toHaveAttribute('data-dart', 'T19');
+  // 狙いどおり入れば、次ラウンドで上がれる残りになる。
+  await expect(best).toContainText('残り');
+  // なぜそうなのかと、シングルへ落ちたときの残りが理由として出る。
   await expect(best).toContainText('シングル落ち');
+  await expect(best).toContainText('S19 へ落ちても 280');
+});
+
+test('v1.3.7: 299 で T19 を狙って S19 に落ちたら、280 / 2 本から組み直す', async ({ page }) => {
+  await openSetup(page, 299);
+  await openRecovery(page);
+
+  // 実際の着弾を S19（狙った T19 の同ナンバーシングル）で入れる。
+  await page.getByTestId('segment-s19-outer').click();
+  await expect(page.getByTestId('status-left')).toContainText('280');
+
+  // 固定ルートではなく、280 / 2 本として計算し直した案内になる。
+  const next = page.getByTestId('recovery-next-route');
+  await expect(next).toContainText('T20');
 });
 
 /** SETUP / FIRST DART の問題が出るまで進める。 */
@@ -1112,4 +1125,80 @@ test('v1.3.4: 1 投目問題の feedback に「シングルへ落ちた場合」
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
   );
   expect(overflows, '1 投目問題で横スクロールが出ている').toBe(false);
+});
+
+
+// ---------------------------------------------------------------------------
+// v1.3.7 参考資料・出典
+// ---------------------------------------------------------------------------
+
+test('トップページから参考資料・出典を開き、トップへ戻れる', async ({ page }) => {
+  const button = page.getByTestId('home-references');
+  await expect(button).toBeVisible();
+
+  await button.click();
+  await expect(page.getByRole('heading', { name: '参考資料・出典' })).toBeVisible();
+  await expect(page.getByTestId('references-item').first()).toBeVisible();
+
+  await page.getByTestId('references-back').click();
+  await expect(page.getByTestId('home-checkout')).toBeVisible();
+  await expect(page.getByTestId('references-item')).toHaveCount(0);
+});
+
+test('参考資料・出典のボタンは、他の画面には増やさない', async ({ page }) => {
+  for (const nav of ['nav-checkout', 'nav-setup', 'nav-training', 'nav-settings'] as const) {
+    await page.getByTestId(nav).click();
+    await expect(page.getByTestId('home-references')).toHaveCount(0);
+  }
+  // 参考資料ページ自身にも出さない。
+  await page.getByTestId('app-title').click();
+  await page.getByTestId('home-references').click();
+  await expect(page.getByTestId('home-references')).toHaveCount(0);
+});
+
+test('参考資料・出典は基準ルートの Source of Truth を説明する', async ({ page }) => {
+  await page.getByTestId('home-references').click();
+
+  const note = page.getByTestId('references-standard-note');
+  await expect(note).toContainText('checkout_table_added_routes_final.xlsx');
+  await expect(note).toContainText('123');
+  await expect(note).toContainText('Source of Truth');
+
+  // 公式認定と誤解させる書き方をしない。
+  const page_ = page.locator('.references');
+  await expect(page_).not.toContainText('公式ルート');
+  await expect(page_).not.toContainText('PDC公式');
+  await expect(page_).not.toContainText('PDC 公式');
+  await expect(page_).toContainText('一次資料は確認できていません');
+});
+
+test('参考資料・出典の外部 URL はリンクとして開ける', async ({ page }) => {
+  await page.getByTestId('home-references').click();
+
+  const links = page.locator('.references__link');
+  expect(await links.count()).toBeGreaterThan(0);
+  for (const link of await links.all()) {
+    await expect(link).toHaveAttribute('href', /^https:\/\//);
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', /noopener/);
+    await expect(link).toHaveAttribute('rel', /noreferrer/);
+  }
+});
+
+test('参考資料・出典は 320px でも横にはみ出さない', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.getByTestId('home-references').click();
+  await expect(page.getByTestId('references-item').first()).toBeVisible();
+
+  const overflows = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflows, '参考資料・出典の 320px で横スクロールが出ている').toBe(false);
+
+  // 長い URL がカードの外へはみ出していない。
+  const linkOverflow = await page.evaluate(() => {
+    const cards = Array.from(document.querySelectorAll('.references__item'));
+    return cards.some((card) => card.scrollWidth > card.clientWidth + 1);
+  });
+  expect(linkOverflow, 'URL がカードからはみ出している').toBe(false);
 });

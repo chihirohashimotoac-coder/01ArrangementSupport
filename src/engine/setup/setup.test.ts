@@ -10,7 +10,13 @@ import {
 } from './enumerate';
 import { BOGEY_NUMBERS } from '../../data/bogeyNumbers';
 import { evaluateLeave, hasMemorableLastDigit, isTonTrap, leaveTierOf } from './leaveQuality';
-import { THROWABLE_DARTS, parseRoute, requireDart, routeTotal } from '../../domain/dart';
+import {
+  THROWABLE_DARTS,
+  TRIPLE_DARTS,
+  parseRoute,
+  requireDart,
+  routeTotal,
+} from '../../domain/dart';
 import {
   DARTS_PER_VISIT,
   MAX_SETUP_REMAINING,
@@ -206,44 +212,50 @@ describe('資料 (5) 302〜309 の3投目調整', () => {
   );
 
   /*
-   * v1.3.4 で「第一ターゲットのシングル落ち耐性」を明示的なふるいに入れたため、
-   * 3 本フルの最上位は **同じ取得点・同じ残しのまま並びが変わる**。
+   * v1.3.7: 3 本フルの最上位は「狙う得点用トリプル」から始まる。
    *
-   *   302: T20 → T20 → S18（164 残し）→ S18 → T20 → T20（164 残し）
+   * v1.3.4 でシングル落ち耐性を明示的なふるいに入れたとき、このテストは
+   * 3 本フルの最上位を `S18 → T20 → T20`（302）のように固定していた。
+   * しかしシングル落ち耐性は「得点用トリプルを狙い、同ナンバーのシングルへ
+   * 落ちた」場合の評価であって、S18 そのものを狙う理由にはならない。
+   * S18 は T18 を狙った結果としての実着弾であり、そこからの立て直しは
+   * 実着弾後に改めて計算する。
    *
-   * 1 投目に T20 を置くと、S20 へ落ちた時点で 282 / 2 本となり、
-   * そのビジット中にテンパイを作れなくなる。18 から入れば S18 へ落ちても
-   * 284 / 2 本が残り、T20 → T20 で 164 を作れる。
-   * 資料が示す「3 投目をどこへ振るか」の答え（残り 1 本の判断）は変えていない。
+   * 資料が示す「3 投目をどこへ振るか」の答え（残り 1 本の判断）は
+   * 上のテストで変わらず担保している。ここで見るのは 1 投目の狙いの方。
    */
   it.each(THIRD_DART_ADJUST_CASES)(
-    '$remaining: 3 本の最上位候補は、取得点と残しが資料どおりのまま安全な的から始まる',
+    '$remaining: 3 本の最上位候補は、安全な得点用トリプルを第一ターゲットにする',
     (testCase) => {
       const best = rankSetupRoutes(testCase.remaining, DARTS_PER_VISIT, { maxRoutes: 1 })[0];
-      expect(best.leave).toBe(testCase.documentedLeave);
-      expect(best.scored).toBe(testCase.remaining - testCase.documentedLeave);
-      // 資料の 3 投目のナンバーが、そのまま安全な開始ナンバーになる。
-      const numbers = best.darts.map((dart) => dart.baseNumber);
-      expect(numbers).toContain(testCase.documentedThirdDart);
       const first = best.darts[0];
+      expect(first.kind).toBe('triple');
       expect(isSingleMissTenpaiSafe(testCase.remaining, first, DARTS_PER_VISIT)).toBe(true);
+      // 狙いどおり入れば、次ラウンドで上がれる残りを作れる。
+      expect(isCheckoutable(best.leave, DARTS_PER_VISIT)).toBe(true);
     },
   );
 
+  /*
+   * 第一ターゲットは「どのトリプルを狙うか」であって、完成ルートの固定ではない。
+   * したがってここではルート全文ではなく 1 投目だけを検証する。
+   * T20 を捨てざるを得ない場面で選ぶのは、シングルへ落ちても立て直せる
+   * 得点用トリプルのうち、いちばん点が高いもの。
+   */
   it.each([
-    { remaining: 302, expected: 'S18 → T20 → T20' },
-    { remaining: 303, expected: 'S19 → T20 → T20' },
-    { remaining: 305, expected: 'S18 → T20 → T20' },
-    { remaining: 306, expected: 'S19 → T20 → T20' },
-    { remaining: 308, expected: 'S18 → T20 → T20' },
-    { remaining: 309, expected: 'S19 → T20 → T20' },
-  ])('$remaining の 3 本は $expected になる（v1.3.4）', ({ remaining, expected }) => {
-    expect(rankSetupRoutes(remaining, DARTS_PER_VISIT, { maxRoutes: 1 })[0].routeText).toBe(
+    { remaining: 302, expected: 'T18' },
+    { remaining: 303, expected: 'T19' },
+    { remaining: 305, expected: 'T18' },
+    { remaining: 306, expected: 'T19' },
+    { remaining: 308, expected: 'T18' },
+    { remaining: 309, expected: 'T19' },
+  ])('$remaining の第一ターゲットは $expected になる（v1.3.7）', ({ remaining, expected }) => {
+    expect(rankSetupRoutes(remaining, DARTS_PER_VISIT, { maxRoutes: 1 })[0].darts[0].id).toBe(
       expected,
     );
   });
 
-  it.each([304, 307])(
+  it.each([300, 301, 304, 307])(
     '%i は T20 のシングル落ちでも安全なので、これまでどおり T20 から始める',
     (remaining) => {
       const best = rankSetupRoutes(remaining, DARTS_PER_VISIT, { maxRoutes: 1 })[0];
@@ -451,5 +463,194 @@ describe('v1.3.4 single-miss tenpai safety', () => {
       }
     }
     expect(violations.slice(0, 10)).toEqual([]);
+  });
+});
+
+/*
+ * v1.3.7: 「狙う的」と「実際の着弾」を混同しない。
+ *
+ * v1.3.4 のテストは `S19 → T20 → T20` を正解として固定していたため、
+ * 「第一ターゲットに S19 を選ぶ」という誤りを検出できなかった。
+ * ここでは *何を狙うのか* を検証する。
+ */
+describe('v1.3.7 第一ターゲットは「狙う得点用トリプル」', () => {
+  /** T20 のシングル落ちが行き止まりになる残り点。 */
+  const UNSAFE_T20_STARTS = [299, 302, 303, 305, 306, 308, 309] as const;
+  /** T20 のシングル落ちでも立て直せる残り点（振り直してはいけない）。 */
+  const SAFE_T20_STARTS = [300, 301, 304, 307] as const;
+
+  it.each(UNSAFE_T20_STARTS)('%i の第一ターゲットは S18 / S19 ではない', (start) => {
+    const first = rankSetupRoutes(start, DARTS_PER_VISIT, { maxRoutes: 1 })[0].darts[0];
+    expect(first.id).not.toBe('S18');
+    expect(first.id).not.toBe('S19');
+    expect(first.kind).not.toBe('single');
+    expect(first.kind).not.toBe('double');
+  });
+
+  it.each(UNSAFE_T20_STARTS)('%i の第一ターゲットは 18 / 19 系の得点用トリプル', (start) => {
+    const first = rankSetupRoutes(start, DARTS_PER_VISIT, { maxRoutes: 1 })[0].darts[0];
+    expect(first.kind).toBe('triple');
+    expect([18, 19]).toContain(first.baseNumber);
+  });
+
+  it.each(UNSAFE_T20_STARTS)(
+    '%i: 狙ったトリプルがシングルへ落ちても、テンパイ経路が残る',
+    (start) => {
+      const first = rankSetupRoutes(start, DARTS_PER_VISIT, { maxRoutes: 1 })[0].darts[0];
+      expect(isSingleMissTenpaiSafe(start, first, DARTS_PER_VISIT)).toBe(true);
+
+      // 実着弾（同ナンバーのシングル）から、残り本数で立て直せる。
+      const miss = singleMissDartOf(first)!;
+      const afterMiss = start - miss.score;
+      expect(canReachTenpai(afterMiss, DARTS_PER_VISIT - 1)).toBe(true);
+
+      // 立て直しは固定ルートではなく、実着弾後の状態を既存エンジンで再計算する。
+      const recovery = rankSetupRoutes(afterMiss, DARTS_PER_VISIT - 1, { maxRoutes: 1 })[0];
+      expect(recovery).toBeDefined();
+      expect(isCheckoutable(recovery.leave, DARTS_PER_VISIT)).toBe(true);
+    },
+  );
+
+  it('299 は T19 を狙い、S19 へ落ちたら 280 / 2 本から 160 を作れる', () => {
+    expect(rankSetupRoutes(299, DARTS_PER_VISIT, { maxRoutes: 1 })[0].darts[0].id).toBe('T19');
+
+    // T19 を狙って S19 に落ちた実着弾。ここから先は既存の評価で決める。
+    expect(299 - 19).toBe(280);
+    const recovery = rankSetupRoutes(280, 2, { maxRoutes: 1 })[0];
+    expect(recovery.darts.map((dart) => dart.id)).toEqual(['T20', 'T20']);
+    expect(recovery.leave).toBe(160);
+  });
+
+  it.each(SAFE_T20_STARTS)('%i は T20 が安全なので 18 / 19 系へ振り替えない', (start) => {
+    const first = rankSetupRoutes(start, DARTS_PER_VISIT, { maxRoutes: 1 })[0].darts[0];
+    expect(first.id).toBe('T20');
+    expect([18, 19]).not.toContain(first.baseNumber);
+  });
+
+  it('T20 を捨てる場面では、安全なトリプルのうち最も点の高いものを狙う', () => {
+    const violations: string[] = [];
+    for (let remaining = 171; remaining <= MAX_SETUP_REMAINING; remaining += 1) {
+      const safe = TRIPLE_DARTS.filter((dart) =>
+        isSingleMissTenpaiSafe(remaining, dart, DARTS_PER_VISIT),
+      );
+      if (safe.length === 0) continue;
+      if (safe.some((dart) => dart.id === 'T20')) continue;
+
+      const best = rankSetupRoutes(remaining, DARTS_PER_VISIT, { maxRoutes: 1 })[0];
+      const top = safe.reduce((a, b) => (b.score > a.score ? b : a));
+      if (best.darts[0].id !== top.id) {
+        violations.push(`${remaining}: ${best.darts[0].id} ではなく ${top.id} を狙うべき`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  /*
+   * 「主目標が安全なら振り直さない」は、シングル落ち耐性を理由に振り直さない、
+   * という意味であって「必ず T20 から投げる」ではない（docs/APPROVALS.md A-18）。
+   * 残りの質は取得点より重い（A-7）ので、T20 が安全でも別のトリプルの方が
+   * 良い残しを作れる残り点では、そちらが第 1 候補になる。
+   * この区別を取り違えて T20 を強制すると、承認済みの重みが良いと評価する
+   * 残しを捨てることになるため、その差をここで固定しておく。
+   */
+  it('T20 が安全でも、より良い残しを作れるトリプルがあればそちらを狙う', () => {
+    const t20 = requireDart('T20');
+    expect(isSingleMissTenpaiSafe(279, t20, DARTS_PER_VISIT)).toBe(true);
+
+    const best = rankSetupRoutes(279, DARTS_PER_VISIT, { maxRoutes: 1 })[0];
+    // 1 投目は得点用トリプル（v1.3.7 の修正点）。ただし T20 とは限らない。
+    expect(best.darts[0].kind).toBe('triple');
+    expect(best.leave).toBe(160);
+
+    // T20 始動の最良ルートは 139 残しにしかならず、評価も下がる。
+    const rest = rankSetupRoutes(279 - t20.score, DARTS_PER_VISIT - 1, {
+      maxRoutes: 1,
+      includeSingleMissUnsafe: true,
+    })[0];
+    const forced = evaluateSetupRoute(279, DARTS_PER_VISIT, [t20, ...rest.darts], {
+      includeSingleMissUnsafe: true,
+    })!;
+    expect(forced.leave).toBe(139);
+    expect(best.score).toBeGreaterThan(forced.score);
+  });
+
+  it('SETUP 171〜350 × 1〜3 本: 安全な得点用トリプルがあるなら S / D から始めない', () => {
+    const violations: string[] = [];
+    for (let remaining = 171; remaining <= MAX_SETUP_REMAINING; remaining += 1) {
+      for (const darts of [1, 2, 3] as const) {
+        const safe = TRIPLE_DARTS.filter((dart) =>
+          isSingleMissTenpaiSafe(remaining, dart, darts),
+        );
+        if (safe.length === 0) continue;
+        const best = rankSetupRoutes(remaining, darts, { maxRoutes: 1 })[0];
+        if (best.darts[0].kind !== 'triple') {
+          violations.push(`${remaining}/${darts}: ${best.routeText}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('SETUP 171〜350 × 1〜3 本: Bust も 1 残しも作らず、leave が一致する', () => {
+    const violations: string[] = [];
+    for (let remaining = 171; remaining <= MAX_SETUP_REMAINING; remaining += 1) {
+      for (const darts of [1, 2, 3] as const) {
+        for (const route of rankSetupRoutes(remaining, darts, { maxRoutes: 20 })) {
+          let left = remaining;
+          let busted = false;
+          for (const dart of route.darts) {
+            left -= dart.score;
+            if (left < MIN_CHECKOUT) busted = true;
+          }
+          if (busted) violations.push(`${remaining}/${darts}: ${route.routeText} が Bust / 1 残し`);
+          if (left !== route.leave) {
+            violations.push(`${remaining}/${darts}: ${route.routeText} の leave が不一致`);
+          }
+          if (route.darts.length > darts) {
+            violations.push(`${remaining}/${darts}: ${route.routeText} は本数超過`);
+          }
+        }
+      }
+    }
+    expect(violations.slice(0, 10)).toEqual([]);
+  });
+
+  it('SETUP 171〜350 × 1〜3 本: テンパイを作れる場面では BEST がテンパイを残す', () => {
+    const violations: string[] = [];
+    for (let remaining = 171; remaining <= MAX_SETUP_REMAINING; remaining += 1) {
+      for (const darts of [1, 2, 3] as const) {
+        if (!canReachTenpai(remaining, darts)) continue;
+        const best = rankSetupRoutes(remaining, darts, { maxRoutes: 1 })[0];
+        if (!isCheckoutable(best.leave, DARTS_PER_VISIT)) {
+          violations.push(`${remaining}/${darts}: ${best.routeText} → ${best.leave}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('残り 1 本の第三投調整は、このふるいの対象外のまま', () => {
+    // 外した時点でビジットが終わるので、1 本の場面では safe が成立しない。
+    for (const testCase of THIRD_DART_ADJUST_CASES) {
+      const best = rankSetupRoutes(testCase.remaining - 120, 1, { maxRoutes: 1 })[0];
+      expect(best.darts[0].id).toBe(`S${testCase.documentedThirdDart}`);
+      expect(best.leave).toBe(testCase.documentedLeave);
+    }
+  });
+
+  it('BULL 関連の既存挙動を壊さない', () => {
+    // BULL エリアは「同ナンバーのシングルへ落ちる」モデルの対象外のまま。
+    expect(singleMissDartOf(requireDart('BULL'))).toBeNull();
+    expect(singleMissDartOf(requireDart('SB'))).toBeNull();
+    // S-BULL を使った資料どおりの調整は、これまでどおり成立する。
+    for (const testCase of [...SBULL_CASES_A, ...SBULL_CASES_B]) {
+      const evaluated = evaluateSetupRoute(
+        testCase.remaining,
+        DARTS_PER_VISIT,
+        parseRoute([...testCase.darts]),
+      );
+      expect(evaluated).not.toBeNull();
+      expect(evaluated!.leave).toBe(testCase.documentedLeave);
+    }
   });
 });

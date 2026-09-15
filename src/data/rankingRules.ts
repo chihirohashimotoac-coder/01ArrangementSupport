@@ -131,7 +131,8 @@ export const SETUP_REASON_WEIGHTS: Readonly<Record<SetupReasonCode, number>> = {
   LEAVE_REQUIRES_BULL: -8,
   LEAVE_GOOD_FINISH_DOUBLE: 10,
 
-  SETUP_MAIN_TARGET_CONTINUITY: 16,
+  // 同じナンバーを続けて狙えること（主目標に限らない。T15 → T15 でも成立する）。
+  SETUP_TARGET_CONTINUITY: 16,
   SETUP_THIRD_DART_ADJUST: 10,
   SETUP_USES_SBULL: 4,
   SETUP_TON_TRAP: -30,

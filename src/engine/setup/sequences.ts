@@ -11,7 +11,7 @@
  *
  * これにより、毎回 62^3 を走査せずに済む（表の構築は 1 回だけ）。
  */
-import { THROWABLE_DARTS, findDart, type Dart } from '../../domain/dart';
+import { THROWABLE_DARTS, TRIPLE_DARTS, findDart, type Dart } from '../../domain/dart';
 import { DARTS_PER_VISIT } from '../../domain/checkoutRules';
 import type { SetupReasonCode } from '../../domain/reasonCodes';
 import {
@@ -35,7 +35,7 @@ export function targetKeyOf(dart: Dart): string {
 export interface SequenceEntry {
   readonly darts: readonly Dart[];
   readonly total: number;
-  /** 残り点に依存しない評価（難易度・的の継続・調整・S-BULL）。 */
+  /** 残り点に依存しない評価（難易度・同一ナンバー継続・調整・S-BULL）。 */
   readonly intrinsic: number;
   /** 残り点に依存しない理由コード。 */
   readonly codes: readonly SetupReasonCode[];
@@ -58,7 +58,7 @@ function analyzeSequence(darts: readonly Dart[], mainTarget: string): SequenceEn
       break;
     }
   }
-  if (continuityTargetId !== null) codes.push('SETUP_MAIN_TARGET_CONTINUITY');
+  if (continuityTargetId !== null) codes.push('SETUP_TARGET_CONTINUITY');
 
   const last = darts[darts.length - 1];
   const headIsMainTarget =
@@ -109,7 +109,7 @@ function intrinsicOf(darts: readonly Dart[], difficulty: number, mainTarget: str
 
   for (let i = 1; i < darts.length; i += 1) {
     if (targetKeyOf(darts[i]) === targetKeyOf(darts[i - 1])) {
-      value += SETUP_REASON_WEIGHTS.SETUP_MAIN_TARGET_CONTINUITY;
+      value += SETUP_REASON_WEIGHTS.SETUP_TARGET_CONTINUITY;
       break;
     }
   }
@@ -182,6 +182,67 @@ export function sequenceTable(dartCount: number, mainTarget: string): SequenceTa
   return buckets;
 }
 
+const scoringTripleFirstCache = new Map<string, ReadonlyMap<string, SequenceTable>>();
+
+/**
+ * 得点用トリプル（T1〜T20）から投げ始めるシーケンスを、**1 投目のトリプルごと**に
+ * 取得点で並べた表。
+ *
+ * SETUP の第一ターゲットは「このビジットで点を取るために狙うトリプル」であり、
+ * シングル落ち耐性（isSingleMissTenpaiSafe）はその狙いに対する評価である。
+ * ところが `sequenceTable()` は取得点ごとに上位 8 件しか残さないため、
+ * 1 投目が T20 のものだけが残り、T19 始動・T18 始動が表から落ちることがある。
+ * それでは「T20 が危ないので T19 を狙う」という比較そのものが成立しない。
+ *
+ * そこで 1 投目のトリプルごとに別の表を持ち、どのトリプルから始めても
+ * 取得点ごとの代表シーケンスが必ず残るようにする。枝刈りは表ごとに行うので、
+ * ある取得点で T20 始動が上位を占めても T19 始動が消えない。
+ *
+ * 評価は `sequenceTable()` と同じ `analyzeSequence()` を通す。
+ * 新しい重みも新しい評価軸もここには入らない。
+ */
+export function scoringTripleFirstSequenceTables(
+  dartCount: number,
+  mainTarget: string,
+): ReadonlyMap<string, SequenceTable> {
+  const cacheKey = `${dartCount}/${mainTarget}`;
+  const cached = scoringTripleFirstCache.get(cacheKey);
+  if (cached) return cached;
+
+  const depthLimit = Math.min(Math.max(dartCount, 1), DARTS_PER_VISIT);
+  const size = MAX_TOTAL_PER_DART * depthLimit + 1;
+  const tables = new Map<string, SequenceTable>();
+
+  for (const first of TRIPLE_DARTS) {
+    const buckets: SequenceEntry[][] = Array.from({ length: size }, () => []);
+    const acc: Dart[] = [first];
+    const firstDifficulty = difficultyOf(first);
+
+    const walk = (depth: number, total: number, difficulty: number): void => {
+      if (depth === 0) {
+        const bucket = buckets[total];
+        const intrinsic = intrinsicOf(acc, difficulty, mainTarget);
+        if (bucket.length >= TOP_PER_TOTAL && intrinsic < bucket[bucket.length - 1].intrinsic) {
+          return;
+        }
+        insert(bucket, analyzeSequence([...acc], mainTarget));
+        return;
+      }
+      for (const dart of THROWABLE_DARTS) {
+        acc.push(dart);
+        walk(depth - 1, total + dart.score, difficulty + difficultyOf(dart));
+        acc.pop();
+      }
+    };
+    walk(depthLimit - 1, first.score, firstDifficulty);
+
+    tables.set(first.id, buckets);
+  }
+
+  scoringTripleFirstCache.set(cacheKey, tables);
+  return tables;
+}
+
 const mainTargetFirstCache = new Map<string, SequenceTable>();
 
 /**
@@ -233,4 +294,5 @@ export function mainTargetFirstSequenceTable(
 export function clearSequenceTableCache(): void {
   tableCache.clear();
   mainTargetFirstCache.clear();
+  scoringTripleFirstCache.clear();
 }

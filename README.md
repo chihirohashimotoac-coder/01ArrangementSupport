@@ -84,6 +84,11 @@ docs/         仕様書
   アプリ内では **「基準ルート（Standard Route）」** とだけ呼びます（人間承認済み）。
   詳細は `docs/CHECKOUT_DATA_POLICY.md`。
 
+アプリ内では、トップページ下部の **「参考資料・出典」** から同じ内容を確認できます
+（`src/data/references.ts` / `src/pages/ReferencesPage.tsx`）。
+掲載するのは**このリポジトリ・添付資料・PR 履歴から実際に参照したことを確認できるものだけ**で、
+Source of Truth / Reference / Project Documentation を区別して表示します。
+
 ### 戦術方針の位置づけ
 
 ルートの推奨度や残し方の評価に使う重みは、**人間が承認した v1 の戦術方針**です。

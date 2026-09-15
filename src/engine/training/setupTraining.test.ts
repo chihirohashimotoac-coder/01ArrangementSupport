@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TRIPLE_DARTS, parseRoute, requireDart } from '../../domain/dart';
 import { DARTS_PER_VISIT, isBogey, isCheckoutable } from '../../domain/checkoutRules';
-import { canReachTenpai, isSingleMissTenpaiSafe } from '../setup/enumerate';
+import { canReachTenpai, isSingleMissTenpaiSafe, rankSetupRoutes } from '../setup/enumerate';
 import { THIRD_DART_ADJUST_CASES, THIRD_DART_TRAP } from '../../data/setupReferenceCases';
 import {
   DEFAULT_TRAINING_SETTINGS,
@@ -755,5 +755,55 @@ describe('v1.3.5 ナンバーで答える 1 投調整', () => {
     expect(single.leave).toBe(172);
     expect(single.learningCorrect).toBe(false);
     expect(single.failureCode).toBe('LEAVE_ABOVE_CHECKOUT_RANGE');
+  });
+});
+
+/*
+ * v1.3.7: 通常 SETUP と TRAINING が同じ戦術概念であること。
+ *
+ * TRAINING / FIRST DART は「得点用トリプルのうち、シングルへ落ちても
+ * 立て直せるもの。その中でいちばん点が高いもの」を正解として教える。
+ * 通常 SETUP の第一ターゲットがそれと食い違うと、同じ場面で
+ * 別のことを教えることになる。
+ */
+describe('v1.3.7 通常 SETUP と TRAINING FIRST DART の一致', () => {
+  const candidates = setupFirstDartCandidates({ min: 171, max: 350 });
+
+  it('出題が実在する', () => {
+    expect(candidates.length).toBeGreaterThan(0);
+  });
+
+  it('すべての出題で、通常 SETUP の第一ターゲットが TRAINING の推奨と一致する', () => {
+    const mismatches: string[] = [];
+    for (const candidate of candidates) {
+      const best = rankSetupRoutes(candidate.startRemaining, DARTS_PER_VISIT, {
+        maxRoutes: 1,
+      })[0];
+      if (best === undefined) {
+        mismatches.push(`${candidate.startRemaining}: 通常 SETUP に候補が無い`);
+        continue;
+      }
+      if (best.darts[0].id !== candidate.recommended.dart.id) {
+        mismatches.push(
+          `${candidate.startRemaining}: SETUP=${best.darts[0].id} / TRAINING=${candidate.recommended.dart.id}`,
+        );
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  it('299 は、通常 SETUP も TRAINING も 19 系を狙う', () => {
+    const question = candidates.find((item) => item.startRemaining === 299);
+    expect(question).toBeDefined();
+    expect(question!.recommended.dart.id).toBe('T19');
+    expect(rankSetupRoutes(299, DARTS_PER_VISIT, { maxRoutes: 1 })[0].darts[0].id).toBe('T19');
+  });
+
+  it('TRAINING の第一ターゲット候補は、これまでどおり得点用トリプルだけ', () => {
+    for (const candidate of candidates) {
+      for (const option of candidate.options) {
+        expect(option.dart.kind).toBe('triple');
+      }
+    }
   });
 });
