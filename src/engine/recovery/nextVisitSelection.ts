@@ -196,7 +196,17 @@ function finishingDoubleIdOf(leave: number): string | null {
  * 表記の辞書順が戦術判断を決めてしまう（T11 → T20 のような並び）。
  * 残り 1 本の場面は「順番」の問題ではないので、この軸は効かない。
  */
-export function compareNextVisitCandidates(a: NextVisitCandidate, b: NextVisitCandidate): number {
+export type NextVisitPriority =
+  /** 残しの質で選ぶ（第 1 希望の得意ダブルだけが上位）。既定。 */
+  | 'leave-quality'
+  /** 得意ダブルの順位で選ぶ（設定した順位をそのまま反映する提案用）。 */
+  | 'preferred-double';
+
+export function compareNextVisitCandidates(
+  a: NextVisitCandidate,
+  b: NextVisitCandidate,
+  priority: NextVisitPriority = 'leave-quality',
+): number {
   const tier = TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier);
   if (tier !== 0) return tier;
 
@@ -205,6 +215,14 @@ export function compareNextVisitCandidates(a: NextVisitCandidate, b: NextVisitCa
   if (a.mainTargetFirst !== b.mainTargetFirst) return a.mainTargetFirst ? -1 : 1;
 
   if (a.tier === 'A' || a.tier === 'B') {
+    /*
+     * 'preferred-double' は「得意ダブルを考慮したらどうなるか」を並べて見せる
+     * ための順位づけ（v1.3.6）。設定した順位をそのまま残しの質より上に置く。
+     * 既定の第 1 候補はこれではなく 'leave-quality' のまま。
+     */
+    if (priority === 'preferred-double' && a.preferenceRank !== b.preferenceRank) {
+      return a.preferenceRank - b.preferenceRank;
+    }
     if (a.primaryPreferredFinish !== b.primaryPreferredFinish) {
       return a.primaryPreferredFinish ? -1 : 1;
     }
@@ -317,7 +335,155 @@ export function buildNextVisitCandidates(
   return candidates;
 }
 
-const cache = new Map<string, RankedSetupRoute | null>();
+/** 提案の種類。 */
+export type NextVisitProposalKind =
+  /** 残しの質で選んだ第 1 候補（既定の案内）。 */
+  | 'leave-quality'
+  /** 得意ダブルの順位を反映した案。第 1 候補と同じなら出さない。 */
+  | 'preferred-double'
+  /** もう 1 つの作り方（同じ的を続けて投げられる案を優先）。 */
+  | 'alternative';
+
+export interface NextVisitProposal {
+  readonly kind: NextVisitProposalKind;
+  readonly route: RankedSetupRoute;
+  /** その残しを上がるダブル（1 投上がりでなければ null）。 */
+  readonly finishDoubleId: string | null;
+  /** 的を切り替えずに投げ切れるルートか。 */
+  readonly sameTarget: boolean;
+}
+
+/** 一度に見せる提案の上限（本仕様 / ユーザー指示 2026-09-15）。 */
+export const MAX_NEXT_VISIT_PROPOSALS = 3;
+
+const proposalCache = new Map<string, readonly NextVisitProposal[]>();
+
+function toProposal(
+  kind: NextVisitProposalKind,
+  remaining: number,
+  darts: number,
+  candidate: NextVisitCandidate,
+  mainTarget: string,
+): NextVisitProposal | null {
+  const route = evaluateSetupRoute(remaining, darts, candidate.darts, { mainTarget });
+  if (route === null) return null;
+  return {
+    kind,
+    route,
+    finishDoubleId: finishingDoubleIdOf(candidate.leave),
+    sameTarget: candidate.switchCount === 0 && candidate.darts.length >= 2,
+  };
+}
+
+/**
+ * CHECKOUT が成立しないときに、次ラウンドへの残しを最大 3 つ提案する。
+ *
+ * 1 つ目は既定の案内（残しの質）。そこへ
+ *
+ *   - 得意ダブルの順位を反映するとどうなるか
+ *   - 的を切り替えずに投げられる別の作り方
+ *
+ * を足して、同じルートが重複しないように最大 3 件へ切る。
+ * 例: 130 / 2 本（得意ダブル既定）
+ *
+ *   T20 → T18（16 残し・残しの質）
+ *   T20 → T10（40 残し・得意ダブル D20）
+ *   T19 → T19（16 残し・同じ的を 2 本）
+ */
+export function selectNextVisitProposals(
+  remaining: number,
+  dartsLeft: number,
+  options: NextVisitOptions = {},
+): readonly NextVisitProposal[] {
+  if (!Number.isInteger(remaining) || remaining < MIN_CHECKOUT) return [];
+  const darts = Math.min(Math.max(dartsLeft, 0), DARTS_PER_VISIT);
+  if (darts <= 0) return [];
+
+  const mainTarget = options.mainTarget ?? DEFAULT_SETUP_MAIN_TARGET;
+  const preferred = options.fallbackPreferredDoubles ?? [];
+  const cacheKey = `${remaining}/${darts}/${mainTarget}/${preferred.join(',')}`;
+  const cached = proposalCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const candidates = buildNextVisitCandidates(remaining, darts, {
+    mainTarget,
+    fallbackPreferredDoubles: preferred,
+  });
+
+  const proposals: NextVisitProposal[] = [];
+  const takenKeys = new Set<string>();
+
+  const bestOf = (
+    pool: readonly NextVisitCandidate[],
+    priority: NextVisitPriority,
+  ): NextVisitCandidate | null => {
+    if (pool.length === 0) return null;
+    return pool.reduce((current, candidate) =>
+      compareNextVisitCandidates(candidate, current, priority) < 0 ? candidate : current,
+    );
+  };
+
+  const push = (kind: NextVisitProposalKind, candidate: NextVisitCandidate | null): void => {
+    if (candidate === null || takenKeys.has(candidate.key)) return;
+    if (proposals.length >= MAX_NEXT_VISIT_PROPOSALS) return;
+    const proposal = toProposal(kind, remaining, darts, candidate, mainTarget);
+    if (proposal === null) return;
+    takenKeys.add(candidate.key);
+    proposals.push(proposal);
+  };
+
+  push('leave-quality', bestOf(candidates, 'leave-quality'));
+
+  // 得意ダブルを設定していなければ、2 つ目は「考慮した場合」にならない。
+  if (preferred.length > 0) {
+    push('preferred-double', bestOf(candidates, 'preferred-double'));
+  }
+
+  /*
+   * 3 つ目は「的を切り替えずに作る、もう 1 つの作り方」（T19 → T19 など）。
+   *
+   * 第 1 候補と同じ Tier（次ラウンド何本で上がれるか）で、いま投げる難易度も
+   * 上がらないものだけを出す。そうしないと D17 → T17 のような、
+   * わざわざ難しくしただけの並びが「別案」として出てしまう。
+   * 条件に合うものが無ければ 3 つ目は出さない（無理に 3 件並べない）。
+   */
+  const primary = proposals[0] ?? null;
+  const primaryCandidate = primary === null
+    ? null
+    : (candidates.find((candidate) => candidate.key === primary.route.key) ?? null);
+  if (primaryCandidate !== null) {
+    const sameTarget = candidates.filter(
+      (candidate) =>
+        !takenKeys.has(candidate.key) &&
+        candidate.switchCount === 0 &&
+        candidate.darts.length >= 2 &&
+        candidate.tier === primaryCandidate.tier &&
+        candidate.difficulty <= primaryCandidate.difficulty,
+    );
+    push('alternative', bestOf(sameTarget, 'leave-quality'));
+  }
+
+  /*
+   * 上がれる残しをどう投げても作れない場面（ノーテンしか残らない等）だけ、
+   * これまでどおり通常 SETUP の第 1 候補へ落とす。
+   * 「残しを 1 件は必ず出す」という v1.3.1 の約束を崩さないための安全弁。
+   */
+  if (proposals.length === 0) {
+    const fallback = rankSetupRoutes(remaining, darts, { mainTarget, maxRoutes: 1 })[0] ?? null;
+    if (fallback !== null) {
+      proposals.push({
+        kind: 'leave-quality',
+        route: fallback,
+        finishDoubleId: finishingDoubleIdOf(fallback.leave),
+        sameTarget: false,
+      });
+    }
+  }
+
+  const result: readonly NextVisitProposal[] = proposals;
+  proposalCache.set(cacheKey, result);
+  return result;
+}
 
 /**
  * CHECKOUT が成立しないときに、次ラウンドへ残すルートを 1 件だけ返す。
@@ -330,43 +496,10 @@ export function selectNextVisitRoute(
   dartsLeft: number,
   options: NextVisitOptions = {},
 ): RankedSetupRoute | null {
-  if (!Number.isInteger(remaining) || remaining < MIN_CHECKOUT) return null;
-  const darts = Math.min(Math.max(dartsLeft, 0), DARTS_PER_VISIT);
-  if (darts <= 0) return null;
-
-  const mainTarget = options.mainTarget ?? DEFAULT_SETUP_MAIN_TARGET;
-  const preferred = options.fallbackPreferredDoubles ?? [];
-  const cacheKey = `${remaining}/${darts}/${mainTarget}/${preferred.join(',')}`;
-  const cached = cache.get(cacheKey);
-  if (cached !== undefined) return cached;
-
-  const candidates = buildNextVisitCandidates(remaining, darts, {
-    mainTarget,
-    fallbackPreferredDoubles: preferred,
-  });
-
-  let best: RankedSetupRoute | null = null;
-  if (candidates.length > 0) {
-    const chosen = candidates.reduce((current, candidate) =>
-      compareNextVisitCandidates(candidate, current) < 0 ? candidate : current,
-    );
-    best = evaluateSetupRoute(remaining, darts, chosen.darts, { mainTarget });
-  }
-
-  /*
-   * 上がれる残しをどう投げても作れない場面（ノーテンしか残らない等）だけ、
-   * これまでどおり通常 SETUP の第 1 候補へ落とす。
-   * 「残しを 1 件は必ず出す」という v1.3.1 の約束を崩さないための安全弁。
-   */
-  if (best === null) {
-    best = rankSetupRoutes(remaining, darts, { mainTarget, maxRoutes: 1 })[0] ?? null;
-  }
-
-  cache.set(cacheKey, best);
-  return best;
+  return selectNextVisitProposals(remaining, dartsLeft, options)[0]?.route ?? null;
 }
 
 /** テスト用にキャッシュを空にする。 */
 export function clearNextVisitSelectionCache(): void {
-  cache.clear();
+  proposalCache.clear();
 }

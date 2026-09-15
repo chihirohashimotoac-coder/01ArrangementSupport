@@ -16,7 +16,9 @@ import {
   compareNextVisitCandidates,
   halvingDepthOf,
   nextVisitTierOf,
+  selectNextVisitProposals,
   selectNextVisitRoute,
+  MAX_NEXT_VISIT_PROPOSALS,
 } from './nextVisitSelection';
 import { suggestFor } from './suggest';
 import { rankCheckoutRoutes } from '../ranking/checkoutRanking';
@@ -675,6 +677,106 @@ describe('v1.3.5 得意ダブルは第 1 希望だけが残しの質より優先
         );
         if (better !== undefined) {
           violations.push(`${remaining}/${dartsLeft}: ${picked.key} より ${better.key} が深い`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+});
+
+/**
+ * v1.3.6「上がれない場面では、残しの候補を複数見せる」。
+ *
+ * 実戦入力（RECOVERY）の盤面直下では、投げるルートだけでなく
+ * **投げたあと何点残るか**まで出す。選び方の違う案を最大 3 件まで並べる。
+ */
+describe('v1.3.6 NEXT VISIT の複数提案', () => {
+  const APP_DEFAULT = DEFAULT_PREFERENCES.preferredDoubles;
+
+  it('130 / 2 本では 3 つの作り方を、残り点つきで返す', () => {
+    const proposals = selectNextVisitProposals(130, 2, {
+      fallbackPreferredDoubles: APP_DEFAULT,
+    });
+    expect(
+      proposals.map((item) => [item.kind, item.route.routeText, item.route.leave]),
+    ).toEqual([
+      ['leave-quality', 'T20 → T18', 16],
+      ['preferred-double', 'T20 → T10', 40],
+      ['alternative', 'T19 → T19', 16],
+    ]);
+    // 得意ダブルの表示に使う上がりダブル。
+    expect(proposals.map((item) => item.finishDoubleId)).toEqual(['D8', 'D20', 'D8']);
+    expect(proposals[2].sameTarget).toBe(true);
+  });
+
+  it('得意ダブルを設定していなければ「考慮した場合」の案を出さない', () => {
+    const proposals = selectNextVisitProposals(130, 2, { fallbackPreferredDoubles: [] });
+    expect(proposals.map((item) => item.kind)).toEqual(['leave-quality', 'alternative']);
+    expect(proposals.map((item) => item.route.routeText)).toEqual(['T20 → T18', 'T19 → T19']);
+  });
+
+  it('得意ダブルを考慮しても同じ結論なら、1 つだけ出す', () => {
+    // 125 / 2 本は 32 残し（第 1 希望 D16）が最上位。
+    // 同じナンバーを続ける案は奇数残しにしかならないので候補が無い。
+    const proposals = selectNextVisitProposals(125, 2, {
+      fallbackPreferredDoubles: APP_DEFAULT,
+    });
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0].route.routeText).toBe('T20 → T11');
+  });
+
+  it('別案のために、いま投げる難易度を上げない', () => {
+    // D17 → T17 のような「同じナンバーだが難しいだけ」の並びを出さない。
+    const violations: string[] = [];
+    for (let remaining = MIN_CHECKOUT; remaining <= MAX_CHECKOUT; remaining += 1) {
+      for (const dartsLeft of DARTS_LEFT) {
+        if (rankCheckoutRoutes(remaining, dartsLeft).length > 0) continue;
+        const proposals = selectNextVisitProposals(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        if (proposals.length === 0) continue;
+        const candidates = buildNextVisitCandidates(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        const difficultyOfKey = new Map(
+          candidates.map((candidate) => [candidate.key, candidate.difficulty]),
+        );
+        const first = difficultyOfKey.get(proposals[0].route.key);
+        for (const proposal of proposals.slice(1)) {
+          const difficulty = difficultyOfKey.get(proposal.route.key);
+          if (first === undefined || difficulty === undefined) continue;
+          if (proposal.kind === 'alternative' && difficulty > first) {
+            violations.push(`${remaining}/${dartsLeft}: ${proposal.route.routeText}`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('全 507 状態で、提案は最大 3 件・重複なし・合法な残し', () => {
+    const violations: string[] = [];
+    for (let remaining = MIN_CHECKOUT; remaining <= MAX_CHECKOUT; remaining += 1) {
+      for (const dartsLeft of DARTS_LEFT) {
+        if (rankCheckoutRoutes(remaining, dartsLeft).length > 0) continue;
+        const proposals = selectNextVisitProposals(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        const label = `${remaining}/${dartsLeft}`;
+        if (proposals.length === 0) violations.push(`${label}: 0 件`);
+        if (proposals.length > MAX_NEXT_VISIT_PROPOSALS) violations.push(`${label}: 4 件以上`);
+        const keys = new Set(proposals.map((item) => item.route.key));
+        if (keys.size !== proposals.length) violations.push(`${label}: 重複`);
+        for (const proposal of proposals) {
+          if (proposal.route.leave < MIN_CHECKOUT) violations.push(`${label}: 残し不正`);
+          if (proposal.route.darts.length !== dartsLeft) violations.push(`${label}: 本数`);
+        }
+        // 1 件目はこれまでの第 1 候補と同じ。
+        const single = selectNextVisitRoute(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        if (single !== null && proposals[0]?.route.key !== single.key) {
+          violations.push(`${label}: 第 1 候補が違う`);
         }
       }
     }

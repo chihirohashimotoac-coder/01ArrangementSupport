@@ -17,7 +17,11 @@ import {
   type RankedSetupRoute,
   type SetupOptions,
 } from '../setup/enumerate';
-import { selectNextVisitRoute, type NextVisitOptions } from './nextVisitSelection';
+import {
+  selectNextVisitProposals,
+  type NextVisitOptions,
+  type NextVisitProposal,
+} from './nextVisitSelection';
 
 export type SuggestionMode = 'checkout' | 'setup' | 'unavailable';
 
@@ -35,6 +39,13 @@ export interface Suggestion {
    * CHECKOUT ルートが 1 件でもある場合は必ず null。
    */
   readonly nextVisitRoute: RankedSetupRoute | null;
+  /**
+   * 同じ場面で選べる残しの候補（最大 3 件・v1.3.6）。
+   *
+   * 1 件目は `nextVisitRoute` と同じ。そこへ「得意ダブルの順位を反映した案」と
+   * 「的を切り替えずに作る案」を、重複しない範囲で足す。
+   */
+  readonly nextVisitProposals: readonly NextVisitProposal[];
   /** この残りが Bogey Number か。 */
   readonly isBogey: boolean;
   /** SETUP でテンパイを作れるか。CHECKOUT では常に null。 */
@@ -59,6 +70,7 @@ export function suggestFor(
     checkoutRoutes: [] as readonly RankedCheckoutRoute[],
     setupRoutes: [] as readonly RankedSetupRoute[],
     nextVisitRoute: null as RankedSetupRoute | null,
+    nextVisitProposals: [] as readonly NextVisitProposal[],
     isBogey: isBogey(remaining),
     canReachTenpai: null as boolean | null,
     tonTrapLeave: tonTrapWarning(remaining)?.leaveAfterTon ?? null,
@@ -87,10 +99,11 @@ export function suggestFor(
        * セレクタで決める。既存の CHECKOUT ランキングへは何も渡さないので、
        * 上がれる場面の順位はこの分岐から一切影響を受けない。
        */
-      const nextVisit = selectNextVisitRoute(remaining, dartsLeft, {
+      const proposals = selectNextVisitProposals(remaining, dartsLeft, {
         mainTarget: options.mainTarget,
         fallbackPreferredDoubles: options.fallbackPreferredDoubles,
       });
+      const nextVisit = proposals[0]?.route ?? null;
       const cannot = isBogey(remaining)
         ? `${remaining} はノーテン（Bogey）です。この残りは 3 本でも上がれません。`
         : `残り ${dartsLeft} 本では ${remaining} を上がれません。`;
@@ -98,6 +111,7 @@ export function suggestFor(
         ...base,
         mode: 'checkout',
         nextVisitRoute: nextVisit,
+        nextVisitProposals: proposals,
         // 残しを提示できるときは、答えの無い「作りましょう」で終わらせない。
         unavailableReason: nextVisit === null
           ? `${cannot}次ラウンドへ良い残りを作りましょう。`
