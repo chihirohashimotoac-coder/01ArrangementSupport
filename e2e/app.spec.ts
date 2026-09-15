@@ -181,11 +181,21 @@ test('学習履歴がリロード後も復元される', async ({ page }) => {
 
 test('MY ROUTE の設定がリロード後も残る', async ({ page }) => {
   await page.getByTestId('nav-settings').click();
+  // 得意ダブルの既定は未設定（v1.3.5）。選んだものが残ることを見る。
+  await expect(page.getByTestId('preferred-doubles')).toContainText('まだ選ばれていません');
+
   await page.getByTestId('select-D16').click();
-  await expect(page.getByTestId('preferred-doubles')).not.toContainText('D16');
+  await page.getByTestId('select-D20').click();
+  await expect(page.getByTestId('preferred-doubles')).toContainText('D16');
+  await expect(page.getByTestId('preferred-doubles')).toContainText('D20');
 
   await page.reload();
   await page.getByTestId('nav-settings').click();
+  await expect(page.getByTestId('preferred-doubles')).toContainText('D16');
+  await expect(page.getByTestId('preferred-doubles')).toContainText('D20');
+
+  // 外すと消える。
+  await page.getByTestId('select-D16').click();
   await expect(page.getByTestId('preferred-doubles')).not.toContainText('D16');
 });
 
@@ -973,15 +983,14 @@ test('v1.3.4: 130 から S5 を刺した 125 / 2 本で、T20 始動を案内す
   expect(routeText.indexOf('T20')).toBeLessThan(routeText.indexOf('T11'));
 });
 
-test('v1.3.5 / v1.3.6: 135 から S5 で 130 / 2 本。既定設定でも T20 → T18 で、候補を 3 件出す', async ({
+test('v1.3.5 / v1.3.6: 135 から S5 の 130 / 2 本。未設定なら候補 2 件、得意ダブルを選ぶと 3 件', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
 
   /*
-   * 既定の得意ダブル（D16 → D20 → D8 → D10 → D18）のままでも、
-   * 16 残し（D8）が 40 残し（D20）に負けないこと。
-   * 得意ダブルが残しの質より優先されるのは第 1 希望だけ（v1.3.5）。
+   * 得意ダブルの既定は「未設定」（v1.3.5）。
+   * 何も選んでいない状態では、残しの質だけで T20 → T18（16 残し）になる。
    */
   await openCheckout(page, 135);
   await openRecovery(page);
@@ -996,16 +1005,14 @@ test('v1.3.5 / v1.3.6: 135 から S5 で 130 / 2 本。既定設定でも T20 �
   await expect(card).toContainText('取得 114 点 → 残り 16');
 
   /*
-   * v1.3.6: 盤面直下にも、投げたあとの残り点つきで候補を最大 3 件出す。
-   * 得意ダブルを考慮しない案・考慮した案・同じナンバーを続ける案。
+   * v1.3.6: 盤面直下にも、投げたあとの残り点つきで候補を出す。
+   * 得意ダブル未設定なら「考慮した場合」の案は出ない。
    */
-  const proposals = page.getByTestId('recovery-next-visit');
-  await expect(proposals).toBeVisible();
+  await expect(page.getByTestId('recovery-next-visit')).toBeVisible();
   await expect(page.getByTestId('recovery-next-visit-leave-quality')).toContainText('T20 → T18');
   await expect(page.getByTestId('recovery-next-visit-leave-quality')).toContainText('16');
-  await expect(page.getByTestId('recovery-next-visit-preferred-double')).toContainText('T20 → T10');
-  await expect(page.getByTestId('recovery-next-visit-preferred-double')).toContainText('40');
   await expect(page.getByTestId('recovery-next-visit-alternative')).toContainText('T19 → T19');
+  await expect(page.getByTestId('recovery-next-visit-preferred-double')).toHaveCount(0);
   // 上がれない場面では、これまでの 1 行表示は出さない。
   await expect(page.getByTestId('recovery-next-route')).toHaveCount(0);
 
@@ -1015,20 +1022,29 @@ test('v1.3.5 / v1.3.6: 135 から S5 で 130 / 2 本。既定設定でも T20 �
   );
   expect(overflows, 'NEXT VISIT の候補表示で横スクロールが出ている').toBe(false);
 
-  // D20 を第 1 希望にしたユーザーには、これまでどおり 40 残しを出す。
+  // 得意ダブルを複数選ぶと、「考慮した場合」の案が 2 件目に並ぶ。
   await page.getByTestId('nav-settings').click();
-  for (const id of ['D16', 'D20', 'D8', 'D10', 'D18']) {
+  for (const id of ['D16', 'D20', 'D8']) {
     await page.getByTestId(`select-${id}`).click();
   }
-  await page.getByTestId('select-D20').click();
   await expect(page.getByTestId('preferred-doubles')).toContainText('D20');
 
   await openCheckout(page, 135);
   await openRecovery(page);
   await page.getByTestId('segment-s5-outer').click();
-  const preferred = page.getByTestId('next-visit-route');
-  await expect(preferred).toContainText('T20');
-  await expect(preferred).toContainText('残り 40');
+  await expect(page.getByTestId('recovery-next-visit-leave-quality')).toContainText('T20 → T18');
+  await expect(page.getByTestId('recovery-next-visit-preferred-double')).toContainText('T20 → T10');
+  await expect(page.getByTestId('recovery-next-visit-preferred-double')).toContainText('40');
+  await expect(page.getByTestId('recovery-next-visit-alternative')).toContainText('T19 → T19');
+
+  // 並び順が優先度。D20 を第 1 希望にすると、第 1 候補が 40 残しになる。
+  await page.getByTestId('nav-settings').click();
+  await page.getByRole('button', { name: 'D20 を上へ' }).click();
+  await openCheckout(page, 135);
+  await openRecovery(page);
+  await page.getByTestId('segment-s5-outer').click();
+  await expect(page.getByTestId('next-visit-route')).toContainText('残り 40');
+  await expect(page.getByTestId('recovery-next-visit-leave-quality')).toContainText('T20 → T10');
 });
 
 test('v1.3.4: SETUP 299 の BEST は 19 系から始まる', async ({ page }) => {

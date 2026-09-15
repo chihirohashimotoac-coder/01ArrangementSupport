@@ -595,9 +595,17 @@ describe('Case 15: 通常 SETUP 171〜350 × 1〜3 本の完全回帰', () => {
  * 得意ダブルが残しの質より優先されるのは **第 1 希望だけ**にする。
  */
 describe('v1.3.5 得意ダブルは第 1 希望だけが残しの質より優先される', () => {
-  const APP_DEFAULT = DEFAULT_PREFERENCES.preferredDoubles;
+  /*
+   * アプリの既定は「得意ダブル未設定」（v1.3.5）。
+   * 以前の既定値だった 5 件を選んでいるユーザーでも、結論が変わらないことを固定する。
+   */
+  const APP_DEFAULT = ['D16', 'D20', 'D8', 'D10', 'D18'];
 
-  it('135 から S5 で 130 / 2 本になると、既定設定でも T20 → T18（16 残し）', () => {
+  it('既定は「何も選んでいない」状態', () => {
+    expect(DEFAULT_PREFERENCES.preferredDoubles).toEqual([]);
+  });
+
+  it('135 から S5 で 130 / 2 本になると、5 件を選んでいても T20 → T18（16 残し）', () => {
     const suggestion = suggestFor(130, 2, { fallbackPreferredDoubles: APP_DEFAULT });
     expect(suggestion.checkoutRoutes).toHaveLength(0);
     expect(suggestion.nextVisitRoute?.routeText).toBe('T20 → T18');
@@ -622,7 +630,7 @@ describe('v1.3.5 得意ダブルは第 1 希望だけが残しの質より優先
     );
   });
 
-  it('既定の得意ダブルは、どの状態でも「未設定のときの残し」を変えない', () => {
+  it('5 件を選んでいても、どの状態でも「未設定のときの残し」と同じになる', () => {
     /*
      * 第 2 希望以下が残しの質より前に出ていたため、130 / 2 本のほかにも
      * 27 状態（61 / 1 本の T7 など）で浅い残しが選ばれていた。
@@ -691,7 +699,8 @@ describe('v1.3.5 得意ダブルは第 1 希望だけが残しの質より優先
  * **投げたあと何点残るか**まで出す。選び方の違う案を最大 3 件まで並べる。
  */
 describe('v1.3.6 NEXT VISIT の複数提案', () => {
-  const APP_DEFAULT = DEFAULT_PREFERENCES.preferredDoubles;
+  /** 得意ダブルを設定しているユーザー（既定は未設定）。 */
+  const APP_DEFAULT = ['D16', 'D20', 'D8', 'D10', 'D18'];
 
   it('130 / 2 本では 3 つの作り方を、残り点つきで返す', () => {
     const proposals = selectNextVisitProposals(130, 2, {

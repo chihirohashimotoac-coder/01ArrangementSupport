@@ -22,9 +22,16 @@ export interface Preferences {
   readonly theme: Theme;
 }
 
+/*
+ * 得意ダブルの既定は **空**（何も選んでいない状態）。
+ *
+ * あらかじめ 5 件を選択済みにしていたため、ユーザーが何も設定していないのに
+ * その順位が戦術判断を決めてしまっていた（130 / 2 本で 16 残しより
+ * 40 残しが選ばれるなど）。得意ダブルは「本人が選んだときだけ効く設定」にする。
+ */
 export const DEFAULT_PREFERENCES: Preferences = {
   version: 1,
-  preferredDoubles: ['D16', 'D20', 'D8', 'D10', 'D18'],
+  preferredDoubles: [],
   setupMainTarget: DEFAULT_SETUP_MAIN_TARGET,
   theme: 'dark',
 };

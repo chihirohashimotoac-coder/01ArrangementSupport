@@ -308,13 +308,32 @@ describe('TRAINING 画面', () => {
 });
 
 describe('設定画面', () => {
-  it('得意ダブルを選ぶと順位づけされる', async () => {
+  it('得意ダブルは既定で何も選ばれておらず、複数を順位づけできる', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByTestId('nav-settings'));
 
+    // 既定は「未設定」。アプリ側で勝手に順位を持たない（v1.3.5）。
+    expect(screen.getByTestId('preferred-doubles')).toHaveTextContent('まだ選ばれていません');
+    // 使い方（既定は未設定・複数選択・並び順が優先度）を画面に書いておく。
+    const help = screen.getByTestId('preferred-doubles-help');
+    expect(help).toHaveTextContent('既定では何も選ばれていません');
+    expect(help).toHaveTextContent('複数選べます');
+    expect(help).toHaveTextContent('並び順がそのまま優先度');
+
+    await user.click(screen.getByTestId('select-D16'));
+    await user.click(screen.getByTestId('select-D20'));
     const list = screen.getByTestId('preferred-doubles');
     expect(within(list).getByText('D16')).toBeInTheDocument();
+    expect(within(list).getByText('D20')).toBeInTheDocument();
+
+    // 並び順が優先度。↑ で入れ替えられる。
+    await user.click(screen.getByLabelText('D20 を上へ'));
+    expect(
+      Array.from(screen.getByTestId('preferred-doubles').querySelectorAll('.settings__id')).map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(['D20', 'D16']);
 
     await user.click(screen.getByTestId('select-D16'));
     expect(within(screen.getByTestId('preferred-doubles')).queryByText('D16')).toBeNull();
@@ -1751,6 +1770,8 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
    */
   it('135 から S5 を刺すと、残し候補を 3 つ・残り点つきで出す', async () => {
     const user = userEvent.setup();
+    // 得意ダブルの既定は未設定なので、「考慮した場合」の案を出すために設定しておく。
+    setPreferredDoubles(['D16', 'D20', 'D8']);
     render(<App />);
     await openCheckoutWith(user, '135');
     await openRecovery(user);

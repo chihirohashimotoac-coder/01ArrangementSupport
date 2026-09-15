@@ -191,3 +191,19 @@
   .settings__reason { display: none; }
   .settings__move { grid-column: 1 / -1; justify-content: flex-end; }
 }
+
+/* 得意ダブルの使い方（既定は未設定・複数選択・並び順が優先度）。 */
+.settings__note-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.settings__note-list strong {
+  color: var(--text-secondary);
+}

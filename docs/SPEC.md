@@ -68,8 +68,9 @@
 ### 4-1. CHECKOUT（残り 2〜170）
 
 - **STANDARD**: 基準ルート（`docs/CHECKOUT_DATA_POLICY.md`）
-- **MY ROUTE**: ユーザーの得意ダブル（順位つき、BULL 可）を反映した並び。
-  STANDARD の並びは変えない。
+- **MY ROUTE**: ユーザーの得意ダブル（複数選択・並び順が優先度、BULL 可）を反映した並び。
+  STANDARD の並びは変えない。得意ダブルの既定は**未設定**で、
+  1 つも選んでいないあいだ MY ROUTE は表示しない（v1.3.5）。
 - **WHY THIS ROUTE?**: 理由コードから組み立てた説明（`docs/ARRANGE_RULES.md`）
 - **OTHER ROUTES**: 初期表示は上位 5 件。「すべて表示」を押すと、STANDARD / MY ROUTE として
   別枠に出したものを除いた**合法な候補をすべて**出す（件数の表示と実際の表示件数は必ず一致させる）。
