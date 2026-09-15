@@ -4,7 +4,7 @@ import { TrainingPage } from './pages/TrainingPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { VersionHistoryPage } from './pages/VersionHistoryPage';
 import { ReferencesPage } from './pages/ReferencesPage';
-import { sequenceTable } from './engine/setup/sequences';
+import { scoringTripleFirstSequenceTables, sequenceTable } from './engine/setup/sequences';
 import { DEFAULT_SETUP_MAIN_TARGET } from './data/rankingRules';
 import { usePreferences } from './hooks/usePreferences';
 import type { Theme } from './storage/preferences';
@@ -88,7 +88,11 @@ export default function App() {
 
   // SETUP の探索表は初回だけ構築コストがかかるため、余裕のあるうちに温めておく。
   useEffect(() => {
-    const warm = () => sequenceTable(3, DEFAULT_SETUP_MAIN_TARGET);
+    const warm = () => {
+      sequenceTable(3, DEFAULT_SETUP_MAIN_TARGET);
+      // 第一ターゲット用の表も同じ桁の構築コストがかかる（v1.3.7）。
+      scoringTripleFirstSequenceTables(3, DEFAULT_SETUP_MAIN_TARGET);
+    };
     if (typeof window.requestIdleCallback === 'function') {
       const handle = window.requestIdleCallback(warm);
       return () => window.cancelIdleCallback?.(handle);
