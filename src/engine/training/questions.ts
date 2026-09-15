@@ -26,6 +26,7 @@ import {
   checkoutProblemKey,
   recoveryProblemKey,
   setupAdjustmentProblemKey,
+  setupFirstDartProblemKey,
   setupFullProblemKey,
   type CheckoutCategory,
   type ContextualThrow,
@@ -37,8 +38,9 @@ import {
 } from './model';
 import {
   setupAdjustmentCandidates,
-  setupFullCandidates,
+  setupFirstDartCandidates,
   type SetupAdjustmentCandidate,
+  type SetupFirstDartCandidate,
   type SetupFullCandidate,
 } from './setupQuestions';
 
@@ -316,6 +318,7 @@ export function buildCheckoutQuestion(
     startRemaining: candidate.left,
     currentRemaining: candidate.left,
     dartsAvailable: candidate.dartsAvailable,
+    visitDartsAvailable: candidate.dartsAvailable,
     contextualThrows: [],
     promptJa: `残り ${candidate.left} 点。3 本でどう上がりますか？`,
     recovery: null,
@@ -345,10 +348,11 @@ export function buildSetupAdjustmentQuestion(
     startRemaining: candidate.startRemaining,
     currentRemaining: candidate.currentRemaining,
     dartsAvailable: candidate.dartsAvailable,
+    visitDartsAvailable: candidate.dartsAvailable,
     contextualThrows: candidate.contextualThrows,
     promptJa: `開始 ${candidate.startRemaining} 点。ここまで ${formatContext(
       candidate.contextualThrows,
-    )} で、現在 ${candidate.currentRemaining} 点。次のラウンドで上がれる残りにするには、最後の 1 投をどこへ狙いますか？`,
+    )} で、現在 ${candidate.currentRemaining} 点。次のラウンドで上がれる残りにするには、最後の 1 投をどのナンバーへ狙いますか？シングルに外れる場合も考慮して選んでください。`,
     recovery: null,
     expectedAnswer: [candidate.recommended.id],
     trivial: candidate.trivial,
@@ -370,10 +374,46 @@ export function buildSetupFullQuestion(
     startRemaining: candidate.startRemaining,
     currentRemaining: candidate.startRemaining,
     dartsAvailable: candidate.dartsAvailable,
+    visitDartsAvailable: candidate.dartsAvailable,
     contextualThrows: [],
     promptJa: `残り ${candidate.startRemaining} 点。3 投で、次のラウンドに上がれる残りを作ってください。`,
     recovery: null,
     expectedAnswer: candidate.recommended.map((dart) => dart.id),
+    trivial: false,
+  };
+}
+
+/**
+ * SETUP / FIRST DART の出題を作る。
+ *
+ * 3 投あるラウンドの **1 投目だけ**を答える。
+ * 「高得点を狙うだけではなく、シングルへ落ちてもテンパイへの道が残る
+ * 第一ターゲットを選ぶ」ことを学ぶ形式なので、回答後に 170 以下になる
+ * 必要はない（採点は grade.ts の専用ロジックが行う）。
+ */
+export function buildSetupFirstDartQuestion(
+  candidate: SetupFirstDartCandidate,
+  index: number,
+): TrainingQuestion {
+  return {
+    id: `setup-first-dart-${candidate.startRemaining}-${index}`,
+    problemKey: setupFirstDartProblemKey(
+      candidate.startRemaining,
+      candidate.visitDartsAvailable,
+    ),
+    kind: 'setup',
+    format: 'setup-first-dart',
+    difficulty: candidate.difficulty,
+    primaryCategory: candidate.primaryCategory,
+    learningTags: candidate.learningTags,
+    startRemaining: candidate.startRemaining,
+    currentRemaining: candidate.currentRemaining,
+    dartsAvailable: 1,
+    visitDartsAvailable: candidate.visitDartsAvailable,
+    contextualThrows: [],
+    promptJa: `残り ${candidate.startRemaining} 点。このラウンドは ${candidate.visitDartsAvailable} 投あります。1 投目はどこを狙いますか？`,
+    recovery: null,
+    expectedAnswer: [candidate.recommended.dart.id],
     trivial: false,
   };
 }
@@ -413,6 +453,7 @@ export function buildRecoveryQuestion(
     startRemaining: visitStartRemaining,
     currentRemaining: remaining,
     dartsAvailable,
+    visitDartsAvailable: dartsAvailable,
     contextualThrows: [{ intendedDartId: intendedDart.id, actualDartId: actualDart.id }],
     promptJa: `残り ${visitStartRemaining} から ${intendedDart.id} を狙って ${actualDart.id} でした。残り ${remaining} 点・${dartsAvailable} 本。次はどこを狙いますか？`,
     recovery: {
@@ -434,7 +475,32 @@ export interface TrainingPools {
   readonly checkout: readonly CheckoutQuestionCandidate[];
   readonly recovery: readonly RecoveryQuestionCandidate[];
   readonly setupAdjustment: readonly SetupAdjustmentCandidate[];
+  readonly setupFirstDart: readonly SetupFirstDartCandidate[];
+  /**
+   * 3 投フル形式。v1.3.4 で**新規出題を停止**したため常に空。
+   * 型と採点・feedback は保存済み履歴のために残してある
+   * （`setupFullCandidates()` を直接呼べば候補そのものは今も作れる）。
+   */
   readonly setupFull: readonly SetupFullCandidate[];
+}
+
+/**
+ * 1 投調整の出題 pool。
+ *
+ * 原則として「実際に調整判断が要る」問題だけを出す（本仕様 6-1 節）。
+ * 自然な継続ターゲットのままでも普通にテンパイになる問題は教材として弱い。
+ *
+ * ただし、ユーザーが出題範囲を狭く設定して該当が 1 件も無くなる場合
+ * （例: 171〜182 は 2 投投げ終えた時点で残りが小さく、どこを狙っても上がれる）は、
+ * 「出題できません」で終わらせずに、これまでどおりの候補へ決定論的に戻す。
+ */
+function adjustmentPoolOf(range: {
+  readonly min: number;
+  readonly max: number;
+}): readonly SetupAdjustmentCandidate[] {
+  const all = setupAdjustmentCandidates(range);
+  const decisionRequired = all.filter((candidate) => candidate.decisionRequired);
+  return decisionRequired.length > 0 ? decisionRequired : all;
 }
 
 export function buildPools(settings: TrainingSettings): TrainingPools {
@@ -444,8 +510,9 @@ export function buildPools(settings: TrainingSettings): TrainingPools {
   return {
     checkout: needsCheckout ? checkoutQuestionCandidates(settings.checkoutRange) : [],
     recovery: needsRecovery ? recoveryQuestionCandidates(settings.checkoutRange) : [],
-    setupAdjustment: needsSetup ? setupAdjustmentCandidates(settings.setupRange) : [],
-    setupFull: needsSetup ? setupFullCandidates(settings.setupRange) : [],
+    setupAdjustment: needsSetup ? adjustmentPoolOf(settings.setupRange) : [],
+    setupFirstDart: needsSetup ? setupFirstDartCandidates(settings.setupRange) : [],
+    setupFull: [],
   };
 }
 
@@ -453,7 +520,13 @@ export function buildPools(settings: TrainingSettings): TrainingPools {
 export function kindsWithCandidates(mode: TrainingMode, pools: TrainingPools): TrainingKind[] {
   const available: TrainingKind[] = [];
   if (pools.checkout.length > 0) available.push('checkout');
-  if (pools.setupAdjustment.length > 0 || pools.setupFull.length > 0) available.push('setup');
+  if (
+    pools.setupAdjustment.length > 0 ||
+    pools.setupFirstDart.length > 0 ||
+    pools.setupFull.length > 0
+  ) {
+    available.push('setup');
+  }
   if (pools.recovery.length > 0) available.push('recovery');
   return mode === 'mixed' ? available : available.filter((kind) => kind === mode);
 }

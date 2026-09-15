@@ -81,9 +81,20 @@ export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
       <section className="settings__section">
         <h2>MY ROUTE — 得意ダブル</h2>
         <p className="settings__note">
-          好きなダブルを順位づけすると、MY ROUTE の候補がその上がりを優先します。
-          STANDARD（基準ルート）の並びは変わりません。BULL 上がりも指定できます。
+          得意なダブルを選ぶと、MY ROUTE の候補がその上がりを優先します。
         </p>
+        <ul className="settings__note-list" data-testid="preferred-doubles-help">
+          <li>
+            <strong>既定では何も選ばれていません。</strong>選ぶまで MY ROUTE は出ません。
+          </li>
+          <li>
+            <strong>複数選べます。</strong>並び順がそのまま優先度です（↑ ↓ で並べ替え、× で外す）。
+          </li>
+          <li>
+            <strong>いちばん上の 1 つ</strong>だけは、上がれないときの残し（NEXT VISIT）にも効きます。
+          </li>
+          <li>STANDARD（基準ルート）の並びは変わりません。BULL 上がりも選べます。</li>
+        </ul>
 
         <ol className="settings__ranked" data-testid="preferred-doubles">
           {selected.length === 0 && <li className="settings__empty">まだ選ばれていません。</li>}

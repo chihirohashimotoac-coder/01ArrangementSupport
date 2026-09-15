@@ -1,3 +1,5 @@
+import { nextVisitProposalNoteJa } from '../data/explanations';
+import type { NextVisitProposal } from '../engine/recovery/nextVisitSelection';
 import type { VisitStatus } from '../engine/recovery/visit';
 import './NextTarget.css';
 
@@ -9,6 +11,11 @@ export interface NextTargetProps {
   readonly hasThrown: boolean;
   /** 次に狙う推奨ルート。無ければ null。 */
   readonly dartIds: readonly string[] | null;
+  /**
+   * 残り本数では上がれないときの「次ラウンドへの残し」候補（最大 3 件）。
+   * 上がれる場面では空配列。
+   */
+  readonly nextVisitProposals?: readonly NextVisitProposal[];
   readonly onUndo: () => void;
 }
 
@@ -25,6 +32,7 @@ export function NextTarget({
   status,
   hasThrown,
   dartIds,
+  nextVisitProposals = [],
   onUndo,
 }: NextTargetProps) {
   const message =
@@ -56,6 +64,29 @@ export function NextTarget({
         <p className="next-target__message" data-testid="recovery-next-message">
           {message}
         </p>
+      ) : hasThrown && nextVisitProposals.length > 0 ? (
+        /*
+         * 残り本数では上がれない場面。
+         * 「何を投げるか」だけでなく「投げた結果いくつ残るか」を必ず出す。
+         * 選び方の違う案を最大 3 件まで並べる（v1.3.6）。
+         */
+        <div className="next-target__proposals" data-testid="recovery-next-visit">
+          <span className="next-target__label">NEXT VISIT — 次ラウンドへの残し</span>
+          <ol className="next-target__proposal-list" aria-label="次ラウンドへの残しの候補">
+            {nextVisitProposals.map((proposal) => (
+              <li key={proposal.route.key} data-testid={`recovery-next-visit-${proposal.kind}`}>
+                <span className="next-target__proposal-route">{proposal.route.routeText}</span>
+                <span className="next-target__proposal-leave">
+                  {proposal.route.leave}
+                  <span className="next-target__unit"> LEFT</span>
+                </span>
+                <span className="next-target__proposal-note">
+                  {nextVisitProposalNoteJa(proposal.kind, proposal.finishDoubleId)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
       ) : (
         hasThrown &&
         dartIds !== null &&

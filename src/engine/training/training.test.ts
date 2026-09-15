@@ -39,6 +39,7 @@ export function makeQuestion(overrides: Partial<TrainingQuestion> = {}): Trainin
     startRemaining: currentRemaining,
     currentRemaining,
     dartsAvailable: DARTS_PER_VISIT,
+    visitDartsAvailable: DARTS_PER_VISIT,
     contextualThrows: [],
     promptJa: '',
     recovery: null,
@@ -491,7 +492,10 @@ describe('SETUP の採点', () => {
 
   it('最上位の SETUP ルートを併せて返す', () => {
     const result = gradeAnswer(setupQuestion, parseRoute(['T20', 'T20', 'S20']));
-    expect(result.bestSetup?.routeText).toBe('T20 → T20 → S18');
+    // v1.3.4: 取得点 138 / 164 残しは資料どおりのまま、
+    // 1 投目のシングル落ちに耐える並び（18 始動）が最上位になる。
+    expect(result.bestSetup?.routeText).toBe('S18 → T20 → T20');
+    expect(result.bestSetup?.leave).toBe(164);
   });
 });
 

@@ -75,6 +75,10 @@ export const SETUP_REASON_CODES = [
   'SETUP_LOW_SCORE',
   /** ダブルリングという細い的を、得点・調整のために狙っている。 */
   'SETUP_THIN_TARGET',
+  /** 第一ターゲットが同ナンバーのシングルへ落ちても、残り本数でテンパイを作れる。 */
+  'SETUP_SINGLE_MISS_TENPAI_SAFE',
+  /** 第一ターゲットが同ナンバーのシングルへ落ちると、このビジットでテンパイを作れない。 */
+  'SETUP_SINGLE_MISS_DEAD_END',
 ] as const;
 
 export type SetupReasonCode = (typeof SETUP_REASON_CODES)[number];

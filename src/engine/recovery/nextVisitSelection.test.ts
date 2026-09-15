@@ -14,8 +14,11 @@ import {
   NEXT_VISIT_PRIORITY_LEAVES,
   buildNextVisitCandidates,
   compareNextVisitCandidates,
+  halvingDepthOf,
   nextVisitTierOf,
+  selectNextVisitProposals,
   selectNextVisitRoute,
+  MAX_NEXT_VISIT_PROPOSALS,
 } from './nextVisitSelection';
 import { suggestFor } from './suggest';
 import { rankCheckoutRoutes } from '../ranking/checkoutRanking';
@@ -30,6 +33,7 @@ import {
   minDartsToCheckout,
 } from '../../domain/checkoutRules';
 import { THROWABLE_DARTS } from '../../domain/dart';
+import { DEFAULT_PREFERENCES } from '../../storage/preferences';
 
 const DARTS_LEFT = [1, 2, 3] as const;
 const SEGMENT_IDS = new Set(THROWABLE_DARTS.map((dart) => dart.id));
@@ -173,6 +177,72 @@ describe('候補生成（既存 sequenceTable の再利用）', () => {
   });
 });
 
+/**
+ * v1.3.4 MAIN TARGET FIRST。
+ *
+ * 同じ Tier・同じ難易度のルートが並んだとき、最後に表記の辞書順で決まって
+ * 「T11 → T20」のような実戦的に不自然な並びが上位に来ていた。
+ * 主目標（既定 T20）から投げ始めるルートを、得意ダブルより先に優先する。
+ */
+describe('v1.3.4 MAIN TARGET FIRST', () => {
+  it('125 / 2 本では T20 → T11 が T11 → T20 より上位になる', () => {
+    const candidates = buildNextVisitCandidates(125, 2);
+    const mainFirst = candidates.find((c) => c.key === 'T20-T11');
+    const other = candidates.find((c) => c.key === 'T11-T20');
+
+    // 枝刈りで主目標始動が落ちていないこと（これが元の原因）。
+    expect(mainFirst, 'T20 → T11 が候補に無い').toBeDefined();
+    expect(other).toBeDefined();
+    // 取得点も残しも難易度も同じ。
+    expect(mainFirst!.leave).toBe(32);
+    expect(other!.leave).toBe(32);
+    expect(mainFirst!.difficulty).toBe(other!.difficulty);
+    expect(compareNextVisitCandidates(mainFirst!, other!)).toBeLessThan(0);
+
+    expect(selectNextVisitRoute(125, 2)!.routeText).toBe('T20 → T11');
+  });
+
+  it('130 / 2 本では T20 → T18 が T15 → T15 より上位になる', () => {
+    const candidates = buildNextVisitCandidates(130, 2);
+    const mainFirst = candidates.find((c) => c.key === 'T20-T18');
+    const other = candidates.find((c) => c.key === 'T15-T15');
+    expect(mainFirst).toBeDefined();
+    expect(other).toBeDefined();
+    expect(compareNextVisitCandidates(mainFirst!, other!)).toBeLessThan(0);
+
+    const route = selectNextVisitRoute(130, 2)!;
+    expect(route.routeText).toBe('T20 → T18');
+    // 130 - 60 - 54 = 16。次ラウンドは D8 の 1 投上がり。
+    expect(route.leave).toBe(16);
+    expect(minDartsToCheckout(16)).toBe(1);
+  });
+
+  it('半分にし続けられる残しを優先する（32 → 16 → 8 → 4 → 2）', () => {
+    expect(halvingDepthOf(32)).toBe(5);
+    expect(halvingDepthOf(16)).toBe(4);
+    expect(halvingDepthOf(40)).toBe(3);
+    expect(halvingDepthOf(28)).toBe(2);
+    expect(halvingDepthOf(39)).toBe(0);
+  });
+
+  it('残り 1 本は「順番」の問題ではないので、主目標を強制しない', () => {
+    // 68 / 1 本は T20 で 8 残し、T12 で 32 残し。どちらも 1 投上がりだが、
+    // 32 の方が外したあとも半分が続く。
+    for (const candidate of buildNextVisitCandidates(68, 1)) {
+      expect(candidate.mainTargetFirst).toBe(false);
+    }
+    expect(selectNextVisitRoute(68, 1)!.leave).toBe(32);
+  });
+
+  it('奇数残りの 1 投調整が、基準ルートの R2（32 → 16 → 8）と同じ形になる', () => {
+    // 19 → S3 → 16（D8）/ 35 → S3 → 32（D16）。
+    expect(selectNextVisitRoute(19, 1)!.routeText).toBe('S3');
+    expect(selectNextVisitRoute(19, 1)!.leave).toBe(16);
+    expect(selectNextVisitRoute(35, 1)!.routeText).toBe('S3');
+    expect(selectNextVisitRoute(35, 1)!.leave).toBe(32);
+  });
+});
+
 describe('Case 1 / 2: 119 残り 2 本（実機で見つかった事故）', () => {
   it('T20 → S19 を選び、40 残し（次ラウンド 1 投）を作る', () => {
     const suggestion = suggestFor(119, 2);
@@ -245,7 +315,7 @@ describe('Case 3: 難易度が同じなら得意ダブルが効く', () => {
     expect(changed.length).toBeGreaterThan(0);
   });
 
-  it('比較関数そのものが、難易度 → 得意ダブルの順で決める', () => {
+  it('比較関数そのものが、難易度 → 主目標始動 → 得意ダブルの順で決める', () => {
     const base = {
       darts: [],
       leave: 32,
@@ -253,15 +323,77 @@ describe('Case 3: 難易度が同じなら得意ダブルが効く', () => {
       switchCount: 0,
       leaveScore: 0,
       intrinsic: 0,
+      mainTargetFirst: false,
+      halvingDepth: halvingDepthOf(32),
     };
-    const easyNoPreference = { ...base, key: 'A', difficulty: 2, preferenceRank: 99 };
-    const hardPreferred = { ...base, key: 'B', difficulty: 4, preferenceRank: 0 };
+    const easyNoPreference = {
+      ...base,
+      key: 'A',
+      difficulty: 2,
+      primaryPreferredFinish: false,
+      preferenceRank: 99,
+    };
+    const hardPreferred = {
+      ...base,
+      key: 'B',
+      difficulty: 4,
+      primaryPreferredFinish: true,
+      preferenceRank: 0,
+    };
     // 難易度が違えば、得意ダブルより難易度が優先される。
     expect(compareNextVisitCandidates(easyNoPreference, hardPreferred)).toBeLessThan(0);
 
-    const samePreferred = { ...base, key: 'B', difficulty: 2, preferenceRank: 0 };
-    // 難易度が同じなら、得意ダブルが効く。
+    const samePreferred = {
+      ...base,
+      key: 'B',
+      difficulty: 2,
+      primaryPreferredFinish: true,
+      preferenceRank: 0,
+    };
+    // 難易度が同じなら、第 1 希望の得意ダブルが効く。
     expect(compareNextVisitCandidates(samePreferred, easyNoPreference)).toBeLessThan(0);
+
+    // ただし主目標始動は得意ダブルより先に効く（v1.3.4）。
+    const mainTargetFirstNoPreference = {
+      ...base,
+      key: 'C',
+      difficulty: 2,
+      primaryPreferredFinish: false,
+      preferenceRank: 99,
+      mainTargetFirst: true,
+    };
+    expect(compareNextVisitCandidates(mainTargetFirstNoPreference, samePreferred)).toBeLessThan(0);
+    // 難易度が違えば、主目標始動でも難易度が優先される。
+    const hardMainTargetFirst = {
+      ...base,
+      key: 'D',
+      difficulty: 4,
+      primaryPreferredFinish: false,
+      preferenceRank: 99,
+      mainTargetFirst: true,
+    };
+    expect(compareNextVisitCandidates(easyNoPreference, hardMainTargetFirst)).toBeLessThan(0);
+
+    // 第 2 希望以下は、残しの質が完全に並んだときの同点処理にだけ使う（v1.3.5）。
+    const deepLeaveNoPreference = {
+      ...base,
+      key: 'E',
+      difficulty: 2,
+      primaryPreferredFinish: false,
+      preferenceRank: 99,
+      halvingDepth: 4,
+    };
+    const shallowLeaveSecondPreference = {
+      ...base,
+      key: 'F',
+      difficulty: 2,
+      primaryPreferredFinish: false,
+      preferenceRank: 1,
+      halvingDepth: 3,
+    };
+    expect(
+      compareNextVisitCandidates(deepLeaveNoPreference, shallowLeaveSecondPreference),
+    ).toBeLessThan(0);
   });
 });
 
@@ -449,5 +581,214 @@ describe('Case 15: 通常 SETUP 171〜350 × 1〜3 本の完全回帰', () => {
 
     expect(violations).toEqual([]);
     expect(covered).toBe(540);
+  });
+});
+
+/**
+ * v1.3.5「得意ダブルの既定値が戦術判断を決めてしまう」問題の回帰。
+ *
+ * 135 から S5 が入ると 130 / 2 本になる。取得点も難易度も同じまま
+ * 16 残し（D8）と 40 残し（D20）が並ぶが、アプリの既定の得意ダブルは
+ * D16 → D20 → D8 → D10 → D18 なので、第 2 希望の D20 が第 3 希望の D8 に勝ち、
+ * ユーザーが何も設定していないのに 40 残しが選ばれていた。
+ *
+ * 得意ダブルが残しの質より優先されるのは **第 1 希望だけ**にする。
+ */
+describe('v1.3.5 得意ダブルは第 1 希望だけが残しの質より優先される', () => {
+  /*
+   * アプリの既定は「得意ダブル未設定」（v1.3.5）。
+   * 以前の既定値だった 5 件を選んでいるユーザーでも、結論が変わらないことを固定する。
+   */
+  const APP_DEFAULT = ['D16', 'D20', 'D8', 'D10', 'D18'];
+
+  it('既定は「何も選んでいない」状態', () => {
+    expect(DEFAULT_PREFERENCES.preferredDoubles).toEqual([]);
+  });
+
+  it('135 から S5 で 130 / 2 本になると、5 件を選んでいても T20 → T18（16 残し）', () => {
+    const suggestion = suggestFor(130, 2, { fallbackPreferredDoubles: APP_DEFAULT });
+    expect(suggestion.checkoutRoutes).toHaveLength(0);
+    expect(suggestion.nextVisitRoute?.routeText).toBe('T20 → T18');
+    expect(suggestion.nextVisitRoute?.leave).toBe(16);
+  });
+
+  it('D20 を第 1 希望にしたユーザーには、これまでどおり 40 残しを出す', () => {
+    const d20First = ['D20', 'D16', 'D8', 'D10', 'D18'];
+    expect(selectNextVisitRoute(130, 2, { fallbackPreferredDoubles: d20First })?.leave).toBe(40);
+    expect(selectNextVisitRoute(103, 2, { fallbackPreferredDoubles: d20First })?.routeText).toBe(
+      'T20 → S3',
+    );
+    // 第 1 希望が D16 のままなら 32 残し（v1.3.4 で固定したケース）。
+    expect(selectNextVisitRoute(103, 2, { fallbackPreferredDoubles: APP_DEFAULT })?.routeText).toBe(
+      'T20 → S11',
+    );
+    expect(selectNextVisitRoute(125, 2, { fallbackPreferredDoubles: APP_DEFAULT })?.routeText).toBe(
+      'T20 → T11',
+    );
+    expect(selectNextVisitRoute(119, 2, { fallbackPreferredDoubles: APP_DEFAULT })?.routeText).toBe(
+      'T20 → S19',
+    );
+  });
+
+  it('5 件を選んでいても、どの状態でも「未設定のときの残し」と同じになる', () => {
+    /*
+     * 第 2 希望以下が残しの質より前に出ていたため、130 / 2 本のほかにも
+     * 27 状態（61 / 1 本の T7 など）で浅い残しが選ばれていた。
+     * 既定値のままなら、得意ダブル未設定と同じ結論になることを固定する。
+     */
+    const violations: string[] = [];
+    for (let remaining = MIN_CHECKOUT; remaining <= MAX_CHECKOUT; remaining += 1) {
+      for (const dartsLeft of DARTS_LEFT) {
+        if (rankCheckoutRoutes(remaining, dartsLeft).length > 0) continue;
+        const withDefault = selectNextVisitRoute(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        const withNone = selectNextVisitRoute(remaining, dartsLeft, {
+          fallbackPreferredDoubles: [],
+        });
+        if (withDefault === null || withNone === null) continue;
+        if (withDefault.key !== withNone.key) {
+          violations.push(`${remaining}/${dartsLeft}: ${withDefault.key} ≠ ${withNone.key}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('残しが浅くなる入れ替え（16 → 40、24 → 36）が起きない', () => {
+    const violations: string[] = [];
+    for (let remaining = MIN_CHECKOUT; remaining <= MAX_CHECKOUT; remaining += 1) {
+      for (const dartsLeft of DARTS_LEFT) {
+        if (rankCheckoutRoutes(remaining, dartsLeft).length > 0) continue;
+        const chosen = selectNextVisitRoute(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        if (chosen === null) continue;
+        const candidates = buildNextVisitCandidates(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        const picked = candidates.find((candidate) => candidate.key === chosen.key);
+        if (picked === undefined) continue;
+        // 次ラウンド 1 投で上がれる残し（Tier A / B）どうしの比較だけを見る。
+        // Tier C / D / E は「取得点の多さ」が先なので、半分の深さでは比べない。
+        if (picked.tier !== 'A' && picked.tier !== 'B') continue;
+        // 同じ Tier・同じ難易度・同じ残しの質で、より深い残しがあったら負け。
+        const better = candidates.find(
+          (candidate) =>
+            candidate.tier === picked.tier &&
+            candidate.difficulty === picked.difficulty &&
+            candidate.mainTargetFirst === picked.mainTargetFirst &&
+            candidate.leaveScore === picked.leaveScore &&
+            candidate.halvingDepth > picked.halvingDepth &&
+            !candidate.primaryPreferredFinish &&
+            !picked.primaryPreferredFinish,
+        );
+        if (better !== undefined) {
+          violations.push(`${remaining}/${dartsLeft}: ${picked.key} より ${better.key} が深い`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+});
+
+/**
+ * v1.3.6「上がれない場面では、残しの候補を複数見せる」。
+ *
+ * 実戦入力（RECOVERY）の盤面直下では、投げるルートだけでなく
+ * **投げたあと何点残るか**まで出す。選び方の違う案を最大 3 件まで並べる。
+ */
+describe('v1.3.6 NEXT VISIT の複数提案', () => {
+  /** 得意ダブルを設定しているユーザー（既定は未設定）。 */
+  const APP_DEFAULT = ['D16', 'D20', 'D8', 'D10', 'D18'];
+
+  it('130 / 2 本では 3 つの作り方を、残り点つきで返す', () => {
+    const proposals = selectNextVisitProposals(130, 2, {
+      fallbackPreferredDoubles: APP_DEFAULT,
+    });
+    expect(
+      proposals.map((item) => [item.kind, item.route.routeText, item.route.leave]),
+    ).toEqual([
+      ['leave-quality', 'T20 → T18', 16],
+      ['preferred-double', 'T20 → T10', 40],
+      ['alternative', 'T19 → T19', 16],
+    ]);
+    // 得意ダブルの表示に使う上がりダブル。
+    expect(proposals.map((item) => item.finishDoubleId)).toEqual(['D8', 'D20', 'D8']);
+    expect(proposals[2].sameTarget).toBe(true);
+  });
+
+  it('得意ダブルを設定していなければ「考慮した場合」の案を出さない', () => {
+    const proposals = selectNextVisitProposals(130, 2, { fallbackPreferredDoubles: [] });
+    expect(proposals.map((item) => item.kind)).toEqual(['leave-quality', 'alternative']);
+    expect(proposals.map((item) => item.route.routeText)).toEqual(['T20 → T18', 'T19 → T19']);
+  });
+
+  it('得意ダブルを考慮しても同じ結論なら、1 つだけ出す', () => {
+    // 125 / 2 本は 32 残し（第 1 希望 D16）が最上位。
+    // 同じナンバーを続ける案は奇数残しにしかならないので候補が無い。
+    const proposals = selectNextVisitProposals(125, 2, {
+      fallbackPreferredDoubles: APP_DEFAULT,
+    });
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0].route.routeText).toBe('T20 → T11');
+  });
+
+  it('別案のために、いま投げる難易度を上げない', () => {
+    // D17 → T17 のような「同じナンバーだが難しいだけ」の並びを出さない。
+    const violations: string[] = [];
+    for (let remaining = MIN_CHECKOUT; remaining <= MAX_CHECKOUT; remaining += 1) {
+      for (const dartsLeft of DARTS_LEFT) {
+        if (rankCheckoutRoutes(remaining, dartsLeft).length > 0) continue;
+        const proposals = selectNextVisitProposals(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        if (proposals.length === 0) continue;
+        const candidates = buildNextVisitCandidates(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        const difficultyOfKey = new Map(
+          candidates.map((candidate) => [candidate.key, candidate.difficulty]),
+        );
+        const first = difficultyOfKey.get(proposals[0].route.key);
+        for (const proposal of proposals.slice(1)) {
+          const difficulty = difficultyOfKey.get(proposal.route.key);
+          if (first === undefined || difficulty === undefined) continue;
+          if (proposal.kind === 'alternative' && difficulty > first) {
+            violations.push(`${remaining}/${dartsLeft}: ${proposal.route.routeText}`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('全 507 状態で、提案は最大 3 件・重複なし・合法な残し', () => {
+    const violations: string[] = [];
+    for (let remaining = MIN_CHECKOUT; remaining <= MAX_CHECKOUT; remaining += 1) {
+      for (const dartsLeft of DARTS_LEFT) {
+        if (rankCheckoutRoutes(remaining, dartsLeft).length > 0) continue;
+        const proposals = selectNextVisitProposals(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        const label = `${remaining}/${dartsLeft}`;
+        if (proposals.length === 0) violations.push(`${label}: 0 件`);
+        if (proposals.length > MAX_NEXT_VISIT_PROPOSALS) violations.push(`${label}: 4 件以上`);
+        const keys = new Set(proposals.map((item) => item.route.key));
+        if (keys.size !== proposals.length) violations.push(`${label}: 重複`);
+        for (const proposal of proposals) {
+          if (proposal.route.leave < MIN_CHECKOUT) violations.push(`${label}: 残し不正`);
+          if (proposal.route.darts.length !== dartsLeft) violations.push(`${label}: 本数`);
+        }
+        // 1 件目はこれまでの第 1 候補と同じ。
+        const single = selectNextVisitRoute(remaining, dartsLeft, {
+          fallbackPreferredDoubles: APP_DEFAULT,
+        });
+        if (single !== null && proposals[0]?.route.key !== single.key) {
+          violations.push(`${label}: 第 1 候補が違う`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
   });
 });

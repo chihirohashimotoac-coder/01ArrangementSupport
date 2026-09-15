@@ -13,7 +13,13 @@
  * 推奨解答は通常 Practice と同じ `rankSetupRoutes` から取る。
  * TRAINING のためにランキングの重み（Human Approval 済み）は一切変更しない。
  */
-import { THROWABLE_DARTS, findDart, requireDart, type Dart } from '../../domain/dart';
+import {
+  THROWABLE_DARTS,
+  TRIPLE_DARTS,
+  findDart,
+  requireDart,
+  type Dart,
+} from '../../domain/dart';
 import {
   DARTS_PER_VISIT,
   MAX_CHECKOUT,
@@ -22,12 +28,26 @@ import {
   isBogey,
   isCheckoutable,
 } from '../../domain/checkoutRules';
-import { PREMIUM_TENPAI_LEAVES, TON_SCORE } from '../../data/rankingRules';
+import {
+  DEFAULT_SETUP_MAIN_TARGET,
+  GRADE_THRESHOLDS,
+  PREMIUM_TENPAI_LEAVES,
+  TON_SCORE,
+  type RouteGrade,
+} from '../../data/rankingRules';
 import { LAST_DIGIT_RULE_BAND } from '../../data/bogeyNumbers';
-import { canReachTenpai, rankSetupRoutes } from '../setup/enumerate';
+import {
+  canReachTenpai,
+  evaluateSetupRoute,
+  isSingleMissTenpaiSafe,
+  rankSetupRoutes,
+  singleMissDartOf,
+  type RankedSetupRoute,
+} from '../setup/enumerate';
 import { isTonTrap } from '../setup/leaveQuality';
 import {
   LEARNING_TAGS,
+  firstDartConceptKeyOf,
   lastDartConceptKeyOf,
   type ContextualThrow,
   type SetupCategory,
@@ -76,13 +96,23 @@ export function hasGoodAdjustment(current: number): boolean {
 
 /**
  * 1 投調整の推奨解答。
- * 通常 Practice と同じランキングの第 1 候補をそのまま使う。
+ *
+ * 並びは通常 Practice と同じランキング（`rankSetupRoutes`）のまま。
+ * そのうえで、**シングル面に入っても上がれるナンバー**があるなら、その中の
+ * 最上位を推奨にする（v1.3.5）。ラスト 1 投の調整は外れ方まで含めた選択なので、
+ * 「狙いどおり入ればよい残り」だけで推奨を決めない。
+ *
+ * 安全なナンバーが 1 つも無い残り（190 以上など、どのシングル面でも 170 を
+ * 超える場面）では、これまでどおりランキング第 1 候補をそのまま使う。
  */
 export function recommendedAdjustment(current: number): Dart | null {
-  const ranked = rankSetupRoutes(current, 1, { maxRoutes: 1 });
-  const dart = ranked.length > 0 ? ranked[0].darts[0] : null;
-  if (dart === undefined || dart === null) return null;
-  return leaveVerdictOf(current - dart.score) === 'checkoutable' ? dart : null;
+  const ranked = rankSetupRoutes(current, 1).map((route) => route.darts[0]);
+  const reachable = ranked.filter(
+    (dart): dart is Dart =>
+      dart !== undefined && dart !== null && leaveVerdictOf(current - dart.score) === 'checkoutable',
+  );
+  if (reachable.length === 0) return null;
+  return reachable.find((dart) => aimClassOfDart(current, dart) === 'safe') ?? reachable[0];
 }
 
 /** 3 投フル組み立ての推奨解答。 */
@@ -98,6 +128,139 @@ export function continuationDartOf(actualDartId: string): Dart | null {
   if (!dart) return null;
   if (dart.baseNumber === null) return findDart('SB') ?? null;
   return findDart(`S${dart.baseNumber}`) ?? null;
+}
+
+/**
+ * ラスト 1 投で狙える「ナンバー」。
+ *
+ * この教材が扱うのは「どのナンバーのウェッジへ投げるか」であって、
+ * 62 セグメントのどれに刺すかではない。狙ったナンバーのウェッジに入れば、
+ * 実際の着弾はシングル面かトリプル面のどちらかになる。
+ *
+ * BULL エリアは対象外にする。「狙って外すと同じナンバーのシングル面」という
+ * モデルが当てはまらず（外れれば周囲のどのナンバーにも散る）、
+ * `singleMissDartOf()` が BULL を対象外にしているのと同じ理由による。
+ */
+export const AIM_NUMBERS: readonly number[] = Array.from({ length: 20 }, (_, index) => index + 1);
+
+/** そのナンバーを狙ったときに起きうる着弾（シングル面とトリプル面）。 */
+export function wedgeDartsOf(aimNumber: number): readonly Dart[] {
+  const single = findDart(`S${aimNumber}`);
+  const triple = findDart(`T${aimNumber}`);
+  return [single, triple].filter((dart): dart is Dart => dart !== undefined && dart !== null);
+}
+
+/**
+ * その的を狙ったときに起きうる着弾。
+ *
+ * 採点では 1〜20 に限らず、回答として渡された的をそのまま解釈する
+ * （BULL エリアを選んだ回答は S-BULL / BULL の 2 つで見る）。
+ */
+export function wedgeDartsOfDart(dart: Dart): readonly Dart[] {
+  if (dart.baseNumber === null) {
+    const sb = findDart('SB');
+    const bull = findDart('BULL');
+    return [sb, bull].filter((item): item is Dart => item !== undefined && item !== null);
+  }
+  return wedgeDartsOf(dart.baseNumber);
+}
+
+/**
+ * ナンバーの安全度。
+ *
+ *   safe    … シングル面でもトリプル面でも、次のラウンドで上がれる残りになる
+ *   partial … 片方でしか上がれない（ふつうはトリプルに入ったときだけ）
+ *   dead    … どちらに入っても上がれない
+ */
+export type AimClass = 'safe' | 'partial' | 'dead';
+
+export function aimClassOfDarts(current: number, wedge: readonly Dart[]): AimClass {
+  // Bust する着弾は、この教材が扱う「悪い残り」ではない（本仕様 6-1 節の列挙は
+  // Bogey / 170 超え / テンパイ不能）。Bust を避ける判断は CHECKOUT 側の話。
+  const reachable = wedge.filter((dart) => leaveVerdictOf(current - dart.score) !== 'bust');
+  if (reachable.length === 0) return 'dead';
+  const good = reachable.filter(
+    (dart) => leaveVerdictOf(current - dart.score) === 'checkoutable',
+  );
+  if (good.length === reachable.length) return 'safe';
+  return good.length > 0 ? 'partial' : 'dead';
+}
+
+export function aimClassOf(current: number, aimNumber: number): AimClass {
+  return aimClassOfDarts(current, wedgeDartsOf(aimNumber));
+}
+
+/** 回答として渡された的の安全度。 */
+export function aimClassOfDart(current: number, dart: Dart): AimClass {
+  return aimClassOfDarts(current, wedgeDartsOfDart(dart));
+}
+
+/** そのウェッジで「次のラウンドで上がれない」着弾（採点の説明に使う）。 */
+export function unsafeLandingsOf(current: number, dart: Dart): readonly AdjustmentOutcome[] {
+  return wedgeDartsOfDart(dart)
+    .map((item) => ({ dart: item, leave: current - item.score, verdict: leaveVerdictOf(current - item.score) }))
+    .filter((outcome) => outcome.verdict !== 'checkoutable' && outcome.verdict !== 'bust');
+}
+
+/** そのウェッジで「次のラウンドで上がれる」着弾。 */
+export function safeLandingsOf(current: number, dart: Dart): readonly AdjustmentOutcome[] {
+  return wedgeDartsOfDart(dart)
+    .map((item) => ({ dart: item, leave: current - item.score, verdict: leaveVerdictOf(current - item.score) }))
+    .filter((outcome) => outcome.verdict === 'checkoutable');
+}
+
+/** シングル面でもトリプル面でも上がれる残りになるナンバー。 */
+export function safeAimNumbersOf(current: number): readonly number[] {
+  return AIM_NUMBERS.filter((aimNumber) => aimClassOf(current, aimNumber) === 'safe');
+}
+
+/**
+ * ラスト 1 投で「自然に狙う」ナンバー。
+ *
+ *  - 直前に入ったナンバーをそのまま続ける（継続）
+ *  - 主目標（既定 T20）の 20 へ戻る
+ */
+export function naturalAimNumbersOf(lastActualId: string): readonly number[] {
+  const numbers = new Set<number>();
+  const last = findDart(lastActualId);
+  if (last && last.baseNumber !== null) numbers.add(last.baseNumber);
+  const main = findDart(DEFAULT_SETUP_MAIN_TARGET);
+  if (main && main.baseNumber !== null) numbers.add(main.baseNumber);
+  return [...numbers];
+}
+
+/**
+ * その 1 投調整が「本当に調整判断を必要とするか」。
+ *
+ * 判断が要るのは、**狙うナンバーを変えると結果が変わる**ときだけ。
+ *
+ *   1. シングル面でもトリプル面でも上がれるナンバーが存在する
+ *   2. しかし自然に狙うナンバー（継続 / 主目標の 20）はどれもそうではない
+ *
+ * 例:
+ *   現在 176（ここまで T18 → T18）
+ *     18: S18 → 158 ○ / T18 → 122 ○ → 自然な的が safe   → 出題しない
+ *   現在 182（ここまで T20 → T20）
+ *     20: S20 → 162 ×（ノーテン） / T20 → 122 ○ → partial
+ *     18: S18 → 164 ○ / T18 → 128 ○            → safe    → 出題する
+ *   現在 192（ここまで T20 → T20）
+ *     20: S20 → 172 ×（170 超え） / T20 → 132 ○ → partial
+ *     ほかに safe なナンバーが無い（どのシングル面でも 170 を超える）
+ *       → どこを狙っても同じなので出題しない
+ *   現在 194（ここまで S20 → S1）
+ *     1 も 20 も safe ではなく、safe なナンバーも無い → 出題しない
+ *
+ * 固定の下限（182 以上など）ではなく計算で決めるので、
+ * 179（S20 で 159 のノーテン）のような残りも候補に入る。
+ */
+export function isDecisionRequiredAdjustment(
+  currentRemaining: number,
+  lastActualDartId: string,
+): boolean {
+  if (safeAimNumbersOf(currentRemaining).length === 0) return false;
+  return !naturalAimNumbersOf(lastActualDartId).some(
+    (aimNumber) => aimClassOf(currentRemaining, aimNumber) === 'safe',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +308,11 @@ export interface SetupAdjustmentCandidate {
   readonly learningTags: readonly string[];
   readonly trivial: boolean;
   readonly contextLabelJa: string;
+  /**
+   * 自然な狙いのままでは悪い残りになりうるため、実際に調整判断が要る問題か。
+   * v1.3.4 以降、新規出題はこれが true のものだけを使う。
+   */
+  readonly decisionRequired: boolean;
 }
 
 export interface SetupFullCandidate {
@@ -269,6 +437,7 @@ function tagsOfAdjustment(candidate: {
   continuationLeave: number | null;
   category: SetupCategory;
   trivial: boolean;
+  decisionRequired: boolean;
 }): string[] {
   const tags = new Set<string>();
   if (candidate.outcomes.some((outcome) => outcome.verdict === 'bogey')) {
@@ -313,6 +482,7 @@ function tagsOfAdjustment(candidate: {
   if (candidate.category === 'setup-landing-95-105') tags.add(LEARNING_TAGS.landing95to105);
   if (candidate.category === 'setup-sbull') tags.add(LEARNING_TAGS.sbullAdjust);
   if (candidate.trivial) tags.add(LEARNING_TAGS.trivial);
+  if (candidate.decisionRequired) tags.add(LEARNING_TAGS.decisionRequired);
   return [...tags].sort();
 }
 
@@ -378,6 +548,11 @@ export function setupAdjustmentCandidates(range: {
         continuationLeave,
       });
 
+      const decisionRequired = isDecisionRequiredAdjustment(
+        current,
+        actualIds[actualIds.length - 1],
+      );
+
       // trivial は「継続の的でも上がれる」かつ「ノーテン・170 超えの判断が要らない」
       // 場合だけ（本仕様 47 節）。後者は基礎確認カテゴリの定義そのものなので、
       // 判断を要する問題を trivial として数えない。
@@ -408,9 +583,11 @@ export function setupAdjustmentCandidates(range: {
           continuationLeave,
           category,
           trivial,
+          decisionRequired,
         }),
         trivial,
         contextLabelJa: pattern.labelJa,
+        decisionRequired,
       });
     }
   }
@@ -467,6 +644,244 @@ export function setupFullCandidates(range: {
   return candidates;
 }
 
+// ---------------------------------------------------------------------------
+// SETUP / FIRST DART（1 投目だけを選ぶ）
+// ---------------------------------------------------------------------------
+
+/**
+ * 「この残りから実戦で最初に考える得点ターゲット」として扱う上位件数。
+ *
+ * 出題する残り点を選ぶときだけに使う。取得点の多い順に見て、この本数の中に
+ * 安全な的と危険な的が混ざっている残りを教材にする。
+ * 採点は（この件数に関係なく）盤面上のすべてのトリプルを規則どおり判定する。
+ */
+const MAJOR_SCORING_TARGETS = 3;
+
+export interface SetupFirstDartOption {
+  /** 狙う的（得点用のトリプル）。 */
+  readonly dart: Dart;
+  /** 狙いどおり入った場合の残り。 */
+  readonly idealLeave: number;
+  /** 同ナンバーのシングルへ落ちた場合。 */
+  readonly missDart: Dart;
+  readonly missLeave: number;
+  /** シングルへ落ちても、残り本数でテンパイを作れるか。 */
+  readonly singleMissSafe: boolean;
+  /** その的から始める最良ルート（feedback の「おすすめ」に使う）。 */
+  readonly bestRoute: RankedSetupRoute;
+  /** その的から始めることの推奨度（既存 SETUP ランキングの grade）。 */
+  readonly grade: RouteGrade;
+}
+
+const firstDartOptionCache = new Map<number, readonly SetupFirstDartOption[]>();
+
+/**
+ * その残りから「1 投目に狙う価値のある得点用トリプル」の一覧。
+ *
+ * 候補は SETUP ランキング（シングル落ち耐性のふるいを外した状態）に
+ * 実際に現れる開始ターゲットから取る。教材の主題が
+ * 「得点用トリプルの選び方」なので、シングルや BULL は候補にしない。
+ * 「広いシングルを狙えば安全」という抜け道を正解にしないためでもある。
+ *
+ * 並びは
+ *   1. シングルへ落ちてもテンパイを作れるか
+ *   2. 取得点が多いか
+ *   3. その的から始める最良ルートの評価
+ * の順。1 が SETUP の合否そのもので、2 は「同じ質の残りを作れるなら点を多く取る」
+ * という既存の方針（SETUP_POINTS_WEIGHT）と同じ考え方にあたる。
+ *
+ * 推奨度は「安全な的の中での差」として付ける。安全な代替がある以上、
+ * シングル落ちでテンパイを失う的は、スコアが高くても C とする
+ * （DISCOURAGING_REASON_CODES と同じ扱い）。
+ */
+export function setupFirstDartOptions(start: number): readonly SetupFirstDartOption[] {
+  const cached = firstDartOptionCache.get(start);
+  if (cached) return cached;
+
+  interface Draft {
+    readonly dart: Dart;
+    readonly idealLeave: number;
+    readonly missDart: Dart;
+    readonly missLeave: number;
+    readonly singleMissSafe: boolean;
+    readonly bestRoute: RankedSetupRoute;
+  }
+
+  const drafts: Draft[] = [];
+  for (const dart of TRIPLE_DARTS) {
+    const missDart = singleMissDartOf(dart);
+    if (missDart === null) continue;
+    const idealLeave = start - dart.score;
+    if (idealLeave < MIN_CHECKOUT) continue;
+    // 狙いどおり入った場合に、残り 2 本でテンパイを作れる的だけを候補にする。
+    if (!canReachTenpai(idealLeave, DARTS_PER_VISIT - 1)) continue;
+    const bestRoute = bestRouteStartingWith(start, dart);
+    if (bestRoute === null) continue;
+    drafts.push({
+      dart,
+      idealLeave,
+      missDart,
+      missLeave: start - missDart.score,
+      singleMissSafe: isSingleMissTenpaiSafe(start, dart, DARTS_PER_VISIT),
+      bestRoute,
+    });
+  }
+
+  drafts.sort(
+    (a, b) =>
+      Number(b.singleMissSafe) - Number(a.singleMissSafe) ||
+      b.dart.score - a.dart.score ||
+      b.bestRoute.score - a.bestRoute.score ||
+      a.dart.id.localeCompare(b.dart.id),
+  );
+
+  const bestSafeScore = drafts.find((draft) => draft.singleMissSafe)?.bestRoute.score ?? null;
+  const options: SetupFirstDartOption[] = drafts.map((draft) => ({
+    ...draft,
+    grade: gradeOfFirstDart(draft.singleMissSafe, draft.bestRoute.score, bestSafeScore),
+  }));
+
+  firstDartOptionCache.set(start, options);
+  return options;
+}
+
+/**
+ * その的から投げ始める最良ルート。
+ *
+ * 残りの 2 本は通常 Practice と同じ `rankSetupRoutes` に任せる。
+ * シングル落ち耐性のふるいは外す（危険な的も「狙いどおり入ればどうなるか」を
+ * 示す必要があるため）。教材としての良し悪しは safe / grade が表す。
+ */
+function bestRouteStartingWith(start: number, dart: Dart): RankedSetupRoute | null {
+  const rest = rankSetupRoutes(start - dart.score, DARTS_PER_VISIT - 1, {
+    maxRoutes: 1,
+    includeSingleMissUnsafe: true,
+  })[0];
+  if (rest === undefined) return null;
+  return evaluateSetupRoute(start, DARTS_PER_VISIT, [dart, ...rest.darts], {
+    includeSingleMissUnsafe: true,
+  });
+}
+
+function gradeOfFirstDart(
+  singleMissSafe: boolean,
+  score: number,
+  bestSafeScore: number | null,
+): RouteGrade {
+  if (!singleMissSafe || bestSafeScore === null) return 'C';
+  const gap = bestSafeScore - score;
+  if (gap <= GRADE_THRESHOLDS.S) return 'S';
+  if (gap <= GRADE_THRESHOLDS.A) return 'A';
+  if (gap <= GRADE_THRESHOLDS.B) return 'B';
+  return 'C';
+}
+
+export interface SetupFirstDartCandidate {
+  readonly format: 'setup-first-dart';
+  readonly startRemaining: number;
+  readonly currentRemaining: number;
+  /** 回答は 1 投だけ。 */
+  readonly dartsAvailable: 1;
+  /** このラウンドで投げられる本数。 */
+  readonly visitDartsAvailable: 3;
+  readonly options: readonly SetupFirstDartOption[];
+  readonly safeOptions: readonly SetupFirstDartOption[];
+  readonly unsafeOptions: readonly SetupFirstDartOption[];
+  /** いちばん推奨する第一ターゲット。 */
+  readonly recommended: SetupFirstDartOption;
+  readonly primaryCategory: SetupCategory;
+  readonly difficulty: TrainingDifficulty;
+  readonly learningTags: readonly string[];
+  readonly trivial: false;
+}
+
+const firstDartCache = new Map<string, readonly SetupFirstDartCandidate[]>();
+
+/**
+ * SETUP / FIRST DART の全出題候補。
+ *
+ * 出題するのは「第一ターゲットによってシングル落ち耐性に差が出る残り」だけ。
+ * どのトリプルから入っても安全な残りを並べても、考えずに T20 と答えて
+ * 正解になってしまい、教材にならない（本仕様 5-4 節）。
+ * 残り点をハードコードせず、SETUP engine の判定から機械的に抽出する。
+ */
+export function setupFirstDartCandidates(range: {
+  min: number;
+  max: number;
+}): readonly SetupFirstDartCandidate[] {
+  const { min, max } = clampSetupRange(range);
+  const cacheKey = `${min}/${max}`;
+  const cached = firstDartCache.get(cacheKey);
+  if (cached) return cached;
+
+  const candidates: SetupFirstDartCandidate[] = [];
+  for (let start = min; start <= max; start += 1) {
+    if (!canReachTenpai(start, DARTS_PER_VISIT)) continue;
+    const options = setupFirstDartOptions(start);
+    const safeOptions = options.filter((option) => option.singleMissSafe);
+    const unsafeOptions = options.filter((option) => !option.singleMissSafe);
+    if (safeOptions.length === 0 || unsafeOptions.length === 0) continue;
+
+    /*
+     * 出題するのは「実戦で最初に考える得点ターゲット」の中で安全性が分かれる残りだけ。
+     *
+     * 盤面のトリプル 20 種すべてを見ると、T1 のような誰も狙わない的が危険というだけで
+     * 教材になってしまう。取得点の多い順に上位 3 つ（ふつうは T20 / T19 / T18）を見て、
+     * そこに安全な的と危険な的が混ざっている残りだけを出題する。
+     * 採点はこの絞り込みと無関係に、盤面上のすべてのトリプルを規則どおり判定する。
+     */
+    const major = [...options]
+      .sort((a, b) => b.dart.score - a.dart.score || a.dart.id.localeCompare(b.dart.id))
+      .slice(0, MAJOR_SCORING_TARGETS);
+    if (!major.some((option) => option.singleMissSafe)) continue;
+    if (!major.some((option) => !option.singleMissSafe)) continue;
+
+    const recommended = safeOptions[0];
+    // 主目標がそのまま安全なら「20 で良いと見抜く」問題、
+    // 振り直しが要るなら「20 を捨てる」問題。後者の方が難しい。
+    const mainTargetIsSafe = safeOptions.some(
+      (option) => option.dart.id === DEFAULT_SETUP_MAIN_TARGET,
+    );
+    const tags = new Set<string>([
+      LEARNING_TAGS.firstDartSafety,
+      LEARNING_TAGS.singleMissTenpaiSafe,
+      LEARNING_TAGS.avoidSingleMissDeadEnd,
+      LEARNING_TAGS.bogeyAvoidance,
+      firstDartConceptKeyOf(start, recommended.dart.id),
+    ]);
+    if (inPremiumBand(recommended.bestRoute.leave)) {
+      tags.add(`leave-${recommended.bestRoute.leave}`);
+    }
+
+    candidates.push({
+      format: 'setup-first-dart',
+      startRemaining: start,
+      currentRemaining: start,
+      dartsAvailable: 1,
+      visitDartsAvailable: DARTS_PER_VISIT,
+      options,
+      safeOptions,
+      unsafeOptions,
+      recommended,
+      primaryCategory: 'setup-first-dart-safety',
+      difficulty: mainTargetIsSafe ? 'medium' : 'hard',
+      learningTags: [...tags].sort(),
+      trivial: false,
+    });
+  }
+
+  firstDartCache.set(cacheKey, candidates);
+  return candidates;
+}
+
+/** 回答した 1 投が、第一ターゲット候補のどれかか。 */
+export function findFirstDartOption(
+  start: number,
+  dartId: string,
+): SetupFirstDartOption | null {
+  return setupFirstDartOptions(start).find((option) => option.dart.id === dartId) ?? null;
+}
+
 function categorizeFull(
   start: number,
   recommended: readonly Dart[],
@@ -490,4 +905,6 @@ export function clearSetupQuestionCache(): void {
   outcomeCache.clear();
   adjustmentCache.clear();
   fullCache.clear();
+  firstDartCache.clear();
+  firstDartOptionCache.clear();
 }

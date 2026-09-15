@@ -120,3 +120,47 @@
   filter: drop-shadow(0 18px 26px color-mix(in srgb, var(--background-deep) 44%, transparent));
 }
 .dartboard__backdrop { filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 10%, transparent)); }
+
+/*
+ * ナンバー（ウェッジ）単位で選ぶモード（v1.3.5）。
+ *
+ * 盤面の見た目はそのままに、1 ナンバーぶんの扇形をまとめてタップ領域にする。
+ * 数字を探すのではなく「20 のあたり」を押せば答えられるようにするための表示。
+ */
+.dartboard[data-mode='wedge'] .dartboard__segments {
+  pointer-events: none;
+}
+
+.dartboard__wedge {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 3;
+  cursor: pointer;
+}
+
+.dartboard__svg[aria-disabled='true'] .dartboard__wedge {
+  cursor: not-allowed;
+}
+
+.dartboard__wedge[data-selected='true'] {
+  /* 選んだナンバーは、盤面の色の上からでも一目で分かる濃さにする。 */
+  fill: color-mix(in srgb, var(--accent) 34%, transparent);
+  stroke: var(--accent);
+  stroke-width: 4;
+}
+
+.dartboard__wedge:focus {
+  outline: none;
+}
+
+.dartboard__wedge:focus-visible {
+  stroke: var(--focus-ring);
+  stroke-width: 4;
+}
+
+@media (hover: hover) {
+  .dartboard__svg[aria-disabled='false'] .dartboard__wedge:hover {
+    fill: color-mix(in srgb, var(--accent) 16%, transparent);
+    stroke: color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+}

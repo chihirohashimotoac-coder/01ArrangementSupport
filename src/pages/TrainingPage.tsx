@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Dartboard } from '../components/Dartboard';
 import { RouteCard } from '../components/RouteCard';
 import { StatusBar } from '../components/StatusBar';
-import type { Dart } from '../domain/dart';
+import { requireDart, type Dart } from '../domain/dart';
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
 import {
   DEFAULT_TRAINING_SETTINGS,
@@ -78,6 +78,17 @@ export function TrainingPage() {
 
   const stats = useMemo(() => computeStats(history), [history]);
   const question = session ? (session.questions[session.index] ?? null) : null;
+
+  /*
+   * SETUP の回答は「どのナンバーを狙うか」なので、盤面の 62 セグメントではなく
+   * 1 ナンバーぶんのウェッジをそのままタップさせる（v1.3.5）。
+   * 内部では代表するセグメントを 1 つ持つ。
+   *   - 1 投調整   … シングル面（S18 など）。実際の採点はウェッジ全体で行う
+   *   - 1 投目の選択 … 得点用のトリプル（T19 など）
+   */
+  const usesNumberPicker =
+    question?.format === 'setup-adjustment' || question?.format === 'setup-first-dart';
+  const aimNumberPrefix = question?.format === 'setup-first-dart' ? 'T' : 'S';
 
   const startSession = useCallback((nextSettings: TrainingSettings) => {
     const questions = generateQuestions({
@@ -334,9 +345,27 @@ export function TrainingPage() {
         <>
           <StatusBar
             remaining={question.currentRemaining}
-            dartsLeft={question.dartsAvailable}
+            dartsLeft={question.visitDartsAvailable}
             note={question.promptJa}
           />
+
+          {question.format === 'setup-first-dart' && (
+            <p
+              className="training__format-note"
+              data-testid="training-first-dart-note"
+            >
+              SETUP / FIRST DART — このラウンドの 1 投目だけを選びます。
+            </p>
+          )}
+
+          {question.format === 'setup-adjustment' && (
+            <p
+              className="training__format-note"
+              data-testid="training-adjustment-note"
+            >
+              SETUP / LAST DART — 最後の 1 投で狙うナンバーを選びます。
+            </p>
+          )}
 
           {question.contextualThrows.length > 0 && (
             <section
@@ -383,27 +412,49 @@ export function TrainingPage() {
           </p>
 
           <p className="training__hint">
-            狙う場所を順にタップしてください（「そこへ刺さった」ではなく「そこを狙う」という回答です）。
+            {question.format === 'setup-first-dart'
+              ? '1 投目に狙うナンバーのエリアをタップしてください。狙いどおりトリプルに入った場合と、同じナンバーのシングルへ落ちた場合の両方で採点します。'
+              : question.format === 'setup-adjustment'
+                ? '最後の 1 投で狙うナンバーのエリアをタップしてください。トリプルに入った場合と、シングルに入った場合の両方で採点します。'
+                : '狙う場所を順にタップしてください（「そこへ刺さった」ではなく「そこを狙う」という回答です）。'}
           </p>
 
-          <Dartboard
-            onSelect={(segment) => {
-              if (result !== null) return;
-              if (answer.length >= question.dartsAvailable) return;
-              setAnswer((current) => [...current, segment.dart]);
-            }}
-            highlightedDartIds={answer.map((dart) => dart.id)}
-            disabled={result !== null || answer.length >= question.dartsAvailable}
-            disabledReason={
-              result !== null ? '採点済みです。' : '本数を使い切りました。回答するか、戻してください。'
-            }
-            ariaLabel="ダーツボード。狙う場所を順に選んでください。"
-          />
+          {usesNumberPicker ? (
+            <Dartboard
+              wedgeSelection={{
+                selected: answer[0]?.baseNumber ?? null,
+                onSelect: (aimNumber) => {
+                  if (result !== null) return;
+                  setAnswer([requireDart(`${aimNumberPrefix}${aimNumber}`)]);
+                },
+                ariaLabelOf: (aimNumber) => `${aimNumber} を狙う`,
+              }}
+              disabled={result !== null}
+              disabledReason="採点済みです。"
+              ariaLabel="ダーツボード。狙うナンバーのエリアを 1 つ選んでください。"
+            />
+          ) : (
+            <Dartboard
+              onSelect={(segment) => {
+                if (result !== null) return;
+                if (answer.length >= question.dartsAvailable) return;
+                setAnswer((current) => [...current, segment.dart]);
+              }}
+              highlightedDartIds={answer.map((dart) => dart.id)}
+              disabled={result !== null || answer.length >= question.dartsAvailable}
+              disabledReason={
+                result !== null ? '採点済みです。' : '本数を使い切りました。回答するか、戻してください。'
+              }
+              ariaLabel="ダーツボード。狙う場所を順に選んでください。"
+            />
+          )}
 
           <ol className="training__answer" aria-label="あなたの回答">
             {Array.from({ length: question.dartsAvailable }, (_, index) => (
               <li key={index} data-testid={`answer-${index}`}>
-                {answer[index]?.id ?? '—'}
+                {usesNumberPicker
+                  ? (answer[index]?.baseNumber ?? '—')
+                  : (answer[index]?.id ?? '—')}
               </li>
             ))}
           </ol>

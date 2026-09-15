@@ -28,6 +28,9 @@ import {
 import { renderSetupReason, type ReasonContext } from '../../data/explanations';
 import { evaluateLeave, isTonTrap, leaveTierOf, type LeaveTier } from './leaveQuality';
 import { difficultyOf, sequenceTable, targetKeyOf } from './sequences';
+import { isSingleMissTenpaiSafe, singleMissDartOf } from './tenpai';
+
+export { canReachTenpai, isSingleMissTenpaiSafe, singleMissDartOf } from './tenpai';
 
 export interface SetupReason {
   readonly code: SetupReasonCode;
@@ -57,6 +60,14 @@ export interface SetupOptions {
   readonly mainTarget?: string;
   /** 返す候補の最大数。 */
   readonly maxRoutes?: number;
+  /**
+   * 第一ターゲットのシングル落ち耐性によるふるいを外す。
+   *
+   * 通常の推奨（Practice / NEXT VISIT / TRAINING の採点）では使わない。
+   * TRAINING の「1 投目をどこへ狙うか」を教材にするときだけ、
+   * **危険な開始ターゲットも含めた候補**が要るので、この入口から取る。
+   */
+  readonly includeSingleMissUnsafe?: boolean;
 }
 
 const DEFAULT_MAX_ROUTES = 40;
@@ -70,6 +81,8 @@ interface ScoredSetup {
   readonly leave: number;
   readonly continuityTargetId: string | null;
   readonly thinTargets: number;
+  /** 第一ターゲットが同ナンバーのシングルへ落ちたときの状況（表示用）。 */
+  readonly singleMiss: { dartId: string; leave: number; dartsAfter: number } | null;
 }
 
 /**
@@ -108,6 +121,29 @@ export function scoreSetupRoute(
   const thinTargets = darts.filter((dart) => dart.kind === 'double').length;
   if (thinTargets > 0) codes.push('SETUP_THIN_TARGET');
 
+  /*
+   * 第一ターゲットのシングル落ち耐性。
+   * まだ投げ直せる本数がある場面でだけ意味を持つ観点なので、残り 1 本では付けない。
+   * 重みは 0（docs/APPROVALS.md A-9）。順位は rankSetupRoutes 側の明示的な
+   * ふるいで決まり、ここでは「なぜそうなのか」を表示するためのコードだけを持つ。
+   */
+  const missDart = dartsAvailable >= 2 ? singleMissDartOf(darts[0]) : null;
+  const singleMiss =
+    missDart === null
+      ? null
+      : {
+          dartId: missDart.id,
+          leave: remaining - missDart.score,
+          dartsAfter: dartsAvailable - 1,
+        };
+  if (singleMiss !== null) {
+    codes.push(
+      isSingleMissTenpaiSafe(remaining, darts[0], dartsAvailable)
+        ? 'SETUP_SINGLE_MISS_TENPAI_SAFE'
+        : 'SETUP_SINGLE_MISS_DEAD_END',
+    );
+  }
+
   // 「ビジットを丸ごと無駄にした」指標なので、3 本投げ切る場面でだけ評価する。
   if (
     dartsAvailable === DARTS_PER_VISIT &&
@@ -126,7 +162,7 @@ export function scoreSetupRoute(
   const score =
     reasonScore + scored * SETUP_POINTS_WEIGHT - difficulty * SETUP_DIFFICULTY_WEIGHT;
 
-  return { codes, score, scored, leave, continuityTargetId, thinTargets };
+  return { codes, score, scored, leave, continuityTargetId, thinTargets, singleMiss };
 }
 
 function buildReasons(evaluated: ScoredSetup, darts: readonly Dart[]): SetupReason[] {
@@ -137,9 +173,9 @@ function buildReasons(evaluated: ScoredSetup, darts: readonly Dart[]): SetupReas
     routeText: formatRoute(darts),
     firstDartId: darts[0].id,
     finishDartId: darts[darts.length - 1].id,
-    missDartId: null,
-    missLeave: null,
-    dartsAfterMiss: 0,
+    missDartId: evaluated.singleMiss?.dartId ?? null,
+    missLeave: evaluated.singleMiss?.leave ?? null,
+    dartsAfterMiss: evaluated.singleMiss?.dartsAfter ?? 0,
     missRecoveryText: leaveEval.standardRouteText,
     neighborNotes: [],
     verticalNotes: [],
@@ -181,25 +217,6 @@ function lowScorePenaltyOf(total: number, dartsAvailable: number, dartCount: num
 }
 
 /**
- * この残り・この本数で、次ラウンドのテンパイを作れるか。
- *
- * 作れない残り点が実在する（例: 339 は 3 本で何を取っても Bogey にしかならない）ため、
- * UI ではこの事実を伝える必要がある。
- */
-export function canReachTenpai(remaining: number, dartsAvailable: number): boolean {
-  const darts = Math.min(Math.max(dartsAvailable, 0), DARTS_PER_VISIT);
-  if (darts <= 0) return false;
-  const table = sequenceTable(darts, DEFAULT_SETUP_MAIN_TARGET);
-  for (let total = 0; total < table.length; total += 1) {
-    if (table[total].length === 0) continue;
-    const leave = remaining - total;
-    if (leave < MIN_CHECKOUT) continue;
-    if (evaluateLeave(leave).checkoutable) return true;
-  }
-  return false;
-}
-
-/**
  * SETUP の候補を評価し、推奨度順に返す。
  *
  * スコアは「残りの質 + 取得点 × 係数 + シーケンス固有の評価」に分解できるので、
@@ -219,7 +236,8 @@ export function rankSetupRoutes(
 
   const mainTarget = options.mainTarget ?? DEFAULT_SETUP_MAIN_TARGET;
   const limit = options.maxRoutes ?? DEFAULT_MAX_ROUTES;
-  const cacheKey = `${remaining}/${darts}/${mainTarget}`;
+  const allowUnsafe = options.includeSingleMissUnsafe === true;
+  const cacheKey = `${remaining}/${darts}/${mainTarget}/${allowUnsafe ? 'any' : 'safe'}`;
   const cached = rankingCache.get(cacheKey);
   if (cached) return cached.slice(0, limit);
 
@@ -233,7 +251,7 @@ export function rankSetupRoutes(
     readonly key: string;
   }
 
-  const collect = (tenpaiOnly: boolean): Slot[] => {
+  const collect = (tenpaiOnly: boolean, singleMissSafeOnly: boolean): Slot[] => {
     const found: Slot[] = [];
     for (let total = 0; total < table.length; total += 1) {
       const bucket = table[total];
@@ -250,6 +268,12 @@ export function rankSetupRoutes(
         lowScorePenaltyOf(total, dartsAvailable, darts);
 
       for (const entry of bucket) {
+        if (
+          singleMissSafeOnly &&
+          !isSingleMissTenpaiSafe(remaining, entry.darts[0], darts)
+        ) {
+          continue;
+        }
         found.push({
           darts: entry.darts,
           total,
@@ -262,8 +286,20 @@ export function rankSetupRoutes(
     return found;
   };
 
-  let slots = collect(true);
-  if (slots.length === 0) slots = collect(false);
+  /*
+   * ふるいは 3 段。重みをいじって順位を作るのではなく、
+   * 「戦術上その条件を満たすものだけを見る」という明示的な比較にしてある。
+   *
+   *   1. テンパイを残せて、かつ第一トリプルがシングルへ落ちても立て直せる
+   *   2. テンパイを残せる（1 を満たすルートが 1 つも無い場合）
+   *   3. 条件なし（テンパイを作れない残り点）
+   *
+   * 残り 1 本の場面では、外した時点でビジットが終わるため 1 は必ず空になり、
+   * これまでどおり 2 が使われる。302〜309 のラスト 1 投調整は変わらない。
+   */
+  let slots = allowUnsafe ? [] : collect(true, true);
+  if (slots.length === 0) slots = collect(true, false);
+  if (slots.length === 0) slots = collect(false, false);
   if (slots.length === 0) return [];
 
   slots.sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));

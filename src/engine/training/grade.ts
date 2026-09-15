@@ -24,7 +24,17 @@ import {
   rankSetupRoutes,
   type RankedSetupRoute,
 } from '../setup/enumerate';
-import { leaveVerdictOf, type LeaveVerdict } from './setupQuestions';
+import {
+  aimClassOfDart,
+  findFirstDartOption,
+  leaveVerdictOf,
+  safeAimNumbersOf,
+  safeLandingsOf,
+  setupFirstDartOptions,
+  unsafeLandingsOf,
+  type LeaveVerdict,
+  type SetupFirstDartOption,
+} from './setupQuestions';
 import type { TrainingQuestion } from './model';
 
 /** 回答が成立しなかった / 学習目的を満たさなかった理由。 */
@@ -36,7 +46,11 @@ export type FailureCode =
   | 'TOTAL_MISMATCH'
   | 'NOT_FINISHED'
   | 'LEAVES_BOGEY'
-  | 'LEAVE_ABOVE_CHECKOUT_RANGE';
+  | 'LEAVE_ABOVE_CHECKOUT_RANGE'
+  | 'FIRST_DART_SINGLE_MISS_DEAD_END'
+  | 'FIRST_DART_NOT_SCORING_TARGET'
+  | 'ADJUST_WEDGE_SINGLE_MISS'
+  | 'ADJUST_WEDGE_DEAD';
 
 /** ルール上そもそも成立しない理由（ruleValid = false になるもの）。 */
 export const RULE_INVALID_CODES: readonly FailureCode[] = [
@@ -81,6 +95,13 @@ const FAILURE_MESSAGES: Record<FailureCode, string> = {
   NOT_FINISHED: '使える本数ぶんすべてを選んでください。',
   LEAVES_BOGEY: 'ノーテンが残ります。次のラウンドで 3 本あっても上がれません。',
   LEAVE_ABOVE_CHECKOUT_RANGE: '残りが 170 を超えます。次のラウンドでは上がれません。',
+  FIRST_DART_SINGLE_MISS_DEAD_END:
+    'その的は、同じナンバーのシングルへ落ちると、このラウンドでテンパイを作れなくなります。',
+  FIRST_DART_NOT_SCORING_TARGET:
+    'この問題で選ぶのは、得点しながら組み立てられるトリプルです。',
+  ADJUST_WEDGE_SINGLE_MISS:
+    'そのナンバーは、トリプルに入れば上がれますが、シングル面に入ると次のラウンドで上がれません。',
+  ADJUST_WEDGE_DEAD: 'そのナンバーは、どこに入っても次のラウンドで上がれません。',
 };
 
 function invalid(reason: FailureCode, answer: readonly Dart[]): GradeResult {
@@ -207,8 +228,175 @@ function gradeSetupAnswer(question: TrainingQuestion, answer: readonly Dart[]): 
   };
 }
 
+/**
+ * SETUP 1 投調整の回答を採点する。
+ *
+ * この形式で答えるのは「どのナンバーのウェッジへ投げるか」であって、
+ * 62 セグメントのどれに刺すかではない（v1.3.5）。したがって採点も
+ * **狙ったナンバーに入ったときに起きうる 2 つの着弾**で見る。
+ *
+ *   learningCorrect … シングル面に入ってもトリプル面に入っても、
+ *                     次のラウンドで上がれる残りになる
+ *
+ * 例: 現在 182
+ *   20 を狙う → T20 なら 122 ○ / S20 なら 162 ×（ノーテン） → 不正解
+ *   18 を狙う → T18 なら 128 ○ / S18 なら 164 ○            → 正解
+ *
+ * 「狙いどおりトリプルに入れば上がれる」だけでは正解にしない。
+ * ラスト 1 投の調整は、外れ方まで含めて安全なナンバーを選ぶ判断だから。
+ */
+function gradeSetupAdjustmentAnswer(
+  question: TrainingQuestion,
+  answer: readonly Dart[],
+): GradeResult {
+  if (answer.length === 0) return invalid('EMPTY', answer);
+  if (answer.length > 1) return invalid('TOO_MANY_DARTS', answer);
+
+  const dart = answer[0];
+  const current = question.currentRemaining;
+  const applied = applyDart(current, dart);
+  if (applied.outcome !== 'continue') return invalid('BUST', answer);
+
+  const leave = applied.remainingAfter;
+  const leaveVerdict = leaveVerdictOf(leave);
+  const aimClass = aimClassOfDart(current, dart);
+
+  /*
+   * 安全なナンバーが 1 つも無い残り（190 以上など、どのシングル面でも 170 を
+   * 超える場面）では、存在しない安全さを要求しない。
+   * その場合だけ、従来どおり「実際に作った残りが上がれるか」で採点する。
+   */
+  const safeExists = safeAimNumbersOf(current).length > 0;
+  const learningCorrect = safeExists ? aimClass === 'safe' : leaveVerdict === 'checkoutable';
+  const failureCode: FailureCode | null = learningCorrect
+    ? null
+    : !safeExists
+      ? leaveVerdict === 'above-range'
+        ? 'LEAVE_ABOVE_CHECKOUT_RANGE'
+        : 'LEAVES_BOGEY'
+      : aimClass === 'partial'
+        ? 'ADJUST_WEDGE_SINGLE_MISS'
+        : 'ADJUST_WEDGE_DEAD';
+
+  const evaluation = evaluateSetupRoute(current, 1, answer);
+  const ranked = rankSetupRoutes(current, 1, { maxRoutes: 1 });
+
+  return {
+    // ルール上は合法に投げられている。
+    ruleValid: true,
+    learningCorrect,
+    failureCode,
+    failureMessageJa:
+      failureCode === null
+        ? null
+        : safeExists
+          ? adjustmentFailureMessageJa(current, dart)
+          : FAILURE_MESSAGES[failureCode],
+    // 判定と推奨度を食い違わせない。安全でないナンバーは推奨度も C。
+    grade: learningCorrect ? (evaluation?.grade ?? 'C') : 'C',
+    checkoutEvaluation: null,
+    setupEvaluation: evaluation,
+    bestCheckout: null,
+    bestSetup: ranked.length > 0 ? ranked[0] : null,
+    answerText: formatRoute(answer),
+    finishDouble: null,
+    leave,
+    leaveVerdict,
+  };
+}
+
+/** 「20 はトリプルなら 122、シングルなら 162 でノーテン」のように説明する。 */
+function adjustmentFailureMessageJa(current: number, dart: Dart): string {
+  const target = dart.baseNumber === null ? 'BULL エリア' : `${dart.baseNumber}`;
+  const unsafe = unsafeLandingsOf(current, dart);
+  const safe = safeLandingsOf(current, dart);
+  const describe = (outcome: { dart: Dart; leave: number; verdict: LeaveVerdict }): string => {
+    const reason =
+      outcome.verdict === 'bogey'
+        ? 'ノーテン'
+        : outcome.verdict === 'above-range'
+          ? '170 超え'
+          : 'Bust';
+    return `${outcome.dart.id} に入ると ${outcome.leave}（${reason}）`;
+  };
+  const unsafeText = unsafe.map(describe).join('、');
+  if (safe.length === 0) {
+    return `${target} は、${unsafeText} で、次のラウンドで上がれません。`;
+  }
+  const safeText = safe.map((outcome) => `${outcome.dart.id} なら ${outcome.leave}`).join('、');
+  return `${target} は ${safeText} で上がれますが、${unsafeText} になります。`;
+}
+
+/**
+ * SETUP / FIRST DART の回答を採点する。
+ *
+ * この形式は 1 投しか答えないので、回答後に 170 以下になる必要はない。
+ * したがって `gradeSetupAnswer()` の「回答後 leave が checkoutable なら正解」は使えない。
+ *
+ *   ruleValid       … 盤面上の合法なターゲットを 1 つ選べている
+ *   learningCorrect … その的が「得点用の開始ターゲット」であり、かつ
+ *                     同ナンバーのシングルへ落ちても残り本数でテンパイを作れる
+ *
+ * 広いシングルを狙えば確かに外しようがないが、それは得点の組み立てを捨てている。
+ * この教材の主題は得点用トリプルの選択なので、候補外の的は正解にしない。
+ */
+function gradeSetupFirstDartAnswer(
+  question: TrainingQuestion,
+  answer: readonly Dart[],
+): GradeResult {
+  if (answer.length === 0) return invalid('EMPTY', answer);
+  if (answer.length > 1) return invalid('TOO_MANY_DARTS', answer);
+
+  const dart = answer[0];
+  const start = question.currentRemaining;
+  const result = applyDart(start, dart);
+  if (result.outcome !== 'continue') return invalid('BUST', answer);
+
+  const options = setupFirstDartOptions(start);
+  const chosen = findFirstDartOption(start, dart.id);
+  const recommended = options.find((option) => option.singleMissSafe) ?? null;
+
+  const failureCode: FailureCode | null =
+    chosen === null
+      ? 'FIRST_DART_NOT_SCORING_TARGET'
+      : chosen.singleMissSafe
+        ? null
+        : 'FIRST_DART_SINGLE_MISS_DEAD_END';
+
+  /*
+   * ルートカードに出す推奨度は、この問題の採点と同じ「第一ターゲットの推奨度」にする。
+   * bestRoute はその的から投げ切ったときの 3 投ルートなので、そのままだと
+   * 「判定は C なのにカードは S」のような食い違いになる。
+   */
+  const withFirstDartGrade = (option: SetupFirstDartOption | null): RankedSetupRoute | null =>
+    option === null ? null : { ...option.bestRoute, grade: option.grade };
+
+  return {
+    ruleValid: true,
+    learningCorrect: failureCode === null,
+    failureCode,
+    failureMessageJa: failureCode === null ? null : FAILURE_MESSAGES[failureCode],
+    grade: chosen?.grade ?? 'C',
+    checkoutEvaluation: null,
+    setupEvaluation: withFirstDartGrade(chosen),
+    bestCheckout: null,
+    bestSetup: withFirstDartGrade(recommended),
+    answerText: formatRoute(answer),
+    finishDouble: null,
+    // 1 投目のあとの残り。170 を超えていて当然なので verdict は付けない。
+    leave: result.remainingAfter,
+    leaveVerdict: null,
+  };
+}
+
 /** 出題と回答から採点結果を作る。 */
 export function gradeAnswer(question: TrainingQuestion, answer: readonly Dart[]): GradeResult {
+  if (question.format === 'setup-first-dart') {
+    return gradeSetupFirstDartAnswer(question, answer);
+  }
+  if (question.format === 'setup-adjustment') {
+    return gradeSetupAdjustmentAnswer(question, answer);
+  }
   return question.kind === 'setup'
     ? gradeSetupAnswer(question, answer)
     : gradeCheckoutAnswer(question, answer);

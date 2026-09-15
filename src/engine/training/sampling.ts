@@ -33,6 +33,7 @@ import {
   buildPools,
   buildRecoveryQuestion,
   buildSetupAdjustmentQuestion,
+  buildSetupFirstDartQuestion,
   buildSetupFullQuestion,
   kindsWithCandidates,
   type TrainingPools,
@@ -112,6 +113,25 @@ function candidatesOf(pools: TrainingPools): Candidate[] {
     });
   }
 
+  for (const candidate of pools.setupFirstDart) {
+    const question = buildSetupFirstDartQuestion(candidate, 0);
+    items.push({
+      kind: 'setup',
+      format: 'setup-first-dart',
+      difficulty: candidate.difficulty,
+      category: candidate.primaryCategory,
+      tags: candidate.learningTags,
+      trivial: false,
+      directOneDart: false,
+      problemKey: question.problemKey,
+      contextKey: contextKeyOf(question),
+      startRemaining: candidate.startRemaining,
+      build: (index) => buildSetupFirstDartQuestion(candidate, index),
+    });
+  }
+
+  // setup-full は新規出題を停止した（pools.setupFull は常に空）。
+  // 保存済み履歴の再評価と、直接呼び出しからの互換のために分岐だけ残す。
   for (const candidate of pools.setupFull) {
     const question = buildSetupFullQuestion(candidate, 0);
     items.push({
@@ -177,6 +197,9 @@ export const SETUP_CATEGORY_PRIORITY: readonly SetupCategory[] = [
   'setup-adjust-18-19-20',
   'setup-bogey-avoid',
   'setup-basics',
+  // 第一ターゲット選択は形式（setup-first-dart）の側で枠を取るので、
+  // カテゴリ quota は 0。末尾に置いて、余り枠の配り直しでも拾われにくくする。
+  'setup-first-dart-safety',
 ];
 
 const SETUP_QUOTA_10: Readonly<Record<SetupCategory, number>> = {
@@ -189,6 +212,7 @@ const SETUP_QUOTA_10: Readonly<Record<SetupCategory, number>> = {
   'setup-sbull': 1,
   'setup-same-number-worse': 1,
   'setup-basics': 1,
+  'setup-first-dart-safety': 0,
 };
 
 const SETUP_QUOTA_30: Readonly<Record<SetupCategory, number>> = {
@@ -201,6 +225,7 @@ const SETUP_QUOTA_30: Readonly<Record<SetupCategory, number>> = {
   'setup-sbull': 3,
   'setup-same-number-worse': 2,
   'setup-basics': 1,
+  'setup-first-dart-safety': 0,
 };
 
 export function setupCategoryQuota(count: number): Record<SetupCategory, number> {
@@ -209,14 +234,147 @@ export function setupCategoryQuota(count: number): Record<SetupCategory, number>
   return scaleQuota(SETUP_QUOTA_30, SETUP_CATEGORY_PRIORITY, count);
 }
 
-/** SETUP の 3 投フル形式の問題数（既定 20%）。 */
-export function setupFullCount(count: number): number {
+/** 1 投調整のカテゴリ（A〜I）。setup-first-dart-safety は形式側で枠を取る。 */
+export const ADJUSTMENT_CATEGORY_PRIORITY: readonly SetupCategory[] =
+  SETUP_CATEGORY_PRIORITY.filter((category) => category !== 'setup-first-dart-safety');
+
+/**
+ * 1 投調整のカテゴリ quota を、出題できるカテゴリと実際の枠数へ配り直す。
+ *
+ * `sessionCount` は quota の基準（セッションの SETUP 問題数）、
+ * `slotCount` は 1 投調整へ実際に配る枠数（= SETUP 問題数 − 1 投目問題数）。
+ * 出せないカテゴリ（候補が 1 件も無いもの）の枠は、優先度順に配り直す。
+ * v1.3.4 では 1 投調整を「調整判断が要る問題」だけに絞ったので、
+ * `setup-basics` のように成立しなくなるカテゴリが出る。
+ */
+export function normalizedSetupCategoryQuota(
+  sessionCount: number,
+  slotCount: number,
+  available: readonly SetupCategory[],
+  capacityOf: (category: SetupCategory) => number = () => Number.MAX_SAFE_INTEGER,
+): Record<SetupCategory, number> {
+  const quota = setupCategoryQuota(sessionCount);
+  const result = {} as Record<SetupCategory, number>;
+  for (const category of SETUP_CATEGORIES) result[category] = 0;
+  if (available.length === 0 || slotCount <= 0) return result;
+
+  let assigned = 0;
+  for (const category of available) {
+    result[category] = quota[category] ?? 0;
+    assigned += result[category];
+  }
+
+  /*
+   * 余った枠は「候補の多いカテゴリ」から順に配る。
+   *
+   * 優先度順に配ると、いちばん具体的で候補の少ないカテゴリ
+   * （302〜309 は 6 件しかない）へ枠が集まり、直近 5 問の
+   * anti-repeat と両立できなくなる。候補数の多い順に回すと、
+   * 同じ問題を出し直さずに枠を埋められる。
+   */
+  const byCapacity = [...available].sort(
+    (a, b) =>
+      capacityOf(b) - capacityOf(a) ||
+      SETUP_CATEGORY_PRIORITY.indexOf(a) - SETUP_CATEGORY_PRIORITY.indexOf(b),
+  );
+  let cursor = 0;
+  while (assigned < slotCount) {
+    result[byCapacity[cursor % byCapacity.length]] += 1;
+    assigned += 1;
+    cursor += 1;
+  }
+  // 減らすときは、候補の少ないカテゴリから先に削る。
+  const byScarcity = [...byCapacity].reverse();
+  cursor = 0;
+  while (assigned > slotCount) {
+    const category = byScarcity[cursor % byScarcity.length];
+    if (result[category] > 0) {
+      result[category] -= 1;
+      assigned -= 1;
+    }
+    cursor += 1;
+  }
+  return result;
+}
+
+/**
+ * 1 セッションで計画される SETUP のカテゴリ内訳。
+ * sampler と監査スクリプトが同じ式を使うために export する。
+ */
+export function plannedSetupCategoryQuota(input: {
+  readonly count: number;
+  readonly availableAdjustmentCategories: readonly SetupCategory[];
+  readonly firstDartCandidateCount: number;
+  /** カテゴリごとの 1 投調整候補数（余り枠の配り方に使う）。 */
+  readonly adjustmentCapacity?: Readonly<Partial<Record<SetupCategory, number>>>;
+}): Record<SetupCategory, number> {
+  const wantedFirstDart = Math.min(
+    setupFirstDartCount(input.count),
+    input.count,
+    input.firstDartCandidateCount,
+  );
+  const usable = ADJUSTMENT_CATEGORY_PRIORITY.filter((category) =>
+    input.availableAdjustmentCategories.includes(category),
+  );
+  const capacity = input.adjustmentCapacity;
+  const result = normalizedSetupCategoryQuota(
+    input.count,
+    input.count - wantedFirstDart,
+    usable,
+    capacity === undefined
+      ? undefined
+      : (category) => capacity[category] ?? 0,
+  );
+  result['setup-first-dart-safety'] = wantedFirstDart;
+  return result;
+}
+
+/**
+ * SETUP で「1 投目だけを選ぶ」形式の問題数（既定 20%）。
+ *
+ * v1.3.3 までは同じ 20% を 3 投フル形式（setup-full）に充てていた。
+ * 残り 80% はこれまでどおり 1 投調整（setup-adjustment）。
+ */
+export function setupFirstDartCount(count: number): number {
   if (count === 10) return 2;
   if (count === 30) return 6;
   return Math.round(count * 0.2);
 }
 
 const DIFFICULTY_ORDER: readonly TrainingDifficulty[] = ['easy', 'medium', 'hard'];
+
+/**
+ * 出せる難易度だけへ quota を配り直す。
+ * 出せない難易度の枠は、易しい方から順に配り直す（決定論的）。
+ */
+function normalizeDifficultyQuota(
+  quota: Record<TrainingDifficulty, number>,
+  offered: readonly TrainingDifficulty[],
+  total: number,
+): Record<TrainingDifficulty, number> {
+  const result: Record<TrainingDifficulty, number> = { easy: 0, medium: 0, hard: 0 };
+  if (offered.length === 0 || total <= 0) return result;
+  let assigned = 0;
+  for (const difficulty of offered) {
+    result[difficulty] = quota[difficulty];
+    assigned += result[difficulty];
+  }
+  let cursor = 0;
+  while (assigned < total) {
+    result[offered[cursor % offered.length]] += 1;
+    assigned += 1;
+    cursor += 1;
+  }
+  while (assigned > total) {
+    const difficulty = offered[cursor % offered.length];
+    if (result[difficulty] > 0) {
+      result[difficulty] -= 1;
+      assigned -= 1;
+    }
+    cursor += 1;
+  }
+  return result;
+}
 
 const CHECKOUT_DIFFICULTY_10 = { easy: 2, medium: 4, hard: 4 } as const;
 const RECOVERY_DIFFICULTY_10 = { easy: 2, medium: 5, hard: 3 } as const;
@@ -560,6 +718,11 @@ export interface SamplingReport {
   readonly relaxCount: number;
   /** quota を利用可能 bucket へ再配分した回数。 */
   readonly quotaNormalizedCount: number;
+  /**
+   * setup-first-dart の枠に候補が足りず、setup-adjustment へ戻した問題数。
+   * 出題範囲を狭く設定したときにここが増える（本仕様 7-1 節）。
+   */
+  readonly firstDartShortfall: number;
   readonly reviewPlaced: number;
   readonly trivialCount: number;
   readonly directOneDartCount: number;
@@ -706,9 +869,10 @@ function planSlots(input: {
   readonly availableKinds: readonly TrainingKind[];
   readonly reviewTargets: readonly ReviewTarget[];
   readonly random: RandomSource;
-}): { slots: Slot[]; quotaNormalizedCount: number } {
+}): { slots: Slot[]; quotaNormalizedCount: number; firstDartShortfall: number } {
   const { settings, count, all, availableKinds, reviewTargets, random } = input;
   let quotaNormalizedCount = 0;
+  let firstDartShortfall = 0;
 
   // --- 1. 種別の並び --------------------------------------------------------
   let kindSequence: TrainingKind[];
@@ -765,99 +929,123 @@ function planSlots(input: {
   for (const [kind, indices] of indicesByKind) {
     const kindCount = indices.length;
     if (kind === 'setup') {
-      const available = new Set(all.filter((c) => c.kind === 'setup').map((c) => c.category));
-      const quota = setupCategoryQuota(kindCount);
-      const usable = SETUP_CATEGORY_PRIORITY.filter((category) => available.has(category));
-      const adjusted = {} as Record<SetupCategory, number>;
-      let assigned = 0;
-      for (const category of usable) {
-        adjusted[category] = quota[category] ?? 0;
-        assigned += adjusted[category];
+      /*
+       * SETUP の枠は 2 段階で決める。
+       *
+       *   1. 20% を「1 投目だけを選ぶ」形式（setup-first-dart）へ回す。
+       *      候補が足りないときは無限 retry をせず、不足分を
+       *      setup-adjustment へ決定論的に戻す（本仕様 7-1 節）。
+       *   2. 残りの枠へ、1 投調整のカテゴリ quota（A〜I）を配る。
+       *
+       * こうすると「どのカテゴリが何問出るか」が計画の時点で確定するので、
+       * 監査側でも同じ関数（plannedSetupCategoryQuota）で検算できる。
+       */
+      const firstDartPool = all.filter(
+        (c) => c.kind === 'setup' && c.format === 'setup-first-dart',
+      );
+      const distinctFirstDart = new Set(firstDartPool.map((c) => c.problemKey)).size;
+      const requestedFirstDart = Math.min(setupFirstDartCount(kindCount), kindCount);
+      const wantedFirstDart = Math.min(requestedFirstDart, distinctFirstDart);
+      firstDartShortfall += requestedFirstDart - wantedFirstDart;
+
+      const adjustmentCount = kindCount - wantedFirstDart;
+      const availableAdjustment = new Set(
+        all
+          .filter((c) => c.kind === 'setup' && c.format === 'setup-adjustment')
+          .map((c) => c.category),
+      );
+      const usable = ADJUSTMENT_CATEGORY_PRIORITY.filter((category) =>
+        availableAdjustment.has(category),
+      );
+      const adjustmentCapacity = new Map<SetupCategory, number>();
+      for (const candidate of all) {
+        if (candidate.kind !== 'setup' || candidate.format !== 'setup-adjustment') continue;
+        const category = candidate.category as SetupCategory;
+        adjustmentCapacity.set(category, (adjustmentCapacity.get(category) ?? 0) + 1);
       }
-      const skipped = SETUP_CATEGORIES.filter((category) => !available.has(category)).reduce(
-        (sum, category) => sum + (quota[category] ?? 0),
+      const adjusted = normalizedSetupCategoryQuota(
+        kindCount,
+        adjustmentCount,
+        usable,
+        (category) => adjustmentCapacity.get(category) ?? 0,
+      );
+      const baseQuota = setupCategoryQuota(kindCount);
+      quotaNormalizedCount += ADJUSTMENT_CATEGORY_PRIORITY.reduce(
+        (sum, category) => sum + Math.abs((adjusted[category] ?? 0) - (baseQuota[category] ?? 0)),
         0,
       );
-      if (skipped > 0) quotaNormalizedCount += skipped;
-      let cursor = 0;
-      while (assigned < kindCount && usable.length > 0) {
-        adjusted[usable[cursor % usable.length]] += 1;
-        assigned += 1;
-        cursor += 1;
-      }
-      while (assigned > kindCount && usable.length > 0) {
-        const category = usable[cursor % usable.length];
-        if (adjusted[category] > 0) {
-          adjusted[category] -= 1;
-          assigned -= 1;
+
+      const adjustmentSlots = orderedBag<SetupCategory>(adjusted, usable, random, 2);
+
+      // 1 投目の問題は、セッション全体へ均等に散らす。
+      const firstDartSlotIndices = new Set<number>();
+      if (wantedFirstDart > 0) {
+        const step = kindCount / wantedFirstDart;
+        for (let n = 0; n < wantedFirstDart; n += 1) {
+          firstDartSlotIndices.add(Math.min(kindCount - 1, Math.floor(n * step + step / 2)));
         }
-        cursor += 1;
-      }
-
-      const categorySlots = orderedBag<SetupCategory>(adjusted, usable, random, 2);
-
-      // 20% を 3 投フル形式にする。full 候補があるカテゴリへ均等に割り当てる。
-      const fullCategories = new Set(
-        all.filter((c) => c.kind === 'setup' && c.format === 'setup-full').map((c) => c.category),
-      );
-      const wantedFull = Math.min(setupFullCount(kindCount), kindCount);
-
-      // 狭い出題範囲では、3 投フルを出せるカテゴリの枠が足りないことがある。
-      // full 候補が十分あるのに形式比を落とさないよう、
-      // full を出せないカテゴリの枠を決定論的に譲る（quota 再配分として数える）。
-      const fullCapacityOf = (category: SetupCategory): number =>
-        all.filter(
-          (c) => c.kind === 'setup' && c.format === 'setup-full' && c.category === category,
-        ).length;
-      const eligibleCount = (): number =>
-        categorySlots.filter((category) => fullCategories.has(category)).length;
-      const donors = SETUP_CATEGORY_PRIORITY.filter((category) => !fullCategories.has(category));
-      // 譲る側は「枠数が多い」カテゴリから、受け取る側は「full 候補が多い」カテゴリから。
-      const receivers = SETUP_CATEGORY_PRIORITY.filter((category) =>
-        fullCategories.has(category),
-      ).sort(
-        (a, b) => fullCapacityOf(b) - fullCapacityOf(a) || String(a).localeCompare(String(b)),
-      );
-      while (eligibleCount() < wantedFull && receivers.length > 0) {
-        const counts = new Map<SetupCategory, number>();
-        for (const category of categorySlots) {
-          counts.set(category, (counts.get(category) ?? 0) + 1);
+        // 端数で位置が重なった場合だけ、前から空いている枠へ寄せる。
+        for (let n = 0; n < kindCount && firstDartSlotIndices.size < wantedFirstDart; n += 1) {
+          firstDartSlotIndices.add(n);
         }
-        const donor = donors
-          .filter((category) => (counts.get(category) ?? 0) > 0)
-          .sort(
-            (a, b) =>
-              (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || String(a).localeCompare(String(b)),
-          )[0];
-        if (donor === undefined) break;
-        const receiver = receivers.find(
-          (category) => fullCapacityOf(category) > (counts.get(category) ?? 0),
-        );
-        if (receiver === undefined) break;
-        const at = categorySlots.lastIndexOf(donor);
-        if (at < 0) break;
-        categorySlots[at] = receiver;
-        quotaNormalizedCount += 1;
       }
 
-      const eligible = categorySlots
-        .map((category, i) => ({ category, i }))
-        .filter((item) => fullCategories.has(item.category));
-      const fullSlotIndices = new Set<number>();
-      if (eligible.length > 0 && wantedFull > 0) {
-        const step = eligible.length / Math.min(wantedFull, eligible.length);
-        for (let n = 0; n < Math.min(wantedFull, eligible.length); n += 1) {
-          fullSlotIndices.add(eligible[Math.floor(n * step)].i);
+      const categorySlots: Array<SetupCategory | null> = [];
+      const formatSlots: TrainingFormat[] = [];
+      let adjustmentCursor = 0;
+      for (let n = 0; n < kindCount; n += 1) {
+        if (firstDartSlotIndices.has(n)) {
+          categorySlots.push('setup-first-dart-safety');
+          formatSlots.push('setup-first-dart');
+        } else {
+          categorySlots.push(adjustmentSlots[adjustmentCursor] ?? null);
+          adjustmentCursor += 1;
+          formatSlots.push('setup-adjustment');
         }
       }
 
       // 難易度は「そのカテゴリ・形式で実際に出せるもの」から quota を消化する。
       // カテゴリ quota が優先なので、出せない難易度を希望しても意味がない（本仕様 21 節）。
       const difficultyRemaining = difficultyQuota('setup', kindCount);
+
+      /*
+       * 1 投目の問題の難易度は、その枠数ぶんだけ先に配る。
+       *
+       * この形式の候補は
+       *   medium = 主目標の 20 がそのまま安全だと見抜く問題（295・300・304 …）
+       *   hard   = 20 を捨てて 18 / 19 から入る問題（299・302・303 …）
+       * に分かれている。1 問ずつ「残り枠の多い難易度」を選ぶ配り方だと、
+       * SETUP 全体では medium の枠が多いため 1 投目の枠がすべて medium になり、
+       * 教材の核である hard 側が 1 問も出なくなる。
+       * 枠数に比例した内訳をここで決めてから、残りを 1 投調整へ回す。
+       */
+      const firstDartOffered = new Set(
+        firstDartPool.map((candidate) => candidate.difficulty),
+      );
+      const firstDartDifficulties = orderedBag(
+        normalizeDifficultyQuota(
+          difficultyQuota('setup', wantedFirstDart),
+          DIFFICULTY_ORDER.filter((difficulty) => firstDartOffered.has(difficulty)),
+          wantedFirstDart,
+        ),
+        DIFFICULTY_ORDER,
+        random,
+        2,
+      );
+      for (const difficulty of firstDartDifficulties) {
+        if (difficultyRemaining[difficulty] > 0) difficultyRemaining[difficulty] -= 1;
+      }
+
       const difficultySlots: Array<TrainingDifficulty | null> = [];
+      let firstDartDifficultyCursor = 0;
       for (let n = 0; n < kindCount; n += 1) {
         const category = categorySlots[n];
-        const format: TrainingFormat = fullSlotIndices.has(n) ? 'setup-full' : 'setup-adjustment';
+        const format = formatSlots[n];
+        if (format === 'setup-first-dart') {
+          difficultySlots.push(firstDartDifficulties[firstDartDifficultyCursor] ?? null);
+          firstDartDifficultyCursor += 1;
+          continue;
+        }
         const offered = new Set(
           all
             .filter(
@@ -881,7 +1069,7 @@ function planSlots(input: {
       for (const [n, slotIndex] of indices.entries()) {
         slots[slotIndex].category = categorySlots[n] ?? null;
         slots[slotIndex].preferredDifficulty = difficultySlots[n] ?? null;
-        slots[slotIndex].format = fullSlotIndices.has(n) ? 'setup-full' : 'setup-adjustment';
+        slots[slotIndex].format = formatSlots[n];
       }
     } else {
       const difficultySlots = orderedBag(
@@ -931,6 +1119,26 @@ function planSlots(input: {
       return best.difficulty === expectedDifficultyOf(slot, all, reviewTargets);
     };
 
+    /*
+     * 「間違えた問題そのもの」を出せる slot を最優先で確保する。
+     *
+     * 復習 ring は slot の形式・カテゴリに合わせて絞るので、
+     * 復習枠が別カテゴリの slot に置かれると、その問題は二度と配られない。
+     * 1 投目の選択（setup-first-dart）のように枠が 20% しか無い形式では、
+     * 均等に散らした位置がほぼ必ず 1 投調整の slot に当たり、
+     * 苦手として登録した問題の露出がまったく増えなかった。
+     */
+    const exactKeys = new Set(
+      reviewTargets
+        .map((target) => target.problemKey)
+        .filter((key): key is string => key !== null),
+    );
+    const hasExactMatch = (slot: Slot): boolean =>
+      exactKeys.size > 0 &&
+      compatible(slot).some((candidate) => exactKeys.has(candidate.problemKey));
+    const exactAndKeepsDifficulty = (slot: Slot): boolean =>
+      hasExactMatch(slot) && keepsDifficulty(slot);
+
     // 均等に散らした位置を起点に、近い順で両立する slot を探す。
     const anchors: number[] = [];
     for (let r = 0; r < Math.min(wantedReview, count); r += 1) {
@@ -938,9 +1146,10 @@ function planSlots(input: {
     }
 
     const taken = new Set<number>();
-    // 1 巡目は「計画した難易度を変えない slot」だけを使い、
-    // 足りなければ 2 巡目で両立する slot から埋める。
-    for (const acceptable of [keepsDifficulty, matches]) {
+    // 1 巡目は「間違えた問題そのものを出せて、計画した難易度も変えない slot」、
+    // 2 巡目は「計画した難易度を変えない slot」、
+    // 足りなければ 3 巡目で両立する slot から埋める。
+    for (const acceptable of [exactAndKeepsDifficulty, keepsDifficulty, matches]) {
       for (const anchor of anchors) {
         if (taken.size >= wantedReview) break;
         for (let distance = 0; distance < count; distance += 1) {
@@ -981,7 +1190,7 @@ function planSlots(input: {
     }
   }
 
-  return { slots, quotaNormalizedCount };
+  return { slots, quotaNormalizedCount, firstDartShortfall };
 }
 
 /** 設定に従って出題列を作る。同じ seed からは常に同じ並びになる。 */
@@ -1004,6 +1213,7 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
     generated: 0,
     relaxCount: 0,
     quotaNormalizedCount: 0,
+    firstDartShortfall: 0,
     reviewPlaced: 0,
     trivialCount: 0,
     directOneDartCount: 0,
@@ -1022,7 +1232,7 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
   if (all.length === 0) return { questions: [], report: emptyReport };
 
   const reviewTargets = normalizeReviewTargets(options.reviewTargets);
-  const { slots, quotaNormalizedCount } = planSlots({
+  const { slots, quotaNormalizedCount, firstDartShortfall } = planSlots({
     settings,
     count,
     all,
@@ -1304,7 +1514,19 @@ export function generateQuestionsWithReport(options: GenerateOptions): {
     recent.push({ problemKey: chosen.problemKey, contextKey: chosen.contextKey });
   }
 
-  return { questions, report: buildReport(count, questions, relaxCount, quotaNormalizedCount + categoryNormalizedCount, reviewPlaced, trivialCount, directCount) };
+  return {
+    questions,
+    report: buildReport(
+      count,
+      questions,
+      relaxCount,
+      quotaNormalizedCount + categoryNormalizedCount,
+      firstDartShortfall,
+      reviewPlaced,
+      trivialCount,
+      directCount,
+    ),
+  };
 }
 
 function buildReport(
@@ -1312,6 +1534,7 @@ function buildReport(
   questions: readonly TrainingQuestion[],
   relaxCount: number,
   quotaNormalizedCount: number,
+  firstDartShortfall: number,
   reviewPlaced: number,
   trivialCount: number,
   directOneDartCount: number,
@@ -1341,6 +1564,7 @@ function buildReport(
     generated: questions.length,
     relaxCount,
     quotaNormalizedCount,
+    firstDartShortfall,
     reviewPlaced,
     trivialCount,
     directOneDartCount,

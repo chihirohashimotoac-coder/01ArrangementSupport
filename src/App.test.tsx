@@ -231,14 +231,15 @@ describe('PR #1 レビュー指摘の回帰テスト', () => {
 });
 
 describe('SETUP 画面', () => {
-  it('305 で T20 → T20 → S18 を最上位に出し、残り 167 を示す', async () => {
+  it('305 は T20 が 2 本と S18 で、残り 167 を示す', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openSetupWith(user, '305');
 
     expect(screen.getByTestId('score-input')).toHaveValue('305');
     const best = screen.getByTestId('standard-route');
-    // T20 → T20 → S18 なので T20 は 2 つ現れる。
+    // v1.3.4 以降は S18 → T20 → T20（シングル落ちに耐える並び）。
+    // 取得点も残りも資料どおりなので、T20 は 2 つ現れる。
     expect(within(best).getAllByText('T20')).toHaveLength(2);
     expect(within(best).getByText('S18')).toBeInTheDocument();
     expect(best.textContent).toContain('残り 167');
@@ -307,13 +308,32 @@ describe('TRAINING 画面', () => {
 });
 
 describe('設定画面', () => {
-  it('得意ダブルを選ぶと順位づけされる', async () => {
+  it('得意ダブルは既定で何も選ばれておらず、複数を順位づけできる', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByTestId('nav-settings'));
 
+    // 既定は「未設定」。アプリ側で勝手に順位を持たない（v1.3.5）。
+    expect(screen.getByTestId('preferred-doubles')).toHaveTextContent('まだ選ばれていません');
+    // 使い方（既定は未設定・複数選択・並び順が優先度）を画面に書いておく。
+    const help = screen.getByTestId('preferred-doubles-help');
+    expect(help).toHaveTextContent('既定では何も選ばれていません');
+    expect(help).toHaveTextContent('複数選べます');
+    expect(help).toHaveTextContent('並び順がそのまま優先度');
+
+    await user.click(screen.getByTestId('select-D16'));
+    await user.click(screen.getByTestId('select-D20'));
     const list = screen.getByTestId('preferred-doubles');
     expect(within(list).getByText('D16')).toBeInTheDocument();
+    expect(within(list).getByText('D20')).toBeInTheDocument();
+
+    // 並び順が優先度。↑ で入れ替えられる。
+    await user.click(screen.getByLabelText('D20 を上へ'));
+    expect(
+      Array.from(screen.getByTestId('preferred-doubles').querySelectorAll('.settings__id')).map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(['D20', 'D16']);
 
     await user.click(screen.getByTestId('select-D16'));
     expect(within(screen.getByTestId('preferred-doubles')).queryByText('D16')).toBeNull();
@@ -1115,19 +1135,25 @@ describe('v1.3 TRAINING 教育設計', () => {
     expect(screen.getByTestId('status-left')).toHaveTextContent(String(current));
   });
 
-  it('SETUP の 1 投調整では 1 投しか選べず、自動確定もしない', async () => {
+  it('SETUP の 1 投調整はナンバーで答え、自動確定もしない（v1.3.5）', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openSetupAdjustment(user);
 
-    await user.click(screen.getByTestId('segment-s20-outer'));
-    expect(screen.getByTestId('answer-0')).toHaveTextContent('S20');
+    // 盤面は出すが、選ぶのは 62 セグメントではなく 1 ナンバーぶんのエリア（v1.3.5）。
+    expect(screen.getByTestId('dartboard')).toHaveAttribute('data-mode', 'wedge');
+    expect(screen.getByTestId('segment-s20-outer')).toHaveAttribute('role', 'presentation');
+    expect(screen.getByTestId('wedge-20')).toHaveAttribute('role', 'button');
+    expect(screen.getByTestId('training-adjustment-note')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('wedge-20'));
+    expect(screen.getByTestId('answer-0')).toHaveTextContent('20');
     expect(screen.queryByTestId('answer-1')).toBeNull();
     expect(screen.queryByTestId('training-result')).toBeNull();
 
-    // 2 投目は受け付けない。
-    await user.click(screen.getByTestId('segment-s19-outer'));
-    expect(screen.getByTestId('answer-0')).toHaveTextContent('S20');
+    // 選び直しは上書きで、2 投目にはならない。
+    await user.click(screen.getByTestId('wedge-19'));
+    expect(screen.getByTestId('answer-0')).toHaveTextContent('19');
 
     await user.click(screen.getByTestId('training-undo'));
     expect(screen.getByTestId('answer-0')).toHaveTextContent('—');
@@ -1138,7 +1164,7 @@ describe('v1.3 TRAINING 教育設計', () => {
     render(<App />);
     await openSetupAdjustment(user);
 
-    await user.click(screen.getByTestId('segment-s20-outer'));
+    await user.click(screen.getByTestId('wedge-20'));
     await user.click(screen.getByTestId('training-submit'));
 
     const result = screen.getByTestId('training-result');
@@ -1152,6 +1178,7 @@ describe('v1.3 TRAINING 教育設計', () => {
     expect(precedes(yours, recommended)).toBe(true);
     expect(precedes(recommended, difference)).toBe(true);
     expect(yours).toHaveTextContent('S20');
+    expect(screen.getByTestId('training-your-answer').textContent).toContain('20');
     expect(recommended.textContent).toMatch(/[A-Z]?\d|BULL/);
     expect(difference.textContent?.length ?? 0).toBeGreaterThan(0);
   });
@@ -1171,18 +1198,19 @@ describe('v1.3 TRAINING 教育設計', () => {
     expect(screen.getByTestId('training-difference').textContent).toContain('上がれます');
   });
 
-  it('SETUP でノーテンを残した回答は正答率へ加算しない', async () => {
+  it('SETUP でシングルに落ちると上がれないナンバーは正答率へ加算しない', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openSetupAdjustment(user);
 
     const current = Number(screen.getByTestId('training-context-current').textContent);
-    await user.click(screen.getByTestId('segment-s20-outer'));
+    await user.click(screen.getByTestId('wedge-20'));
     await user.click(screen.getByTestId('training-submit'));
 
-    const leave = current - 20;
+    // 20 を選んだときの正解判定は、S20 と T20 の両方で上がれるかどうか。
     const bogeys = [159, 162, 163, 165, 166, 168, 169];
-    const correct = leave >= 2 && leave <= 170 && !bogeys.includes(leave);
+    const good = (leave: number) => leave >= 2 && leave <= 170 && !bogeys.includes(leave);
+    const correct = good(current - 20) && good(current - 60);
     expect(screen.getByTestId('stat-attempts')).toHaveTextContent('1');
     expect(screen.getByTestId('stat-accuracy')).toHaveTextContent(correct ? '100%' : '0%');
   });
@@ -1451,6 +1479,15 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     );
   }
 
+  /** 上がれない場面で出る「次ラウンドへの残し」候補（v1.3.6）。 */
+  function nextVisitProposals() {
+    const list = screen.queryByTestId('recovery-next-visit');
+    if (list === null) return null;
+    return Array.from(within(list).getByLabelText('次ラウンドへの残しの候補').children).map(
+      (item) => item.textContent ?? '',
+    );
+  }
+
   const STANDARD_122 = ['BULL', 'S18', 'T18'];
 
   async function selectMyRouteAt122(user: User) {
@@ -1534,8 +1571,10 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
 
     expect(screen.getByTestId('status-left')).toHaveTextContent('122');
     expect(screen.getByTestId('next-visit-route')).toBeInTheDocument();
-    // v1.3.2 の NEXT VISIT をそのまま使う。
-    expect(nextRoute()).toEqual(['S18']);
+    // v1.3.2 の NEXT VISIT をそのまま使う。投げたあとの残りも一緒に出す（v1.3.6）。
+    const proposals = nextVisitProposals();
+    expect(proposals?.[0]).toContain('S18');
+    expect(proposals?.[0]).toContain('104');
   });
 
   it('CHECKOUT の OTHER ROUTE も、予定どおりのあいだは選んだ続きを案内する', async () => {
@@ -1575,7 +1614,7 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     await user.click(screen.getByTestId('segment-miss'));
 
     expect(screen.getByTestId('next-visit-route')).toBeInTheDocument();
-    expect(nextRoute()).toEqual(['S19']);
+    expect(nextVisitProposals()?.[0]).toContain('S19');
   });
 
   it('SETUP の OTHER ROUTE も、予定どおりのあいだは選んだ続きを案内する', async () => {
@@ -1583,25 +1622,25 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     render(<App />);
     await openSetupWith(user, '302');
 
-    await user.click(chipOf(screen.getByTestId('setup-T20-T20-S15'), 1));
+    await user.click(chipOf(screen.getByTestId('setup-S15-T20-T20'), 1));
     expect(highlightedDarts()).toEqual(['S15', 'T20'].sort());
 
+    await user.click(screen.getByTestId('segment-s15-outer'));
+    // 287 / 2 本の BEST（T20 → T20）と同じ並びだが、これは選んだ続きの案内。
+    expect(nextRoute()).toEqual(['T20', 'T20']);
     await user.click(screen.getByTestId('segment-t20'));
-    // 242 / 2 本の BEST（S18 → T18）ではなく、選んだ続き。
-    expect(nextRoute()).toEqual(['T20', 'S15']);
-    await user.click(screen.getByTestId('segment-t20'));
-    expect(nextRoute()).toEqual(['S15']);
+    expect(nextRoute()).toEqual(['T20']);
   });
 
   it('SETUP の OTHER ROUTE で外したら、現在の BEST へ自動で戻る', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openSetupWith(user, '302');
-    await user.click(chipOf(screen.getByTestId('setup-T20-T20-S15'), 1));
+    await user.click(chipOf(screen.getByTestId('setup-S15-T20-T20'), 1));
 
-    // T20 の予定に対して T19。302 - 57 = 245 / 2 本。
+    // S15 の予定に対して T19。302 - 57 = 245 / 2 本の BEST へ戻る。
     await user.click(screen.getByTestId('segment-t19'));
-    expect(nextRoute()).toEqual(['T20', 'S18']);
+    expect(nextRoute()).toEqual(['S18', 'T20']);
   });
 
   it('別のルートのチップを押したら、確認なしでそちらへ切り替わる', async () => {
@@ -1623,7 +1662,7 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     render(<App />);
     await openSetupWith(user, '302');
 
-    await user.click(chipOf(screen.getByTestId('setup-T20-T20-S15'), 1));
+    await user.click(chipOf(screen.getByTestId('setup-S15-T20-T20'), 1));
     expect(highlightedDarts()).toEqual(['S15', 'T20'].sort());
 
     await user.click(chipOf(screen.getByTestId('standard-route'), 1));
@@ -1723,5 +1762,47 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     await user.click(chipOf(screen.getByTestId('my-route'), 1));
     expect(screen.getAllByRole('button').length).toBe(before);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  /**
+   * v1.3.6: 上がれない場面の実戦入力では、
+   * 「投げるルート」だけでなく「投げたあと何点残るか」と、選び方の違う案を出す。
+   */
+  it('135 から S5 を刺すと、残し候補を 3 つ・残り点つきで出す', async () => {
+    const user = userEvent.setup();
+    // 得意ダブルの既定は未設定なので、「考慮した場合」の案を出すために設定しておく。
+    setPreferredDoubles(['D16', 'D20', 'D8']);
+    render(<App />);
+    await openCheckoutWith(user, '135');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-s5-outer'));
+
+    expect(screen.getByTestId('status-left')).toHaveTextContent('130');
+    // 上がれないので、通常の NEXT 行ではなく残しの候補を出す。
+    expect(screen.queryByTestId('recovery-next-route')).toBeNull();
+
+    const rows = nextVisitProposals();
+    expect(rows).toHaveLength(3);
+    expect(rows?.[0]).toContain('T20 → T18');
+    expect(rows?.[0]).toContain('16');
+    expect(rows?.[1]).toContain('T20 → T10');
+    expect(rows?.[1]).toContain('40');
+    expect(rows?.[1]).toContain('得意ダブル D20');
+    expect(rows?.[2]).toContain('T19 → T19');
+    expect(rows?.[2]).toContain('16');
+    // 同じルートを 2 回出さない。
+    expect(new Set(rows).size).toBe(3);
+  });
+
+  it('上がれる場面では、これまでどおり NEXT の 1 行だけを出す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '122');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-t20'));
+
+    expect(screen.getByTestId('status-left')).toHaveTextContent('62');
+    expect(screen.queryByTestId('recovery-next-visit')).toBeNull();
+    expect(nextRoute()?.length ?? 0).toBeGreaterThan(0);
   });
 });

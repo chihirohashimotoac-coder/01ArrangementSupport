@@ -15,11 +15,21 @@
 export type TrainingKind = 'checkout' | 'setup' | 'recovery';
 export type TrainingMode = TrainingKind | 'mixed';
 
-/** 出題の形式。SETUP だけが 2 形式を持つ。 */
+/**
+ * 出題の形式。SETUP だけが複数の形式を持つ。
+ *
+ * `setup-full`（3 投を自由に組み立てる）は v1.3.4 で**新規出題を停止**した。
+ * 「とりあえず T20 → T20 → T20」でも正解になる問題が多く、
+ * 「なぜ最初から 19 へ振るのか」を学べなかったため。
+ * 保存済み履歴を読めるように型と採点はそのまま残してある。
+ *
+ * 代わりに `setup-first-dart`（1 投目だけを選ぶ）を追加した。
+ */
 export type TrainingFormat =
   | 'checkout-route'
   | 'setup-adjustment'
   | 'setup-full'
+  | 'setup-first-dart'
   | 'recovery-route';
 
 export type TrainingDifficulty = 'easy' | 'medium' | 'hard';
@@ -27,12 +37,16 @@ export type TrainingDifficulty = 'easy' | 'medium' | 'hard';
 export const TRAINING_DIFFICULTIES: readonly TrainingDifficulty[] = ['easy', 'medium', 'hard'];
 
 /**
- * SETUP の教育カテゴリ（本仕様 19 節 A〜I）。
+ * SETUP の教育カテゴリ（本仕様 19 節 A〜I と、v1.3.4 で足した J）。
  *
  * A: 一般的なノーテン回避 / B: 18・19・20 のずらし / C: 0・1・4・7 /
  * D: 302〜309 / E: とりあえず TON の罠 / F: 95〜105 への着地 /
  * G: S-BULL 25 での調整 / H: 同じ数字を続けると悪化する /
- * I: 基礎確認
+ * I: 基礎確認 / J: 第一ターゲットのシングル落ち耐性
+ *
+ * J（`setup-first-dart-safety`）だけが `setup-first-dart` 形式に対応する。
+ * 履歴から「ラスト 1 投の調整が苦手」と「第一ターゲット選択が苦手」を
+ * 区別できるようにするために分けてある。
  */
 export const SETUP_CATEGORIES = [
   'setup-bogey-avoid',
@@ -44,6 +58,7 @@ export const SETUP_CATEGORIES = [
   'setup-sbull',
   'setup-same-number-worse',
   'setup-basics',
+  'setup-first-dart-safety',
 ] as const;
 export type SetupCategory = (typeof SETUP_CATEGORIES)[number];
 
@@ -89,6 +104,14 @@ export const LEARNING_TAGS = {
   shift20To18: 'shift-20-to-18',
   /** 20 から 19 へずらすのが正解。 */
   shift20To19: 'shift-20-to-19',
+  /** ラウンドの 1 投目（第一ターゲット）を選ぶ問題であること。 */
+  firstDartSafety: 'first-dart-safety',
+  /** 第一ターゲットがシングルへ落ちてもテンパイへの道が残る。 */
+  singleMissTenpaiSafe: 'single-miss-tenpai-safe',
+  /** 第一ターゲットがシングルへ落ちるとテンパイ不能になる的が混ざっている。 */
+  avoidSingleMissDeadEnd: 'avoid-single-miss-dead-end',
+  /** そのまま自然な継続ターゲットを狙うと悪い残りになる（調整判断が要る）。 */
+  decisionRequired: 'decision-required',
 } as const;
 
 /**
@@ -137,7 +160,15 @@ export interface TrainingQuestion {
   readonly startRemaining: number;
   /** 回答時点の残り。 */
   readonly currentRemaining: number;
+  /** 回答として選ぶ本数。 */
   readonly dartsAvailable: number;
+  /**
+   * このラウンドで投げられる本数（表示用）。
+   *
+   * ほとんどの形式では `dartsAvailable` と同じだが、`setup-first-dart` だけは
+   * 「3 投あるラウンドの 1 投目だけを答える」ので 3 と 1 に分かれる。
+   */
+  readonly visitDartsAvailable: number;
   /** ここまでに実際に入った投球（読み取り専用）。 */
   readonly contextualThrows: readonly ContextualThrow[];
   readonly promptJa: string;
@@ -174,6 +205,20 @@ export function setupAdjustmentProblemKey(
 
 export function setupFullProblemKey(start: number, darts: number): string {
   return `setup|v2|full|start=${start}|darts=${darts}`;
+}
+
+export function setupFirstDartProblemKey(start: number, visitDarts: number): string {
+  return `setup|v2|first-dart|start=${start}|visitDarts=${visitDarts}`;
+}
+
+/**
+ * 「この残りからの第一ターゲット選択」を表す学習単位。
+ *
+ * problemKey が問題 instance の識別子なのに対し、こちらは
+ * 「299 からの入り方」という技術そのものの識別子になる。
+ */
+export function firstDartConceptKeyOf(startRemaining: number, targetDartId: string): string {
+  return `setup-first-dart|start=${startRemaining}|target=${targetDartId}`;
 }
 
 export function recoveryProblemKey(

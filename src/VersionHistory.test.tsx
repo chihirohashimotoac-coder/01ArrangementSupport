@@ -49,20 +49,57 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴に v1.3.3 の主要変更がある', async () => {
+  it('最新の履歴に v1.3.6 の主要変更がある', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('v1.3.3');
+    expect(latest).toHaveTextContent('v1.3.6');
     expect(latest).toHaveTextContent('現在');
-    expect(latest.textContent ?? '').toMatch(/MY ROUTE/);
-    expect(latest.textContent ?? '').toMatch(/OTHER ROUTES/);
-    // 追加の操作を求めない改善であることを、ユーザー向けにも明示する。
-    expect(latest.textContent ?? '').toMatch(/新しいボタンや設定は追加していません/);
-    // 計算ルールを変えていないことを、ユーザー向けにも明示する。
-    expect(latest.textContent ?? '').toMatch(/変更していません/);
+    // 何が変わったのかを、残り点の例つきでユーザー向けに書く。
+    expect(latest.textContent ?? '').toMatch(/残り/);
+    expect(latest.textContent ?? '').toMatch(/130/);
+    expect(latest.textContent ?? '').toMatch(/得意ダブル/);
+    // 変えていないことも明示する。
+    expect(latest.textContent ?? '').toMatch(/これまでどおり/);
+  });
+
+  it('v1.3.5 の履歴は残っている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const previous = screen.getAllByTestId('version-history-item')[1];
+    expect(previous).toHaveTextContent('v1.3.5');
+    expect(previous.textContent ?? '').toMatch(/ナンバー/);
+    expect(previous.textContent ?? '').toMatch(/TRAINING/);
+    expect(previous.querySelector('.version-history__badge')).toBeNull();
+  });
+
+  it('v1.3.4 の履歴は残っている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const items = screen.getAllByTestId('version-history-item');
+    const previous = items.find((item) => (item.textContent ?? '').includes('v1.3.4'));
+    expect(previous).toBeDefined();
+    expect(previous!.textContent ?? '').toMatch(/シングル/);
+    expect(previous!.textContent ?? '').toMatch(/299/);
+    expect(previous!.querySelector('.version-history__badge')).toBeNull();
+  });
+
+  it('v1.3.3 の履歴は残っている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const items = screen.getAllByTestId('version-history-item');
+    const previous = items.find((item) => (item.textContent ?? '').includes('v1.3.3'));
+    expect(previous).toBeDefined();
+    expect(previous!.textContent ?? '').toMatch(/MY ROUTE/);
+    expect(previous!.textContent ?? '').toMatch(/OTHER ROUTES/);
   });
 
   it('v1.3.2 の履歴は残り、現在版ではなくなっている', async () => {

@@ -331,6 +331,28 @@ const SETUP_TEMPLATES: Record<SetupReasonCode, ReasonTemplate> = {
       detail: 'ダブルリングは細く、刻みの的としては割に合いません。シングルか S-BULL の方が安定します。',
     }),
   },
+  SETUP_SINGLE_MISS_TENPAI_SAFE: {
+    polarity: 'positive',
+    label: 'シングル落ちに強い',
+    render: (ctx) => ({
+      summary:
+        ctx.missDartId === null || ctx.missLeave === null
+          ? '1 投目を外してもテンパイへの道が残ります。'
+          : `1 投目が ${ctx.missDartId} へ落ちても ${ctx.missLeave} / 残り ${ctx.dartsAfterMiss} 本でテンパイを作れます。`,
+      detail: '理想の着弾だけでなく、いちばん起きるミスを通してもテンパイが残る入り方です。',
+    }),
+  },
+  SETUP_SINGLE_MISS_DEAD_END: {
+    polarity: 'negative',
+    label: 'シングル落ちで詰む',
+    render: (ctx) => ({
+      summary:
+        ctx.missDartId === null || ctx.missLeave === null
+          ? '1 投目を外すと、このラウンドではテンパイを作れなくなります。'
+          : `1 投目が ${ctx.missDartId} へ落ちると ${ctx.missLeave} が残り、残り ${ctx.dartsAfterMiss} 本ではテンパイを作れません。`,
+      detail: '狙いどおり入れば良い残りでも、シングルへ落ちた時点でこのラウンドが終わります。',
+    }),
+  },
 };
 
 export function renderCheckoutReason(
@@ -372,3 +394,20 @@ export const CURATED_SETUP_EXPLANATIONS: Readonly<Record<number, string>> = {
   231: 'トリプルを使わなくても、20 + 19 + S-BULL = 64 で 167 残りへ整えられます。',
   271: 'T19 + S19 + S-BULL = 101 で 170 残り。1 本目に 60 が入った後、18・19・20・S-BULL で 170 へ乗せる考え方です。',
 };
+
+/**
+ * NEXT VISIT の提案につける短い見出し（v1.3.6）。
+ *
+ * 「なぜこの残しなのか」の長い理由はルートカード側に残す。ここは
+ * 盤面直下の狭い場所なので、選び方の違いだけが分かれば十分。
+ */
+export function nextVisitProposalNoteJa(
+  kind: 'leave-quality' | 'preferred-double' | 'alternative',
+  finishDoubleId: string | null,
+): string {
+  if (kind === 'preferred-double') {
+    return finishDoubleId === null ? '得意ダブル' : `得意ダブル ${finishDoubleId}`;
+  }
+  if (kind === 'alternative') return '同じナンバーを続ける';
+  return finishDoubleId === null ? '残しの質' : `残しの質（${finishDoubleId}）`;
+}
