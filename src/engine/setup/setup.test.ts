@@ -545,6 +545,35 @@ describe('v1.3.7 第一ターゲットは「狙う得点用トリプル」', () 
     expect(violations).toEqual([]);
   });
 
+  /*
+   * 「主目標が安全なら振り直さない」は、シングル落ち耐性を理由に振り直さない、
+   * という意味であって「必ず T20 から投げる」ではない（docs/APPROVALS.md A-18）。
+   * 残りの質は取得点より重い（A-7）ので、T20 が安全でも別のトリプルの方が
+   * 良い残しを作れる残り点では、そちらが第 1 候補になる。
+   * この区別を取り違えて T20 を強制すると、承認済みの重みが良いと評価する
+   * 残しを捨てることになるため、その差をここで固定しておく。
+   */
+  it('T20 が安全でも、より良い残しを作れるトリプルがあればそちらを狙う', () => {
+    const t20 = requireDart('T20');
+    expect(isSingleMissTenpaiSafe(279, t20, DARTS_PER_VISIT)).toBe(true);
+
+    const best = rankSetupRoutes(279, DARTS_PER_VISIT, { maxRoutes: 1 })[0];
+    // 1 投目は得点用トリプル（v1.3.7 の修正点）。ただし T20 とは限らない。
+    expect(best.darts[0].kind).toBe('triple');
+    expect(best.leave).toBe(160);
+
+    // T20 始動の最良ルートは 139 残しにしかならず、評価も下がる。
+    const rest = rankSetupRoutes(279 - t20.score, DARTS_PER_VISIT - 1, {
+      maxRoutes: 1,
+      includeSingleMissUnsafe: true,
+    })[0];
+    const forced = evaluateSetupRoute(279, DARTS_PER_VISIT, [t20, ...rest.darts], {
+      includeSingleMissUnsafe: true,
+    })!;
+    expect(forced.leave).toBe(139);
+    expect(best.score).toBeGreaterThan(forced.score);
+  });
+
   it('SETUP 171〜350 × 1〜3 本: 安全な得点用トリプルがあるなら S / D から始めない', () => {
     const violations: string[] = [];
     for (let remaining = 171; remaining <= MAX_SETUP_REMAINING; remaining += 1) {
