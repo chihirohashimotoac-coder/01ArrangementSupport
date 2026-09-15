@@ -112,9 +112,10 @@ describe('不成立の回答にも必ず推奨解答を返す', () => {
     const result = gradeAnswer(question, answer);
     expect(result.failureCode).toBe('NOT_FINISHED');
     const feedback = buildFeedback(question, answer, result);
-    // v1.3.4 以降、302 の 3 本フルの推奨は「安全な 18 から入る」並びになる。
-    // 取得点（138）と残し（164）は資料どおりのまま。
-    expect(feedback.recommendedDartIds).toEqual(['S18', 'T20', 'T20']);
+    // v1.3.7 以降、302 の 3 本フルの推奨は「安全な得点用トリプル T18 を狙う」並び。
+    // S18 は T18 を狙った結果の実着弾であって、第一ターゲットではない。
+    expect(feedback.recommendedDartIds[0]).toBe('T18');
+    expect(feedback.recommendedDartIds).toHaveLength(DARTS_PER_VISIT);
   });
 
   it('170 超えを残したときも推奨解答を返す', () => {

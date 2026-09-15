@@ -9,7 +9,7 @@
  *   Phase B: 上位だけ日本語の理由文を生成する
  * これにより 62^3 の総当たりでも体感遅延が出ない。
  */
-import { formatRoute, routeKey, type Dart } from '../../domain/dart';
+import { findDart, formatRoute, routeKey, type Dart } from '../../domain/dart';
 import {
   DARTS_PER_VISIT,
   MAX_SETUP_REMAINING,
@@ -27,7 +27,13 @@ import {
 } from '../../data/rankingRules';
 import { renderSetupReason, type ReasonContext } from '../../data/explanations';
 import { evaluateLeave, isTonTrap, leaveTierOf, type LeaveTier } from './leaveQuality';
-import { difficultyOf, sequenceTable, targetKeyOf } from './sequences';
+import {
+  difficultyOf,
+  scoringTripleFirstSequenceTables,
+  sequenceTable,
+  targetKeyOf,
+  type SequenceTable,
+} from './sequences';
 import { isSingleMissTenpaiSafe, singleMissDartOf } from './tenpai';
 
 export { canReachTenpai, isSingleMissTenpaiSafe, singleMissDartOf } from './tenpai';
@@ -251,55 +257,118 @@ export function rankSetupRoutes(
     readonly key: string;
   }
 
-  const collect = (tenpaiOnly: boolean, singleMissSafeOnly: boolean): Slot[] => {
+  const collect = (
+    tables: readonly SequenceTable[],
+    tenpaiOnly: boolean,
+    singleMissSafeOnly: boolean,
+  ): Slot[] => {
     const found: Slot[] = [];
-    for (let total = 0; total < table.length; total += 1) {
-      const bucket = table[total];
-      if (bucket.length === 0) continue;
-      // 取得点は単調増加なので、最後の残りが 2 以上なら途中も 2 以上（Bust しない）。
-      const leave = remaining - total;
-      if (leave < MIN_CHECKOUT) continue;
-      const leaveEval = evaluateLeave(leave);
-      if (tenpaiOnly && !leaveEval.checkoutable) continue;
+    for (const source of tables) {
+      for (let total = 0; total < source.length; total += 1) {
+        const bucket = source[total];
+        if (bucket.length === 0) continue;
+        // 取得点は単調増加なので、最後の残りが 2 以上なら途中も 2 以上（Bust しない）。
+        const leave = remaining - total;
+        if (leave < MIN_CHECKOUT) continue;
+        const leaveEval = evaluateLeave(leave);
+        if (tenpaiOnly && !leaveEval.checkoutable) continue;
 
-      const base =
-        leaveEval.score +
-        total * SETUP_POINTS_WEIGHT +
-        lowScorePenaltyOf(total, dartsAvailable, darts);
+        const base =
+          leaveEval.score +
+          total * SETUP_POINTS_WEIGHT +
+          lowScorePenaltyOf(total, dartsAvailable, darts);
 
-      for (const entry of bucket) {
-        if (
-          singleMissSafeOnly &&
-          !isSingleMissTenpaiSafe(remaining, entry.darts[0], darts)
-        ) {
-          continue;
+        for (const entry of bucket) {
+          if (
+            singleMissSafeOnly &&
+            !isSingleMissTenpaiSafe(remaining, entry.darts[0], darts)
+          ) {
+            continue;
+          }
+          found.push({
+            darts: entry.darts,
+            total,
+            leave,
+            score: base + entry.intrinsic,
+            key: routeKey(entry.darts),
+          });
         }
-        found.push({
-          darts: entry.darts,
-          total,
-          leave,
-          score: base + entry.intrinsic,
-          key: routeKey(entry.darts),
-        });
       }
     }
     return found;
   };
 
+  /**
+   * 得点用トリプル（T1〜T20）から始まり、そのトリプルが同ナンバーのシングルへ
+   * 落ちてもテンパイを作れるルートだけを集める。
+   *
+   * シングル落ち耐性は「得点のためにトリプルを狙い、同じナンバーのシングルへ
+   * 落ちた」場合の評価なので、第一ターゲットの選択でもその意味論をそのまま使う。
+   * 安全なトリプルが 1 つも無ければ空を返し、呼び出し側が次のふるいへ落ちる。
+   *
+   * 主目標（既定 T20）そのものが安全なら、第一ターゲットを振り直す理由がない。
+   * そのときは安全な得点用トリプル全体を候補にし、どれを狙うかは従来どおり
+   * ビジット全体の評価（残りの質 → 取得点 → 難易度）に任せる。
+   *
+   * 主目標が安全でないとき **だけ**、狙う的を 1 つに絞る。振り直しを迫られた
+   * 場面で選ぶのは「シングルへ落ちても立て直せるトリプルのうち、いちばん点が
+   * 高いもの」。T20 を捨てるなら捨てる点は最小限にする、という戦術で、
+   * TRAINING の SETUP / FIRST DART が教える推奨（安全な的のうち取得点順）と
+   * 同じ考え方にあたる。残り点ごとの例外表は持たない。
+   */
+  const collectSafeScoringTripleFirst = (): Slot[] => {
+    const safeFirst: { readonly dart: Dart; readonly source: SequenceTable }[] = [];
+    for (const [dartId, source] of scoringTripleFirstSequenceTables(darts, mainTarget)) {
+      const first = findDart(dartId);
+      if (first === undefined) continue;
+      if (!isSingleMissTenpaiSafe(remaining, first, darts)) continue;
+      safeFirst.push({ dart: first, source });
+    }
+    if (safeFirst.length === 0) return [];
+
+    const mainDart = findDart(mainTarget);
+    const mainTargetNeedsChange =
+      mainDart !== undefined &&
+      mainDart.kind === 'triple' &&
+      !safeFirst.some((item) => item.dart.id === mainDart.id);
+
+    const pool = mainTargetNeedsChange
+      ? [safeFirst.reduce((best, item) => (item.dart.score > best.dart.score ? item : best))]
+      : safeFirst;
+
+    return collect(
+      pool.map((item) => item.source),
+      true,
+      false,
+    );
+  };
+
   /*
-   * ふるいは 3 段。重みをいじって順位を作るのではなく、
+   * ふるいは 4 段。重みをいじって順位を作るのではなく、
    * 「戦術上その条件を満たすものだけを見る」という明示的な比較にしてある。
    *
-   *   1. テンパイを残せて、かつ第一トリプルがシングルへ落ちても立て直せる
-   *   2. テンパイを残せる（1 を満たすルートが 1 つも無い場合）
-   *   3. 条件なし（テンパイを作れない残り点）
+   *   1. テンパイを残せて、かつ **得点用トリプルから始まり**、
+   *      そのトリプルがシングルへ落ちても立て直せる
+   *   2. テンパイを残せて、第一ターゲットがシングルへ落ちても立て直せる
+   *      （安全な得点用トリプルが 1 つも無い場合）
+   *   3. テンパイを残せる
+   *   4. 条件なし（テンパイを作れない残り点）
    *
-   * 残り 1 本の場面では、外した時点でビジットが終わるため 1 は必ず空になり、
-   * これまでどおり 2 が使われる。302〜309 のラスト 1 投調整は変わらない。
+   * 1 を最上段に置くのが v1.3.7 の意味論修正。シングル落ち耐性は
+   * 「得点用トリプルを狙って同ナンバーのシングルへ落ちた」場合の評価なので、
+   * S19 のようにシングルそのものを狙うルートは、外しても着弾が変わらないという
+   * 理由だけで「耐性がある」と扱われてしまう。それを第一ターゲットの選択理由に
+   * しないために、安全な得点用トリプルがあるならそちらから選ぶ。
+   * S19 は「T19 を狙った結果としての実着弾」であり、その後の再計算は
+   * これまでどおり残り点・残り本数に対する通常の評価で行う。
+   *
+   * 残り 1 本の場面では、外した時点でビジットが終わるため 1 と 2 は必ず空になり、
+   * これまでどおり 3 が使われる。302〜309 のラスト 1 投調整は変わらない。
    */
-  let slots = allowUnsafe ? [] : collect(true, true);
-  if (slots.length === 0) slots = collect(true, false);
-  if (slots.length === 0) slots = collect(false, false);
+  let slots = allowUnsafe ? [] : collectSafeScoringTripleFirst();
+  if (slots.length === 0 && !allowUnsafe) slots = collect([table], true, true);
+  if (slots.length === 0) slots = collect([table], true, false);
+  if (slots.length === 0) slots = collect([table], false, false);
   if (slots.length === 0) return [];
 
   slots.sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));

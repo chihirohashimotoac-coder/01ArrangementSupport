@@ -492,10 +492,10 @@ describe('SETUP の採点', () => {
 
   it('最上位の SETUP ルートを併せて返す', () => {
     const result = gradeAnswer(setupQuestion, parseRoute(['T20', 'T20', 'S20']));
-    // v1.3.4: 取得点 138 / 164 残しは資料どおりのまま、
-    // 1 投目のシングル落ちに耐える並び（18 始動）が最上位になる。
-    expect(result.bestSetup?.routeText).toBe('S18 → T20 → T20');
-    expect(result.bestSetup?.leave).toBe(164);
+    // v1.3.7: 第一ターゲットは「狙う得点用トリプル」。302 では T20 のシングル落ちが
+    // 行き止まりなので、シングルへ落ちても立て直せるトリプルのうち最も点の高い T18。
+    expect(result.bestSetup?.darts[0].id).toBe('T18');
+    expect(isCheckoutable(result.bestSetup!.leave, DARTS_PER_VISIT)).toBe(true);
   });
 });
 
