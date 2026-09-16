@@ -10,6 +10,7 @@
 import {
   MAX_PPR,
   SIGMA_ANCHORS,
+  sigmaForFirst9Ppr,
   sigmaForPpr,
   type MaxMissLevel,
   type MissDirection,
@@ -33,22 +34,31 @@ function check(label: string, ok: boolean, detail: string): void {
 }
 
 function solve(): void {
-  console.log('## PPR → σ の逆算（固定戦略・501・最大ブレ 中）\n');
   const targets = SIGMA_ANCHORS.even.map((anchor) => anchor.ppr).filter((ppr) => ppr < MAX_PPR);
-  for (const direction of DIRECTIONS) {
-    const rows: string[] = [];
-    for (const ppr of targets) {
-      const sigma = solveSigmaForPpr(
-        ppr,
-        { startScore: START_SCORE, direction, maxMiss: 'medium' },
-        800,
-      );
-      rows.push(`    { ppr: ${ppr}, sigma: ${sigma.toFixed(1)} },`);
+
+  for (const scope of ['game', 'first9'] as const) {
+    console.log(
+      scope === 'game'
+        ? '## SIGMA_ANCHORS（ゲーム全体 PPR・固定戦略・501・最大ブレ 中）\n'
+        : '\n## FIRST9_SIGMA_ANCHORS（最初の 9 投の PPR・同条件）\n',
+    );
+    for (const direction of DIRECTIONS) {
+      const rows: string[] = [];
+      for (const ppr of targets) {
+        const sigma = solveSigmaForPpr(
+          ppr,
+          { startScore: START_SCORE, direction, maxMiss: 'medium' },
+          800,
+          22,
+          scope,
+        );
+        rows.push(`    { ppr: ${ppr}, sigma: ${sigma.toFixed(1)} },`);
+      }
+      console.log(`  ${direction}: [`);
+      console.log(rows.join('\n'));
+      console.log(`    { ppr: MAX_PPR, sigma: 0 },`);
+      console.log('  ],');
     }
-    console.log(`  ${direction}: [`);
-    console.log(rows.join('\n'));
-    console.log(`    { ppr: MAX_PPR, sigma: 0 },`);
-    console.log('  ],');
   }
 }
 
@@ -73,6 +83,28 @@ function auditCalibration(): void {
       `Average ${String(ppr).padStart(3)}`,
       Math.abs(diff) <= 5,
       `実測 ${fixed(result.ppr)}（差 ${diff >= 0 ? '+' : ''}${fixed(diff)}） / 平均 ${fixed(result.averageDarts)} darts`,
+    );
+  }
+
+  console.log('\n## First9 キャリブレーション（設定値 vs 最初の 9 投の実測）\n');
+  for (const ppr of [40, 60, 80, 100, 120, 150]) {
+    const sigma = sigmaForFirst9Ppr(ppr, 'even');
+    const result = measure(
+      {
+        startScore: START_SCORE,
+        first9Sigma: sigma,
+        averageSigma: sigma,
+        direction: 'even',
+        maxMiss: 'medium',
+      },
+      1500,
+      424242,
+    );
+    const diff = result.first9Ppr - ppr;
+    check(
+      `First9 ${String(ppr).padStart(3)}`,
+      Math.abs(diff) <= 5,
+      `実測 ${fixed(result.first9Ppr)}（差 ${diff >= 0 ? '+' : ''}${fixed(diff)}）`,
     );
   }
 

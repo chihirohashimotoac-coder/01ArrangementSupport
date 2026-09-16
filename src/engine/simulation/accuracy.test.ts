@@ -6,20 +6,25 @@ import {
   MISS_DIRECTIONS,
   SIGMA_ANCHORS,
   TRANSITION_DARTS,
+  FIRST9_SIGMA_ANCHORS,
   clampPpr,
   scatterProfile,
   sigmaForDart,
+  sigmaForFirst9Ppr,
   sigmaForPpr,
 } from './accuracy';
 
 describe('PPR → 散布幅 σ', () => {
-  it('PPR が高いほど σ は小さい（どの方向でも単調）', () => {
+  it('PPR が高いほど σ は小さい（どの方向でも・どちらの表でも単調）', () => {
     const violations: string[] = [];
     for (const direction of MISS_DIRECTIONS) {
       for (let ppr = 0; ppr < MAX_PPR; ppr += 1) {
-        const current = sigmaForPpr(ppr, direction);
-        const next = sigmaForPpr(ppr + 1, direction);
-        if (next > current) violations.push(`${direction} ${ppr} → ${ppr + 1}`);
+        if (sigmaForPpr(ppr + 1, direction) > sigmaForPpr(ppr, direction)) {
+          violations.push(`全体 ${direction} ${ppr} → ${ppr + 1}`);
+        }
+        if (sigmaForFirst9Ppr(ppr + 1, direction) > sigmaForFirst9Ppr(ppr, direction)) {
+          violations.push(`First9 ${direction} ${ppr} → ${ppr + 1}`);
+        }
       }
     }
     expect(violations).toEqual([]);
@@ -29,6 +34,8 @@ describe('PPR → 散布幅 σ', () => {
     for (const direction of MISS_DIRECTIONS) {
       expect(sigmaForPpr(MAX_PPR, direction)).toBe(0);
       expect(sigmaForPpr(166, direction)).toBeGreaterThan(0);
+      expect(sigmaForFirst9Ppr(MAX_PPR, direction)).toBe(0);
+      expect(sigmaForFirst9Ppr(166, direction)).toBeGreaterThan(0);
     }
   });
 
@@ -41,8 +48,9 @@ describe('PPR → 散布幅 σ', () => {
 
   it('アンカー表はどの方向も 167 で終わる', () => {
     for (const direction of MISS_DIRECTIONS) {
-      const anchors = SIGMA_ANCHORS[direction];
-      expect(anchors[anchors.length - 1]).toEqual({ ppr: MAX_PPR, sigma: 0 });
+      for (const anchors of [SIGMA_ANCHORS[direction], FIRST9_SIGMA_ANCHORS[direction]]) {
+        expect(anchors[anchors.length - 1]).toEqual({ ppr: MAX_PPR, sigma: 0 });
+      }
     }
   });
 
@@ -52,7 +60,25 @@ describe('PPR → 散布幅 σ', () => {
       for (const anchor of SIGMA_ANCHORS[direction]) {
         const value = sigmaForPpr(anchor.ppr, direction);
         if (Math.abs(value - anchor.sigma) > 1e-9) {
-          wrong.push(`${direction} ${anchor.ppr}: ${value} !== ${anchor.sigma}`);
+          wrong.push(`全体 ${direction} ${anchor.ppr}: ${value} !== ${anchor.sigma}`);
+        }
+      }
+      for (const anchor of FIRST9_SIGMA_ANCHORS[direction]) {
+        const value = sigmaForFirst9Ppr(anchor.ppr, direction);
+        if (Math.abs(value - anchor.sigma) > 1e-9) {
+          wrong.push(`First9 ${direction} ${anchor.ppr}: ${value} !== ${anchor.sigma}`);
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it('同じ PPR でも First9 用の σ のほうが大きい（純粋な得点投げのぶん）', () => {
+    const wrong: string[] = [];
+    for (const direction of MISS_DIRECTIONS) {
+      for (const ppr of [40, 60, 80, 100, 120]) {
+        if (sigmaForFirst9Ppr(ppr, direction) <= sigmaForPpr(ppr, direction)) {
+          wrong.push(`${direction} ${ppr}`);
         }
       }
     }
@@ -64,9 +90,9 @@ describe('First9 と Average の使い分け', () => {
   const first9 = 100;
   const average = 50;
 
-  it('1〜9 投目は First9 の σ をそのまま使う', () => {
+  it('1〜9 投目は First9 専用の σ をそのまま使う', () => {
     for (let dart = 1; dart <= 9; dart += 1) {
-      expect(sigmaForDart(first9, average, dart)).toBeCloseTo(sigmaForPpr(first9), 10);
+      expect(sigmaForDart(first9, average, dart)).toBeCloseTo(sigmaForFirst9Ppr(first9), 10);
     }
   });
 
@@ -75,7 +101,7 @@ describe('First9 と Average の使い分け', () => {
     const justAfter = sigmaForDart(first9, average, 10);
     const settled = sigmaForDart(first9, average, 9 + TRANSITION_DARTS);
     // 9 投目 → 10 投目で一気に変わらない（遷移 1 段ぶんだけ動く）。
-    const totalGap = Math.abs(sigmaForPpr(average) - sigmaForPpr(first9));
+    const totalGap = Math.abs(sigmaForPpr(average) - sigmaForFirst9Ppr(first9));
     expect(Math.abs(justAfter - start)).toBeLessThan(totalGap);
     expect(Math.abs(justAfter - start)).toBeCloseTo(totalGap / TRANSITION_DARTS, 8);
     expect(settled).toBeCloseTo(sigmaForPpr(average), 10);
@@ -92,6 +118,28 @@ describe('First9 と Average の使い分け', () => {
     expect(sigmaForDart(MAX_PPR, 60, 5)).toBe(0);
     expect(sigmaForDart(MAX_PPR, 60, 20)).toBeGreaterThan(0);
   });
+
+  it('設定した First9 PPR が、実測の First9 PPR とおおむね一致する', () => {
+    const deviations: string[] = [];
+    for (const ppr of [40, 60, 100]) {
+      const sigma = sigmaForFirst9Ppr(ppr);
+      const result = measure(
+        {
+          startScore: 501,
+          first9Sigma: sigma,
+          averageSigma: sigma,
+          direction: 'even',
+          maxMiss: 'medium',
+        },
+        400,
+        20260916,
+      );
+      if (Math.abs(result.first9Ppr - ppr) > 6) {
+        deviations.push(`First9 ${ppr} → 実測 ${result.first9Ppr.toFixed(1)}`);
+      }
+    }
+    expect(deviations).toEqual([]);
+  }, 30000);
 });
 
 describe('ブレ方向と最大ブレ', () => {

@@ -64,7 +64,7 @@ export interface SigmaAnchor {
 }
 
 /**
- * PPR → 通常成分の散布幅 σ（mm）のアンカー表。ブレ方向ごとに持つ。
+ * **ゲーム全体の** PPR → 通常成分の散布幅 σ（mm）のアンカー表。ブレ方向ごとに持つ。
  *
  * `npm run audit:simulation -- --solve` の逆算で求めた値。
  * 「アプリのおすすめをそのまま狙う固定戦略のプレイヤー」に 501 を大量に
@@ -130,6 +130,77 @@ export const SIGMA_ANCHORS: Readonly<Record<MissDirection, readonly SigmaAnchor[
   ],
 };
 
+/**
+ * **First9 の** PPR → σ（mm）のアンカー表。ゲーム全体とは別に持つ。
+ *
+ * ## なぜ別表が要るのか
+ *
+ * 同じ σ でも、最初の 9 投の PPR とゲーム全体の PPR は一致しない。
+ * 最初の 9 投は純粋な得点投げ（ダブル狙いも BUST も無い）だが、
+ * ゲーム全体にはフィニッシュ狙いと BUST が入るぶん平均が下がるためで、
+ * 全体用の表をそのまま使うと **First9 が設定値より 10〜15 点も高く出る**
+ * （設定 60 → 実測 73 など）。GAME REVIEW の FIRST 9 PPR が設定と食い違う。
+ *
+ * そこで First9 だけは「最初の 9 投の PPR」を目標に逆算した表を使う。
+ * 逆算の手順は全体用とまったく同じ（固定戦略・501・最大ブレ中）。
+ */
+export const FIRST9_SIGMA_ANCHORS: Readonly<Record<MissDirection, readonly SigmaAnchor[]>> = {
+  even: [
+    { ppr: 20, sigma: 111.9 },
+    { ppr: 30, sigma: 60.3 },
+    { ppr: 40, sigma: 30.5 },
+    { ppr: 50, sigma: 20.1 },
+    { ppr: 60, sigma: 16.1 },
+    { ppr: 70, sigma: 13.3 },
+    { ppr: 80, sigma: 11.0 },
+    { ppr: 90, sigma: 9.2 },
+    { ppr: 100, sigma: 7.5 },
+    { ppr: 110, sigma: 6.2 },
+    { ppr: 120, sigma: 5.1 },
+    { ppr: 130, sigma: 4.2 },
+    { ppr: 140, sigma: 3.4 },
+    { ppr: 150, sigma: 2.8 },
+    { ppr: 160, sigma: 2.1 },
+    { ppr: MAX_PPR, sigma: 0 },
+  ],
+  vertical: [
+    { ppr: 20, sigma: 111.1 },
+    { ppr: 30, sigma: 53.4 },
+    { ppr: 40, sigma: 32.7 },
+    { ppr: 50, sigma: 23.7 },
+    { ppr: 60, sigma: 17.9 },
+    { ppr: 70, sigma: 13.8 },
+    { ppr: 80, sigma: 10.6 },
+    { ppr: 90, sigma: 7.9 },
+    { ppr: 100, sigma: 5.9 },
+    { ppr: 110, sigma: 4.6 },
+    { ppr: 120, sigma: 3.7 },
+    { ppr: 130, sigma: 3.0 },
+    { ppr: 140, sigma: 2.5 },
+    { ppr: 150, sigma: 2.0 },
+    { ppr: 160, sigma: 1.5 },
+    { ppr: MAX_PPR, sigma: 0 },
+  ],
+  horizontal: [
+    { ppr: 20, sigma: 96.9 },
+    { ppr: 30, sigma: 57.5 },
+    { ppr: 40, sigma: 29.4 },
+    { ppr: 50, sigma: 18.2 },
+    { ppr: 60, sigma: 14.5 },
+    { ppr: 70, sigma: 12.2 },
+    { ppr: 80, sigma: 10.6 },
+    { ppr: 90, sigma: 9.3 },
+    { ppr: 100, sigma: 8.1 },
+    { ppr: 110, sigma: 7.1 },
+    { ppr: 120, sigma: 6.1 },
+    { ppr: 130, sigma: 5.3 },
+    { ppr: 140, sigma: 4.5 },
+    { ppr: 150, sigma: 3.7 },
+    { ppr: 160, sigma: 2.7 },
+    { ppr: MAX_PPR, sigma: 0 },
+  ],
+};
+
 /** PPR の入力を 0〜167 に収める。 */
 export function clampPpr(ppr: number): number {
   if (!Number.isFinite(ppr)) return 0;
@@ -142,7 +213,17 @@ export function clampPpr(ppr: number): number {
  * PPR = 167 でのみ σ = 0（狙い通り 100%）になる。166 では 0 にならない。
  */
 export function sigmaForPpr(ppr: number, direction: MissDirection = 'even'): number {
-  const anchors = SIGMA_ANCHORS[direction];
+  return interpolate(SIGMA_ANCHORS[direction], ppr);
+}
+
+/**
+ * First9 の PPR から σ（mm）を求める。表だけが違い、考え方は `sigmaForPpr` と同じ。
+ */
+export function sigmaForFirst9Ppr(ppr: number, direction: MissDirection = 'even'): number {
+  return interpolate(FIRST9_SIGMA_ANCHORS[direction], ppr);
+}
+
+function interpolate(anchors: readonly SigmaAnchor[], ppr: number): number {
   const value = clampPpr(ppr);
   const first = anchors[0];
   if (value <= first.ppr) {
@@ -183,7 +264,8 @@ export function sigmaForDart(
   direction: MissDirection = 'even',
 ): number {
   if (clampPpr(averagePpr) >= MAX_PPR) return 0;
-  const firstSigma = sigmaForPpr(first9Ppr, direction);
+  // First9 とゲーム全体では、同じ σ でも出る PPR が違うので表を分けている。
+  const firstSigma = sigmaForFirst9Ppr(first9Ppr, direction);
   const averageSigma = sigmaForPpr(averagePpr, direction);
   if (dartIndex <= 9) return firstSigma;
   const step = Math.min(dartIndex - 9, TRANSITION_DARTS);

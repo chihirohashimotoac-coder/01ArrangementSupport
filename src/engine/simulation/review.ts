@@ -18,8 +18,7 @@ import { DARTS_PER_VISIT, MAX_SETUP_REMAINING, applyDart, isBogey } from '../../
 import { requireDart } from '../../domain/dart';
 import type { RouteGrade } from '../../data/rankingRules';
 import { suggestFor, type Suggestion } from '../recovery/suggest';
-import type { CheckoutRankingOptions } from '../ranking/checkoutRanking';
-import type { SetupOptions } from '../setup/enumerate';
+import { rankCheckoutRoutes } from '../ranking/checkoutRanking';
 import {
   allThrows,
   roundScoreOf,
@@ -117,7 +116,40 @@ export interface GameReview {
   readonly verdictCounts: Readonly<Record<ThrowVerdict, number>>;
 }
 
-export interface ReviewOptions extends CheckoutRankingOptions, SetupOptions {}
+export interface ReviewOptions {
+  /** MY ROUTE の得意ダブル（順位順）。ユーザー設定をそのまま渡す。 */
+  readonly preferredDoubles?: readonly string[];
+  /** SETUP で続けて狙う主目標。ユーザー設定をそのまま渡す。 */
+  readonly mainTarget?: string;
+}
+
+/**
+ * SETUP ランキングへ渡す候補数。
+ *
+ * 既定は 40 件だが、それは**画面に並べる件数**であって「その場面の候補の全部」では
+ * ない。40 件で切ると、41 番目以降にある推奨度 S / A / B の 1 投目まで
+ * 「候補に無い」と誤判定してしまう（171 の T16 → S20 → T20 は推奨度 A）。
+ * レビューでは表示件数で切らず、エンジンが評価した候補をすべて受け取る。
+ * エンジン側にも内部上限があるので、大きな値を渡してもそれ以上は返らない。
+ */
+const SETUP_REVIEW_MAX_ROUTES = 1000;
+
+/**
+ * ユーザー設定を、既存エンジンが読むオプションへ写す。
+ *
+ * **PracticePage とまったく同じ渡し方**にする。得意ダブルは
+ * `fallbackPreferredDoubles`（NEXT VISIT だけが読む名前）で渡し、
+ * `preferredDoubles` は渡さない。そうしないと STANDARD / OTHER ROUTES の
+ * 順位が得意ダブルで動いてしまい、アプリが実際に表示した推奨と
+ * レビューの判定がずれる。
+ */
+function suggestOptionsOf(options: ReviewOptions) {
+  return {
+    mainTarget: options.mainTarget,
+    fallbackPreferredDoubles: options.preferredDoubles,
+    maxRoutes: SETUP_REVIEW_MAX_ROUTES,
+  };
+}
 
 /** ゲーム全体のレビューを作る。 */
 export function buildGameReview(
@@ -171,7 +203,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
   }
 
   const outcome = applyDart(left, intended);
-  const suggestion = suggestFor(left, dartsLeft, options);
+  const suggestion = suggestFor(left, dartsLeft, suggestOptionsOf(options));
 
   if (outcome.outcome === 'bust') {
     const best = bestRouteOf(suggestion);
@@ -187,7 +219,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
   }
 
   const intendedLeave = outcome.remainingAfter;
-  const context = contextOf(suggestion);
+  const context = contextOf(suggestion, left, dartsLeft, options);
   const best = bestRouteOf(suggestion);
   const grade = context.gradeOfFirstDart(record.intendedDartId);
 
@@ -214,6 +246,25 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       noteJa:
         `${intended.nameJa} が狙い通り入ると残り ${intendedLeave} で、3 本あっても上がれないノーテンになります。` +
         (best ? `${best.routeText} なら上がり（または上がれる残り）を保てました。` : ''),
+    };
+  }
+
+  /*
+   * MY ROUTE（得意ダブル）に沿った狙いを不正解にしない。
+   *
+   * アプリは CHECKOUT で STANDARD と MY ROUTE を並べて出しているので、
+   * ユーザーが MY ROUTE に従って投げたのなら、それは推奨どおりの判断。
+   * 計算の仕方は PracticePage の MY ROUTE とまったく同じにする。
+   */
+  if (context.kind === 'checkout' && context.myRouteFirstDartId === record.intendedDartId) {
+    return {
+      record,
+      verdict: 'GOOD_DECISION',
+      grade,
+      intendedLeave,
+      recommendedRouteText: best?.routeText ?? null,
+      recommendedDartId: best?.firstDartId ?? null,
+      noteJa: '得意ダブルの設定（MY ROUTE）に沿った狙いです。',
     };
   }
 
@@ -271,6 +322,34 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     };
   }
 
+  /*
+   * 候補一覧に無いことを「ミス」と読み替えてよいのは、その一覧が
+   * **その場面の全候補を尽くしている**ときだけ。
+   *
+   * CHECKOUT（2〜170 で上がれる場面）のランキングは全ルートの列挙なので、
+   * 一覧に無い＝その 1 投目から上がる組み立てが存在しない、と言い切れる。
+   *
+   * 一方 SETUP / NEXT VISIT の候補は、承認済みの戦術のふるい（得点用トリプル
+   * 始動など）と件数の上限を通ったあとの一覧で、盤面の全 62 通りを評価した
+   * ものではない。ここで「一覧に無いから SETUP MISTAKE」と言うと、
+   * エンジンが評価していない狙いまで不正解にしてしまう。
+   * 断定はせず、アプリならどう組み立てたかだけを示す。
+   */
+  if (!context.isExhaustive) {
+    return {
+      record,
+      verdict: 'NOT_EVALUATED',
+      grade: null,
+      intendedLeave,
+      recommendedRouteText: best?.routeText ?? null,
+      recommendedDartId: best?.firstDartId ?? null,
+      noteJa:
+        `${intended.nameJa} は${context.label}の候補一覧に無いため、良し悪しは断定していません` +
+        `（狙い通りだと残り ${intendedLeave}）。` +
+        (best ? `アプリのおすすめは ${best.routeText} でした。` : ''),
+    };
+  }
+
   return {
     record,
     verdict: mistake,
@@ -279,7 +358,8 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     recommendedRouteText: best?.routeText ?? null,
     recommendedDartId: best?.firstDartId ?? null,
     noteJa:
-      `${intended.nameJa} は ${context.label}の候補に入っていません（狙い通りだと残り ${intendedLeave}）。` +
+      `${intended.nameJa} からは、この ${dartsLeft} 本で上がる組み立てがありません` +
+      `（狙い通りだと残り ${intendedLeave}）。` +
       (best ? `おすすめは ${best.routeText}（${best.reasonJa ?? '推奨度 S'}）。` : ''),
   };
 }
@@ -322,13 +402,28 @@ interface VerdictContext {
   readonly kind: 'checkout' | 'setup';
   readonly label: string;
   readonly hasCandidates: boolean;
+  /**
+   * 候補一覧がその場面の**全候補を尽くしている**か。
+   *
+   * CHECKOUT のランキングは全ルートの列挙なので true。
+   * SETUP / NEXT VISIT は戦術のふるいと件数上限を通った一覧なので false。
+   * 「一覧に無い＝ミス」と読み替えてよいのは true のときだけ。
+   */
+  readonly isExhaustive: boolean;
   /** 狙いを 1 投目に持つルートのうち、最も良い推奨度。 */
   gradeOfFirstDart(dartId: string): RouteGrade | null;
   /** Bogey を作らない選択肢が他にあるか。 */
   readonly hasBogeyFreeAlternative: boolean;
+  /** MY ROUTE の 1 投目（CHECKOUT で得意ダブルを設定しているときだけ）。 */
+  readonly myRouteFirstDartId: string | null;
 }
 
-function contextOf(suggestion: Suggestion): VerdictContext {
+function contextOf(
+  suggestion: Suggestion,
+  remaining: number,
+  dartsLeft: number,
+  options: ReviewOptions,
+): VerdictContext {
   const { checkoutRoutes, setupRoutes, nextVisitProposals } = suggestion;
 
   if (checkoutRoutes.length > 0) {
@@ -336,8 +431,10 @@ function contextOf(suggestion: Suggestion): VerdictContext {
       kind: 'checkout',
       label: 'この 3 投で上がる形',
       hasCandidates: true,
+      isExhaustive: true,
       gradeOfFirstDart: (dartId) => bestGrade(checkoutRoutes, dartId),
       hasBogeyFreeAlternative: true,
+      myRouteFirstDartId: myRouteFirstDartOf(remaining, dartsLeft, options),
     };
   }
 
@@ -347,8 +444,10 @@ function contextOf(suggestion: Suggestion): VerdictContext {
       kind: 'setup',
       label: '次のラウンドへ残す形',
       hasCandidates: true,
+      isExhaustive: false,
       gradeOfFirstDart: (dartId) => bestGrade(routes, dartId),
       hasBogeyFreeAlternative: routes.some((route) => !isBogey(route.leave)),
+      myRouteFirstDartId: null,
     };
   }
 
@@ -357,8 +456,10 @@ function contextOf(suggestion: Suggestion): VerdictContext {
       kind: 'setup',
       label: '次の 3 投へ向けて整える形',
       hasCandidates: true,
+      isExhaustive: false,
       gradeOfFirstDart: (dartId) => bestGrade(setupRoutes, dartId),
       hasBogeyFreeAlternative: setupRoutes.some((route) => !isBogey(route.leave)),
+      myRouteFirstDartId: null,
     };
   }
 
@@ -366,9 +467,29 @@ function contextOf(suggestion: Suggestion): VerdictContext {
     kind: suggestion.mode === 'setup' ? 'setup' : 'checkout',
     label: 'この場面',
     hasCandidates: false,
+    isExhaustive: false,
     gradeOfFirstDart: () => null,
     hasBogeyFreeAlternative: false,
+    myRouteFirstDartId: null,
   };
+}
+
+/**
+ * MY ROUTE の 1 投目。PracticePage の MY ROUTE とまったく同じ計算をする
+ * （得意ダブルを優先し、基準ルート加点を外して並べ替える）。
+ */
+function myRouteFirstDartOf(
+  remaining: number,
+  dartsLeft: number,
+  options: ReviewOptions,
+): string | null {
+  const preferred = options.preferredDoubles ?? [];
+  if (preferred.length === 0) return null;
+  const ranked = rankCheckoutRoutes(remaining, dartsLeft, {
+    preferredDoubles: preferred,
+    applyStandardBonus: false,
+  });
+  return ranked[0]?.darts[0]?.id ?? null;
 }
 
 const GRADE_ORDER: Readonly<Record<RouteGrade, number>> = { S: 3, A: 2, B: 1, C: 0 };

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isBogey } from '../../domain/checkoutRules';
+import { rankSetupRoutes } from '../setup/enumerate';
+import { rankCheckoutRoutes } from '../ranking/checkoutRanking';
 import { suggestFor } from '../recovery/suggest';
 import { MAX_PPR } from './accuracy';
 import {
@@ -92,6 +94,37 @@ describe('評価するのは狙いだけ（着弾ミスと判断ミスを混同�
     expect(notGood).toEqual([]);
   });
 
+  it('候補一覧の表示件数（40 件）で切って判定しない', () => {
+    /*
+     * 回帰テスト（Codex レビュー P1）。
+     * 171 の T16 → S20 → T20 は推奨度 A だが、41 番目以降にあるため
+     * 表示件数のまま判定すると SETUP MISTAKE になってしまっていた。
+     */
+    const full = rankSetupRoutes(171, 3, { maxRoutes: 100000 });
+    const t16 = full.filter((route) => route.darts[0].id === 'T16');
+    expect(t16.length).toBeGreaterThan(0);
+    expect(t16.some((route) => route.grade === 'S' || route.grade === 'A')).toBe(true);
+    // 既定の 40 件には入っていない（この前提が崩れたらテストの意味が変わる）。
+    expect(rankSetupRoutes(171, 3).some((route) => route.darts[0].id === 'T16')).toBe(false);
+
+    const result = reviewThrow(record(171, 'T16', 'S16'));
+    expect(result.verdict).toBe('GOOD_DECISION');
+  });
+
+  it('候補一覧に入っている S / A の 1 投目は、どの残りでも GOOD DECISION', () => {
+    const notGood: string[] = [];
+    for (let left = 171; left <= 350; left += 1) {
+      const ranked = rankSetupRoutes(left, 3, { maxRoutes: 100000 });
+      const good = ranked.filter((route) => route.grade === 'S' || route.grade === 'A');
+      const firstDarts = [...new Set(good.map((route) => route.darts[0].id))];
+      for (const id of firstDarts) {
+        const verdict = reviewThrow(record(left, id, 'MISS')).verdict;
+        if (verdict !== 'GOOD_DECISION') notGood.push(`${left}: ${id} → ${verdict}`);
+      }
+    }
+    expect(notGood).toEqual([]);
+  });
+
   it('SETUP 領域（171〜350）でも、推奨の 1 投目は GOOD DECISION', () => {
     const notGood: string[] = [];
     for (let left = 171; left <= 350; left += 1) {
@@ -143,15 +176,36 @@ describe('分類', () => {
     expect(result.verdict).toBe('GOOD_DECISION');
   });
 
-  it('候補に入っていない狙いは、その場面に応じた MISTAKE になる', () => {
-    // 上がれる場面で、上がりに絡まない的。
-    const checkout = reviewThrow(record(40, 'S3', 'S3'));
-    expect(checkout.verdict).toBe('ARRANGEMENT_MISTAKE');
-    expect(checkout.recommendedDartId).not.toBeNull();
+  it('CHECKOUT では、候補に無い狙いを ARRANGEMENT MISTAKE と言い切れる', () => {
+    /*
+     * CHECKOUT のランキングは全ルートの列挙なので、
+     * 一覧に無い＝その 1 投目から上がる組み立てが無い、と断定できる。
+     * 170 から S11 を狙うと 159 で、残り 2 本では上がれない。
+     */
+    expect(rankCheckoutRoutes(170, 3).some((route) => route.darts[0].id === 'S11')).toBe(false);
+    const result = reviewThrow(record(170, 'S11', 'S11'));
+    expect(result.verdict).toBe('ARRANGEMENT_MISTAKE');
+    expect(result.recommendedDartId).not.toBeNull();
+    expect(result.noteJa).toContain('上がる組み立てがありません');
+  });
 
-    // 整える場面（171 以上）で、候補から外れた的。
-    const setup = reviewThrow(record(301, 'S1', 'S1'));
-    expect(['SETUP_MISTAKE', 'BETTER_OPTION_AVAILABLE', 'BOGEY_CREATED']).toContain(setup.verdict);
+  it('成立はするが非推奨（推奨度 C）の狙いも ARRANGEMENT MISTAKE', () => {
+    const result = reviewThrow(record(40, 'S3', 'S3'));
+    expect(result.verdict).toBe('ARRANGEMENT_MISTAKE');
+    expect(result.grade).toBe('C');
+    expect(result.noteJa).toContain('非推奨');
+  });
+
+  it('SETUP では、候補に無いだけの狙いをミスと言い切らない', () => {
+    /*
+     * SETUP の候補は承認済みの戦術のふるいを通った一覧で、盤面の全 62 通りを
+     * 評価したものではない。「一覧に無い」を不正解の根拠にしない。
+     */
+    const result = reviewThrow(record(301, 'S1', 'S1'));
+    expect(result.verdict).toBe('NOT_EVALUATED');
+    expect(result.noteJa).toContain('断定していません');
+    // それでも、アプリならどう組み立てたかは示す。
+    expect(result.recommendedRouteText).not.toBeNull();
   });
 
   it('おすすめのルートと 1 投目を必ず添える（判定できる場面では）', () => {
@@ -161,15 +215,50 @@ describe('分類', () => {
     expect(result.noteJa).toContain(result.recommendedRouteText!);
   });
 
-  it('MY ROUTE の設定はレビューにも効く', () => {
-    const left = 100;
-    const withoutPreference = reviewThrow(record(left, 'T20', 'T20'));
-    const withPreference = reviewThrow(record(left, 'T20', 'T20'), {
-      preferredDoubles: ['D10'],
+  it('MY ROUTE に沿った狙いを不正解にしない', () => {
+    /*
+     * 得意ダブルを設定すると MY ROUTE の 1 投目が変わり、かつその 1 投目が
+     * 標準ランキングでは S / A ではない場面を探す（設定がなければ
+     * GOOD DECISION にならない場面 ＝ 設定でしか救われない場面）。
+     */
+    const preferredDoubles = ['D10'];
+    let found: { left: number; myRoute: string } | null = null;
+    for (let left = 2; left <= 170 && found === null; left += 1) {
+      const standard = rankCheckoutRoutes(left, 3);
+      const my = rankCheckoutRoutes(left, 3, { preferredDoubles, applyStandardBonus: false });
+      if (standard.length === 0 || my.length === 0) continue;
+      const myFirst = my[0].darts[0].id;
+      if (standard[0].darts[0].id === myFirst) continue;
+      // 標準ランキングでの、その 1 投目の最良グレード。
+      const grades = standard
+        .filter((route) => route.darts[0].id === myFirst)
+        .map((route) => route.grade);
+      if (grades.includes('S') || grades.includes('A')) continue;
+      found = { left, myRoute: myFirst };
+    }
+    expect(found).not.toBeNull();
+    const { left, myRoute } = found!;
+
+    // 設定が無ければ GOOD DECISION にはならない。
+    expect(reviewThrow(record(left, myRoute, 'S1')).verdict).not.toBe('GOOD_DECISION');
+    // 得意ダブルを設定していれば GOOD DECISION。
+    const withPreference = reviewThrow(record(left, myRoute, 'S1'), { preferredDoubles });
+    expect(withPreference.verdict).toBe('GOOD_DECISION');
+    expect(withPreference.noteJa).toContain('MY ROUTE');
+  });
+
+  it('NEXT VISIT の残し候補にも得意ダブルが効く', () => {
+    /*
+     * 回帰テスト（Codex レビュー P2）。
+     * suggestFor が NEXT VISIT で読むのは fallbackPreferredDoubles なので、
+     * preferredDoubles を渡すだけでは MY ROUTE が無視されていた。
+     */
+    const withPreference = reviewThrow(record(41, 'S1', 'S1', 3), {
+      preferredDoubles: ['D20'],
     });
-    // 設定によっておすすめが変わりうる（同じでも判定は壊れない）。
-    expect(withoutPreference.recommendedRouteText).not.toBeNull();
-    expect(withPreference.recommendedRouteText).not.toBeNull();
+    expect(withPreference.intendedLeave).toBe(40);
+    expect(withPreference.verdict).toBe('GOOD_DECISION');
+    expect(withPreference.recommendedRouteText).toContain('S1');
   });
 });
 

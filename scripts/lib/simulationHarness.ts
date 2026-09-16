@@ -187,19 +187,25 @@ export function measure(options: GameOptions, games: number, seed = 1): Measurem
  * 目標 PPR になる σ を二分探索で求める。
  *
  * σ が大きいほど PPR は単調に下がるので、二分探索が使える。
+ *
+ * @param scope 'game' はゲーム全体の PPR、'first9' は最初の 9 投の PPR を目標にする。
+ *   同じ σ でも両者は一致しない（最初の 9 投にはフィニッシュ狙いも BUST も
+ *   入らないぶん高く出る）ため、アンカー表も分けている。
  */
 export function solveSigmaForPpr(
   targetPpr: number,
   base: Omit<GameOptions, 'first9Sigma' | 'averageSigma'>,
   games = 400,
   iterations = 22,
+  scope: 'game' | 'first9' = 'game',
 ): number {
   let low = 0;
-  let high = 220;
+  let high = 260;
   for (let i = 0; i < iterations; i += 1) {
     const mid = (low + high) / 2;
     const result = measure({ ...base, first9Sigma: mid, averageSigma: mid }, games, 20260916);
-    if (result.ppr > targetPpr) low = mid;
+    const observed = scope === 'game' ? result.ppr : result.first9Ppr;
+    if (observed > targetPpr) low = mid;
     else high = mid;
   }
   return (low + high) / 2;
