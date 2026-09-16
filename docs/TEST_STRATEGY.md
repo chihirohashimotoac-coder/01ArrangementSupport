@@ -225,6 +225,28 @@ trivial 上限を圧迫する。希望難易度が出題順の制約で使えな
 SETUP の推奨残りが 160 になる割合は **hard failure にせず WARNING + 原因分析**とする
 （`docs/TRAINING_DESIGN.md` §9）。
 
+## 3-2. SIMULATION の散布モデル監査（`npm run audit:simulation`）
+
+SIMULATION の着弾モデルは乱数を伴うので、通常の unit test には
+**高速な代表ケースだけ**を置き（`src/engine/simulation/accuracy.test.ts`）、
+大量試行の監査はこのコマンドへ分離する。CI では unit test のあとに実行する。
+
+監査する項目:
+
+- 設定 Average と、固定戦略で 501 を大量に投げたときの実測 PPR の差（±5 以内）
+- 最大ブレ・ブレ方向を変えても実測 PPR が大きく動かないこと（±7 以内）
+- PPR が高いほど散布が小さくなること
+- 縦ブレで σY が、横ブレで σX が大きくなること
+- 最大ブレを上げると外れ値と OUT BOARD が増えること
+- Average 167 は 100% 狙い通り、166 は着弾がばらつくこと
+- BULL / ダブルが座標から自然に判定されること
+
+`npm run audit:simulation -- --solve` は、PPR → σ のアンカー表そのものを
+二分探索で作り直す（`src/engine/simulation/accuracy.ts` の `SIGMA_ANCHORS`）。
+
+**得点判定と表示位置が必ず一致すること**は乱数に依存しないので、
+通常の unit test 側（`boardGeometry.test.ts`・2 万点の無作為着弾）で担保する。
+
 ## 4. 性能テスト
 
 - SETUP の 171〜350 全件探索が、表の構築を含めて 1 秒以内
@@ -250,6 +272,7 @@ vitest の既定タイムアウト（5 秒）を超えます。違反を配列�
 
 ## 7. 現在の規模
 
-- ユニット / コンポーネント: **15 ファイル / 476 テスト**
-- E2E: **45 テスト × 2 プロジェクト = 90**
+- ユニット / コンポーネント: **25 ファイル / 823 テスト**
+- E2E: **76 テスト × 2 プロジェクト = 152**
 - 統計監査: `npm run audit:training`（各モード 10 万問、約 25 秒）
+- 統計監査: `npm run audit:simulation`（501 を数千ゲーム＋散布 20 万点、約 5 秒）

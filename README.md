@@ -15,13 +15,14 @@
 
 ---
 
-## 3 つのモード
+## 4 つのモード
 
 | モード | 対象 | やること |
 | --- | --- | --- |
 | **CHECKOUT** | 残り 2〜170 | 基準ルート・MY ROUTE・理由・その他の合法ルートを表示。1 投ごとに追従。 |
 | **SETUP** | 残り 171〜350 | 次ラウンドに良いテンパイを残す組み立てを提案。ノーテン（Bogey）を避ける。 |
 | **TRAINING** | — | CHECKOUT / SETUP / RECOVERY / MIXED の反復練習と、成績の記録。 |
+| **SIMULATION** | 301 / 501 / 701 / 任意 | 1 投ずつ自分で狙って上がりきる。着弾は設定した能力から盤面の座標として決まる。ゲーム中は答えを出さず、終了後に GAME REVIEW で振り返る。 |
 
 ### 特徴
 
@@ -44,6 +45,8 @@ npm run dev            # 開発サーバー
 npm run verify         # lint + typecheck + test + build
 npm run test:e2e       # Playwright（先に npm run build が必要）
 npm run import:checkout   # 添付 Excel から基準ルートデータを再生成
+npm run audit:training    # TRAINING の大量出題監査
+npm run audit:simulation  # SIMULATION の散布モデル統計監査
 ```
 
 ### 技術構成
@@ -120,6 +123,7 @@ engine が計算し、テストで検証している**検証可能な事実**で
 | `docs/CHECKOUT_DATA_POLICY.md` | 基準ルートデータの扱いと検算 |
 | `docs/SETUP_THEORY.md` | 171〜350 の考え方（0・1・4・7、TON の罠、S-BULL） |
 | `docs/UI_SPEC.md` | 画面仕様 |
+| `docs/SIMULATION_DESIGN.md` | SIMULATION の着弾モデル・進行・レビュー |
 | `docs/TEST_STRATEGY.md` | テスト方針 |
 | `docs/DATA_CONFLICTS.md` | 資料と計算結果の食い違い・確認事項 |
 | `docs/APPROVALS.md` | 戦術方針の人間承認記録（v1） |

@@ -49,32 +49,46 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴に v1.3.7 の主要変更がある', async () => {
+  it('最新の履歴に v1.4.0 の主要変更がある', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('v1.3.7');
+    expect(latest).toHaveTextContent('v1.4.0');
     expect(latest).toHaveTextContent('現在');
-    // 何が変わったのかを、残り点の例つきでユーザー向けに書く。
-    expect(latest.textContent ?? '').toMatch(/299/);
-    expect(latest.textContent ?? '').toMatch(/T19/);
-    expect(latest.textContent ?? '').toMatch(/参考資料・出典/);
-    // 変えていないことも明示する。
-    expect(latest.textContent ?? '').toMatch(/これまでどおり/);
+    expect(latest.textContent ?? '').toMatch(/SIMULATION/);
+    expect(latest.textContent ?? '').toMatch(/CALCULATION MISS/);
+    expect(latest.textContent ?? '').toMatch(/GAME REVIEW/);
+    // 既存モードを変えていないことも明示する。
+    expect(latest.textContent ?? '').toMatch(/変更していません/);
   });
 
-  it('v1.3.6 の履歴は残り、現在版ではなくなっている', async () => {
+  it('v1.3.7 の履歴は残り、現在版ではなくなっている', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
-    const previous = screen.getAllByTestId('version-history-item')[1];
-    expect(previous).toHaveTextContent('v1.3.6');
-    expect(previous.textContent ?? '').toMatch(/130/);
-    expect(previous.textContent ?? '').toMatch(/得意ダブル/);
-    expect(previous.querySelector('.version-history__badge')).toBeNull();
+    const items = screen.getAllByTestId('version-history-item');
+    const previous = items.find((item) => (item.textContent ?? '').includes('v1.3.7'));
+    expect(previous).toBeDefined();
+    expect(previous?.textContent ?? '').toMatch(/299/);
+    expect(previous?.textContent ?? '').toMatch(/T19/);
+    expect(previous?.textContent ?? '').toMatch(/参考資料・出典/);
+    expect(previous?.querySelector('.version-history__badge')).toBeNull();
+  });
+
+  it('v1.3.6 の履歴は残っている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const items = screen.getAllByTestId('version-history-item');
+    const previous = items.find((item) => (item.textContent ?? '').includes('v1.3.6'));
+    expect(previous).toBeDefined();
+    expect(previous?.textContent ?? '').toMatch(/130/);
+    expect(previous?.textContent ?? '').toMatch(/得意ダブル/);
+    expect(previous?.querySelector('.version-history__badge')).toBeNull();
   });
 
   it('v1.3.5 の履歴は残っている', async () => {
