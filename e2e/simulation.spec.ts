@@ -35,16 +35,109 @@ test('SIMULATION を開いて設定できる', async ({ page }) => {
   await expect(page.getByTestId('sim-maxmiss-large')).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('狙いをタップすると着弾が盤面に出て、残りが減る', async ({ page }) => {
+test('狙いをタップすると着弾が盤面に出る（LEFT は動かない）', async ({ page }) => {
   await startPerfectGame(page, 170);
   await expect(page.getByTestId('status-left')).toHaveText('170');
 
   await page.getByTestId('segment-t20').click();
-  await expect(page.getByTestId('status-left')).toHaveText('110');
-  await expect(page.getByTestId('sim-throw-row-1')).toContainText('着弾 トリプル20');
+  // LEFT はビジット開始時のまま（残りの暗算も練習のうち）。
+  await expect(page.getByTestId('status-left')).toHaveText('170');
+  await expect(page.getByTestId('sim-throw-row-1')).toContainText('着弾 T20');
   // 文字だけでなく、盤面上の位置としても表示する。
   await expect(page.getByTestId('board-marker-hit-1')).toBeAttached();
   await expect(page.getByTestId('board-marker-aim-1')).toBeAttached();
+});
+
+test('LEFT は得点を確定して次のビジットへ進んだときだけ変わる', async ({ page }) => {
+  await startPerfectGame(page, 501);
+  for (let dart = 0; dart < 3; dart += 1) {
+    await page.getByTestId('segment-t20').click();
+    await expect(page.getByTestId('status-left')).toHaveText('501');
+  }
+
+  await page.getByTestId('sim-score-input').fill('180');
+  await page.getByTestId('sim-score-submit').click();
+  await expect(page.getByTestId('status-left')).toHaveText('501');
+
+  await page.getByTestId('sim-next-round').click();
+  await expect(page.getByTestId('status-left')).toHaveText('321');
+});
+
+test('3 投目より前の Checkout でビジットが終わる（LEFT は開始時のまま）', async ({ page }) => {
+  await startPerfectGame(page, 40);
+  await page.getByTestId('segment-d20').click();
+
+  await expect(page.getByTestId('status-flag')).toContainText('CHECKOUT!');
+  await expect(page.getByTestId('status-left')).toHaveText('40');
+  // 残りのダーツは投げられない。
+  await page.getByTestId('segment-t20').click();
+  await expect(page.getByTestId('sim-throw-row-2')).toHaveCount(0);
+
+  await page.getByTestId('sim-score-input').fill('40');
+  await page.getByTestId('sim-score-submit').click();
+  await page.getByTestId('sim-next-round').click();
+  await expect(page.getByTestId('sim-review')).toBeVisible();
+});
+
+test('3 投目の確定と同時に、押さずに数字を打てる', async ({ page }) => {
+  await startPerfectGame(page, 501);
+  for (let dart = 0; dart < 3; dart += 1) await page.getByTestId('segment-t20').click();
+
+  const input = page.getByTestId('sim-score-input');
+  await expect(input).toBeFocused();
+  await expect(input).toBeVisible();
+  // モバイルで数字キーボードが開く属性。
+  await expect(input).toHaveAttribute('inputmode', 'numeric');
+
+  // 入力欄を押さずに、そのままキーボードから打てる。
+  await page.keyboard.type('180');
+  await expect(input).toHaveValue('180');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('sim-entry-verdict')).toContainText('正解');
+});
+
+test('自動フォーカスで盤面が画面外へ飛ばない', async ({ page }) => {
+  await startPerfectGame(page, 501);
+  const board = page.getByTestId('dartboard');
+  await expect(board).toBeInViewport();
+
+  for (let dart = 0; dart < 3; dart += 1) await page.getByTestId('segment-t20').click();
+
+  await expect(page.getByTestId('sim-score-input')).toBeFocused();
+  // 盤面が完全に画面外へ押し出されていないこと。
+  await expect(board).toBeInViewport();
+});
+
+test('3 投目のあとでも、得点を確定する前なら UNDO できる', async ({ page }) => {
+  await startPerfectGame(page, 501);
+  for (let dart = 0; dart < 3; dart += 1) await page.getByTestId('segment-t20').click();
+  await expect(page.getByTestId('sim-score-input')).toBeVisible();
+
+  await page.getByTestId('sim-undo').click();
+  await expect(page.getByTestId('sim-score-input')).toHaveCount(0);
+  await expect(page.getByTestId('sim-throw-row-3')).toHaveCount(0);
+  await expect(page.getByTestId('sim-progress')).toContainText('DART 3 of 3');
+
+  await page.getByTestId('segment-t19').click();
+  await expect(page.getByTestId('sim-throw-row-3')).toContainText('狙い T19');
+  await expect(page.getByTestId('sim-score-input')).toBeFocused();
+});
+
+test('ターゲット表記が Sxx / Txx / Dxx / SB / DB でそろう', async ({ page }) => {
+  await startPerfectGame(page, 170);
+  await page.getByTestId('segment-t20').click();
+  await expect(page.getByTestId('sim-throw-row-1')).toContainText('狙い T20');
+  await page.getByTestId('segment-s20-outer').click();
+  await expect(page.getByTestId('sim-throw-row-2')).toContainText('狙い S20');
+  await page.getByTestId('segment-inner-bull').click();
+  await expect(page.getByTestId('sim-throw-row-3')).toContainText('狙い DB');
+
+  // 読み下し表記が残っていないこと。
+  const play = page.getByLabel('SIMULATION プレイ中');
+  await expect(play).not.toContainText('トリプル');
+  await expect(play).not.toContainText('シングル');
+  await expect(play).not.toContainText('ダブル');
+  await expect(play).not.toContainText('ブル');
 });
 
 test('ゲーム中はアレンジの答えを出さない', async ({ page }) => {
@@ -64,14 +157,14 @@ test('直前の 1 投だけ取り消せる', async ({ page }) => {
 
   await page.getByTestId('segment-t20').click();
   await page.getByTestId('segment-t19').click();
-  await expect(page.getByTestId('status-left')).toHaveText('384');
+  await expect(page.getByTestId('status-left')).toHaveText('501');
 
   await page.getByTestId('sim-undo').click();
-  await expect(page.getByTestId('status-left')).toHaveText('441');
+  await expect(page.getByTestId('status-left')).toHaveText('501');
   await expect(page.getByTestId('sim-throw-row-2')).toHaveCount(0);
 
   await page.getByTestId('segment-t18').click();
-  await expect(page.getByTestId('sim-throw-row-2')).toContainText('狙い トリプル18');
+  await expect(page.getByTestId('sim-throw-row-2')).toContainText('狙い T18');
 });
 
 test('暗算を間違えると CALCULATION MISS が出て、正しい得点で進む', async ({ page }) => {
@@ -94,7 +187,7 @@ test('暗算を間違えると CALCULATION MISS が出て、正しい得点で�
 test('BUST するとラウンド開始時の残りへ戻る', async ({ page }) => {
   await startPerfectGame(page, 100);
   await page.getByTestId('segment-t20').click();
-  await expect(page.getByTestId('status-left')).toHaveText('40');
+  await expect(page.getByTestId('status-left')).toHaveText('100');
   await page.getByTestId('segment-t20').click();
 
   await expect(page.getByTestId('status-flag')).toContainText('BUST');

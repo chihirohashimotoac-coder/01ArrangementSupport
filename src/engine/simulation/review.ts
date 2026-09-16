@@ -19,6 +19,7 @@ import { requireDart } from '../../domain/dart';
 import type { RouteGrade } from '../../data/rankingRules';
 import { suggestFor, type Suggestion } from '../recovery/suggest';
 import { rankCheckoutRoutes } from '../ranking/checkoutRanking';
+import { displayRouteText, displayTargetId } from './notation';
 import {
   allThrows,
   roundScoreOf,
@@ -72,9 +73,9 @@ export interface ThrowReview {
   readonly grade: RouteGrade | null;
   /** 狙い通り入ったときの残り。Bust する狙いなら null。 */
   readonly intendedLeave: number | null;
-  /** その場面のおすすめルート（表示用）。 */
+  /** その場面のおすすめルート（**画面表記**へ直したもの）。 */
   readonly recommendedRouteText: string | null;
-  /** おすすめルートの 1 投目。 */
+  /** おすすめルートの 1 投目。**内部 ID**（照合用。表示は `displayTargetId`）。 */
   readonly recommendedDartId: string | null;
   /** なぜそう判断したかの説明。 */
   readonly noteJa: string;
@@ -188,6 +189,8 @@ function reviewRound(round: RoundRecord, options: ReviewOptions): RoundReview {
 export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): ThrowReview {
   const dartsLeft = DARTS_PER_VISIT - (record.dartNumber - 1);
   const intended = requireDart(record.intendedDartId);
+  /** 説明文に出す表記。判定は内部 ID（`record.intendedDartId`）で行う。 */
+  const intendedLabel = displayTargetId(record.intendedDartId);
   const left = record.leftBefore;
 
   if (left > MAX_SETUP_REMAINING) {
@@ -214,7 +217,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       intendedLeave: null,
       recommendedRouteText: best?.routeText ?? null,
       recommendedDartId: best?.firstDartId ?? null,
-      noteJa: bustNoteJa(left, intended.nameJa, intended.score, best?.routeText ?? null),
+      noteJa: bustNoteJa(left, intendedLabel, intended.score, best?.routeText ?? null),
     };
   }
 
@@ -244,7 +247,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       recommendedRouteText: best?.routeText ?? null,
       recommendedDartId: best?.firstDartId ?? null,
       noteJa:
-        `${intended.nameJa} が狙い通り入ると残り ${intendedLeave} で、3 本あっても上がれないノーテンになります。` +
+        `${intendedLabel} が狙い通り入ると残り ${intendedLeave} で、3 本あっても上がれないノーテンになります。` +
         (best ? `${best.routeText} なら上がり（または上がれる残り）を保てました。` : ''),
     };
   }
@@ -289,7 +292,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       recommendedRouteText: best?.routeText ?? null,
       recommendedDartId: best?.firstDartId ?? null,
       noteJa:
-        `${intended.nameJa} でも成立しますが、${context.label}としてはより良い狙いがありました。` +
+        `${intendedLabel} でも成立しますが、${context.label}としてはより良い狙いがありました。` +
         (best ? `おすすめは ${best.routeText}（${best.reasonJa ?? '推奨度 S'}）。` : ''),
     };
   }
@@ -304,7 +307,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       recommendedRouteText: best?.routeText ?? null,
       recommendedDartId: best?.firstDartId ?? null,
       noteJa:
-        `${intended.nameJa} は成立はしますが、${context.label}としては非推奨です。` +
+        `${intendedLabel} は成立はしますが、${context.label}としては非推奨です。` +
         (best ? `おすすめは ${best.routeText}（${best.reasonJa ?? '推奨度 S'}）。` : ''),
     };
   }
@@ -344,7 +347,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       recommendedRouteText: best?.routeText ?? null,
       recommendedDartId: best?.firstDartId ?? null,
       noteJa:
-        `${intended.nameJa} は${context.label}の候補一覧に無いため、良し悪しは断定していません` +
+        `${intendedLabel} は${context.label}の候補一覧に無いため、良し悪しは断定していません` +
         `（狙い通りだと残り ${intendedLeave}）。` +
         (best ? `アプリのおすすめは ${best.routeText} でした。` : ''),
     };
@@ -358,7 +361,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     recommendedRouteText: best?.routeText ?? null,
     recommendedDartId: best?.firstDartId ?? null,
     noteJa:
-      `${intended.nameJa} からは、この ${dartsLeft} 本で上がる組み立てがありません` +
+      `${intendedLabel} からは、この ${dartsLeft} 本で上がる組み立てがありません` +
       `（狙い通りだと残り ${intendedLeave}）。` +
       (best ? `おすすめは ${best.routeText}（${best.reasonJa ?? '推奨度 S'}）。` : ''),
   };
@@ -374,7 +377,7 @@ function bestRouteOf(suggestion: Suggestion): RouteSummary | null {
   const checkout = suggestion.checkoutRoutes[0];
   if (checkout !== undefined) {
     return {
-      routeText: checkout.routeText,
+      routeText: displayRouteText(checkout.routeText),
       firstDartId: checkout.darts[0].id,
       reasonJa: checkout.reasons[0]?.summary ?? null,
     };
@@ -382,7 +385,7 @@ function bestRouteOf(suggestion: Suggestion): RouteSummary | null {
   const nextVisit = suggestion.nextVisitProposals[0]?.route;
   if (nextVisit !== undefined) {
     return {
-      routeText: nextVisit.routeText,
+      routeText: displayRouteText(nextVisit.routeText),
       firstDartId: nextVisit.darts[0].id,
       reasonJa: `残り ${nextVisit.leave} を作る`,
     };
@@ -390,7 +393,7 @@ function bestRouteOf(suggestion: Suggestion): RouteSummary | null {
   const setup = suggestion.setupRoutes[0];
   if (setup !== undefined) {
     return {
-      routeText: setup.routeText,
+      routeText: displayRouteText(setup.routeText),
       firstDartId: setup.darts[0].id,
       reasonJa: `残り ${setup.leave} を作る`,
     };

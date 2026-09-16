@@ -10,12 +10,12 @@
  * 必ず同じ着弾になる（UNDO で結果を引き直せてしまう抜け道を作らない）。
  */
 import { DARTS_PER_VISIT, applyDart, type BustReason } from '../../domain/checkoutRules';
-import { requireDart } from '../../domain/dart';
 import { getSegmentById, type SegmentDefinition } from '../../domain/segments';
 import { createRandom, type RandomSource } from '../training/random';
 import type { Point } from './boardGeometry';
 import { simulateThrow, type ThrowAbility } from './throwSimulator';
 import { clampPpr, type MaxMissLevel, type MissDirection } from './accuracy';
+import { displayTargetId } from './notation';
 
 /** 開始点数として選べる既定値。 */
 export const PRESET_START_SCORES: readonly number[] = [301, 501, 701];
@@ -388,10 +388,16 @@ export function countedScoreOf(round: RoundRecord, record: ThrowRecord): number 
   return round.bust ? 0 : record.score;
 }
 
-/** 表示用に、1 投の「狙い」と「着弾」を日本語で表す。 */
+/**
+ * 表示用に、1 投の「狙い」と「着弾」を表す。
+ *
+ * 表記は **S20 / D20 / T20 / SB / DB / MISS** に統一する（`notation.ts`）
+ * （「トリプル20」のような読み下しはしない）。内部 ID はそのまま保つので、
+ * BUST / Checkout 判定や履歴・レビューの照合には一切影響しない。
+ */
 export function describeThrow(record: ThrowRecord): { intended: string; actual: string } {
   return {
-    intended: requireDart(record.intendedDartId).nameJa,
-    actual: record.actualDartId === 'MISS' ? 'アウトボード' : requireDart(record.actualDartId).nameJa,
+    intended: displayTargetId(record.intendedDartId),
+    actual: displayTargetId(record.actualDartId),
   };
 }

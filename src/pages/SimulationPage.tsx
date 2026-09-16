@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Dartboard, type BoardMarker } from '../components/Dartboard';
 import { StatusBar } from '../components/StatusBar';
 import { toDisplayPoint } from '../engine/simulation/boardGeometry';
@@ -14,7 +14,6 @@ import {
   advanceRound,
   canUndo,
   createGame,
-  currentLeft,
   dartsLeftInRound,
   describeThrow,
   needsScoreEntry,
@@ -102,9 +101,21 @@ export function SimulationPage() {
   }, [form]);
 
   const round = game?.current ?? null;
-  const left = game === null ? form.startScore : currentLeft(game);
   const entry = round?.entry ?? null;
   const awaitingEntry = game?.phase === 'score-entry' && needsScoreEntry(round);
+
+  /*
+   * 画面上部の LEFT は **ビジット開始時の残りで固定**する。
+   *
+   * 投げるたびに減らすと、残り点の暗算をアプリが肩代わりしてしまう。
+   * 残りを自分で数えるところまでが SIMULATION の練習なので、表示は
+   * 「次のビジットへ進んだとき」だけ新しい値へ変える。
+   *
+   * これは **表示だけ**の仕様。内部の残り（`ThrowRecord.leftAfter` /
+   * `currentLeft`）は従来どおり 1 投ごとに更新していて、BUST・Checkout・
+   * Double Out・履歴・GAME REVIEW はすべてそちらを見ている。
+   */
+  const displayLeft = game === null ? form.startScore : (round?.leftBefore ?? game.left);
 
   const markers = useMemo<readonly BoardMarker[]>(() => {
     if (round === null || round.throws.length === 0) return [];
@@ -143,6 +154,33 @@ export function SimulationPage() {
       mainTarget: preferences.setupMainTarget,
     });
   }, [game, preferences.preferredDoubles, preferences.setupMainTarget]);
+
+  /*
+   * 3 投目が確定した瞬間に、得点入力欄へ自動でフォーカスする。
+   *
+   * - PC: そのまま数字キーを打って Enter で確定できる（欄を押す必要がない）。
+   * - スマホ / タブレット: `inputMode="numeric"` の欄にフォーカスが移るので、
+   *   数字キーボードがそのまま開く。
+   *
+   * `useLayoutEffect` を使うのは、盤面のタップという **ユーザー操作と同じ処理の
+   * 流れの中で** focus を呼ぶため。描画が終わったあとの非同期処理から呼ぶと、
+   * iOS Safari はソフトウェアキーボードを開いてくれない。
+   *
+   * `preventScroll` を付けて、フォーカスによる自動スクロールで盤面が飛ぶのを
+   * 防ぐ。そのうえで入力欄が画面外にあるときだけ `block: 'nearest'` で最小限
+   * 動かす（見えているときは何も起きない）。スマホでキーボードが せり上がる
+   * ぶんの調整は、ブラウザ側が従来どおり面倒を見る。
+   */
+  const scoreInputRef = useRef<HTMLInputElement>(null);
+  const entryRef = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    if (!awaitingEntry) return;
+    const input = scoreInputRef.current;
+    if (input === null) return;
+    input.focus({ preventScroll: true });
+    entryRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [awaitingEntry]);
 
   const handleSubmitScore = () => {
     if (game === null) return;
@@ -317,7 +355,7 @@ export function SimulationPage() {
       {game !== null && game.phase !== 'finished' && round !== null && (
         <section className="simulation__play" aria-label="SIMULATION プレイ中">
           <StatusBar
-            remaining={left}
+            remaining={displayLeft}
             dartsLeft={dartsLeftInRound(round)}
             status={round.bust ? 'bust' : round.checkout ? 'checkout' : 'in-progress'}
             note={
@@ -379,7 +417,12 @@ export function SimulationPage() {
           </div>
 
           {game.phase === 'score-entry' && (
-            <section className="simulation__entry" data-testid="sim-entry" aria-live="polite">
+            <section
+              className="simulation__entry"
+              data-testid="sim-entry"
+              aria-live="polite"
+              ref={entryRef}
+            >
               {round.bust ? (
                 <>
                   <p className="simulation__entry-title">BUST</p>
@@ -401,6 +444,7 @@ export function SimulationPage() {
                   </p>
                   <div className="simulation__entry-field">
                     <input
+                      ref={scoreInputRef}
                       type="text"
                       inputMode="numeric"
                       pattern="[0-9]*"
@@ -408,7 +452,7 @@ export function SimulationPage() {
                       autoComplete="off"
                       enterKeyHint="done"
                       data-testid="sim-score-input"
-                      aria-label="3 投の合計得点"
+                      aria-label="この 3 投の合計得点"
                       value={scoreDraft}
                       onChange={(event) => setScoreDraft(event.target.value.replace(/\D/g, ''))}
                       onKeyDown={(event) => {

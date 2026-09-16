@@ -327,11 +327,112 @@ describe('打ち切り', () => {
 });
 
 describe('表示用の説明', () => {
-  it('狙いと着弾を日本語で表す', () => {
+  it('狙いと着弾を略記（S20 / T20 / D20）で表す', () => {
     const game = throwAt(createGame(perfect(501), 1), 'segment-t20');
-    expect(describeThrow(game.current!.throws[0])).toEqual({
-      intended: 'トリプル20',
-      actual: 'トリプル20',
-    });
+    expect(describeThrow(game.current!.throws[0])).toEqual({ intended: 'T20', actual: 'T20' });
+
+    const single = throwAt(createGame(perfect(501), 1), 'segment-s20-outer');
+    expect(describeThrow(single.current!.throws[0])).toEqual({ intended: 'S20', actual: 'S20' });
+
+    const double = throwAt(createGame(perfect(501), 1), 'segment-d16');
+    expect(describeThrow(double.current!.throws[0])).toEqual({ intended: 'D16', actual: 'D16' });
+  });
+
+  it('BULL は SB / DB で表す', () => {
+    const inner = throwAt(createGame(perfect(501), 1), 'segment-inner-bull');
+    expect(describeThrow(inner.current!.throws[0])).toEqual({ intended: 'DB', actual: 'DB' });
+    expect(inner.current!.throws[0].score).toBe(50);
+  });
+
+  it('アウターブルを押した場合、狙いは SB・着弾は中心（DB）になる', () => {
+    /*
+     * 着弾モデルでは BULL は内外どちらの区画を押しても「中心を狙う」。
+     * アウターブルのリングだけを狙う投げ方は実戦では行わないため。
+     * 狙いの記録は押した区画のまま（SB）、着弾は座標から DB と判定される。
+     */
+    const outer = throwAt(createGame(perfect(501), 1), 'segment-outer-bull');
+    expect(describeThrow(outer.current!.throws[0])).toEqual({ intended: 'SB', actual: 'DB' });
+  });
+});
+
+describe('内部の残り点は 1 投ごとに更新される（表示の固定とは別）', () => {
+  it('LEFT BEFORE / LEFT AFTER が 1 投ごとに進む', () => {
+    let game = createGame(perfect(501), 1);
+    game = throwAt(game, 'segment-t20');
+    game = throwAt(game, 'segment-t19');
+    game = throwAt(game, 'segment-s5-outer');
+    const [first, second, third] = game.current!.throws;
+
+    expect(first.leftBefore).toBe(501);
+    expect(first.leftAfter).toBe(441);
+    expect(second.leftBefore).toBe(441);
+    expect(second.leftAfter).toBe(384);
+    expect(third.leftBefore).toBe(384);
+    expect(third.leftAfter).toBe(379);
+    // 内部の「いまの残り」も 1 投ごとに動いている。
+    expect(currentLeft(game)).toBe(379);
+  });
+
+  it('ビジット開始時の残りは、そのビジットのあいだ変わらない（表示が参照する値）', () => {
+    let game = createGame(perfect(501), 1);
+    const leftBefore = game.current!.leftBefore;
+    game = throwAt(game, 'segment-t20');
+    expect(game.current!.leftBefore).toBe(leftBefore);
+    game = throwAt(game, 'segment-t20');
+    expect(game.current!.leftBefore).toBe(leftBefore);
+    game = throwAt(game, 'segment-t20');
+    expect(game.current!.leftBefore).toBe(leftBefore);
+    // 得点を確定して次のビジットへ進んだときだけ変わる。
+    game = advanceRound(submitScore(game, 180));
+    expect(game.current!.leftBefore).toBe(321);
+  });
+});
+
+describe('3 投目より前の Checkout / BUST でビジットを終える', () => {
+  it('1 投目の Checkout でビジットが終わり、残りのダーツは投げられない', () => {
+    let game = throwAt(createGame(perfect(40), 1), 'segment-d20');
+    expect(game.current!.checkout).toBe(true);
+    expect(game.current!.throws).toHaveLength(1);
+    expect(game.phase).toBe('score-entry');
+    // それ以上は投げられない。
+    expect(throwAt(game, 'segment-t20')).toBe(game);
+    // ビジット開始時の残りは 40 のまま（表示はこれを見る）。
+    expect(game.current!.leftBefore).toBe(40);
+    game = advanceRound(submitScore(game, 40));
+    expect(game.phase).toBe('finished');
+  });
+
+  it('2 投目の Checkout でも同じ', () => {
+    let game = createGame(perfect(100), 1);
+    game = throwAt(game, 'segment-t20'); // 100 → 40
+    game = throwAt(game, 'segment-d20'); // 40 → 0
+    expect(game.current!.checkout).toBe(true);
+    expect(game.current!.throws).toHaveLength(2);
+    expect(throwAt(game, 'segment-t20')).toBe(game);
+    expect(game.current!.leftBefore).toBe(100);
+    game = advanceRound(submitScore(game, 100));
+    expect(game.phase).toBe('finished');
+  });
+
+  it('1 投目の BUST でビジットが終わり、次のビジットは同じ残りで始まる', () => {
+    let game = throwAt(createGame(perfect(40), 1), 'segment-t20');
+    expect(game.current!.bust).toBe(true);
+    expect(game.current!.throws).toHaveLength(1);
+    expect(throwAt(game, 'segment-d20')).toBe(game);
+    game = advanceRound(game);
+    expect(game.current!.round).toBe(2);
+    expect(game.current!.leftBefore).toBe(40);
+  });
+
+  it('2 投目の BUST でも同じ', () => {
+    let game = createGame(perfect(100), 1);
+    game = throwAt(game, 'segment-t20'); // 100 → 40
+    game = throwAt(game, 'segment-t20'); // 40 - 60 → BUST
+    expect(game.current!.bust).toBe(true);
+    expect(game.current!.throws).toHaveLength(2);
+    expect(throwAt(game, 'segment-d20')).toBe(game);
+    game = advanceRound(game);
+    expect(game.current!.round).toBe(2);
+    expect(game.current!.leftBefore).toBe(100);
   });
 });

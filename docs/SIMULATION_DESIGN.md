@@ -95,6 +95,25 @@ BULL もダブルも同じ 1 本の経路を通る。
 中央を狙うと半径方向の誤差の半分がそのまま盤外へ出てしまい、
 実戦の「外すなら内側（シングル）へ外したい」という構えと合わないため。
 
+### 2-4. 画面の表記
+
+ターゲットは **略記だけ**で表す（`notation.ts`）。「トリプル20」のような読み下しはしない。
+
+| 的 | 表記 |
+| --- | --- |
+| シングル 20 | `S20` |
+| ダブル 20 | `D20` |
+| トリプル 20 | `T20` |
+| アウターブル（25 点） | `SB` |
+| インナーブル（50 点） | `DB` |
+| 盤外 | `MISS` |
+
+`Dart.id` はほぼそのまま使えるが、インナーブルだけは内部 ID が `BULL` なので
+`DB` へ読み替える。**内部 ID は変えない**（既存モード・データファイル・
+テストフィクスチャと共有しているため）。表示だけの写像で、判定には一切影響しない。
+おすすめルートの表示（`formatRoute` 由来の "T20 → T20 → BULL"）も同じ規則で
+`T20 → T20 → DB` に直す。
+
 ---
 
 ## 3. 能力パラメータ
@@ -213,6 +232,37 @@ First9 だけ 167 でも、10 投目以降は Average へ戻るので全体は 1
   **必ず内部の正しい得点で進める**。
 - 上限 100 ラウンドで打ち切る（能力設定が極端でも必ず終わるようにする安全弁）。
 
+### 5-1. 画面の LEFT と内部の残りを分ける
+
+画面上部の LEFT は **ビジット開始時の残りで固定**し、1 投ごとには減らさない。
+投げるたびに減らすと、残り点の暗算をアプリが肩代わりしてしまうため。
+表示が新しい値へ変わるのは「得点を確定して次のビジットへ進んだとき」だけで、
+3 投目の着弾直後や、正誤を確認している間もまだ変えない。
+
+**これは表示だけの仕様。** 内部の残り（`ThrowRecord.leftBefore` / `leftAfter`、
+`currentLeft()`）は従来どおり 1 投ごとに更新していて、BUST 判定・Checkout 判定・
+Double Out 判定・履歴・GAME REVIEW・アレンジ / セットアップ判定はすべて
+そちらを見ている。画面は `ActiveRound.leftBefore` を読むだけ。
+
+3 投目より前に Checkout / BUST が確定した場合も、その時点でビジットが終わり
+残りのダーツは投げられない。表示はビジット開始時の値のまま
+（`LEFT 40` から `D20` で上がっても、途中で `LEFT 0` を出さない）。
+
+### 5-2. 3 投終わったら、そのまま得点を打てる状態にする
+
+3 投目が確定した瞬間に得点入力欄へフォーカスを移す。PC ではそのまま数字キーと
+Enter で確定でき、スマートフォンでは `inputMode="numeric"` の欄に移るので
+数字キーボードがそのまま開く。
+
+フォーカスは `useLayoutEffect` から呼ぶ。盤面のタップという **ユーザー操作と同じ
+処理の流れの中で** 呼ばないと、iOS Safari はソフトウェアキーボードを開かない。
+`focus({ preventScroll: true })` で自動スクロールを抑え、そのうえで入力欄が
+画面外のときだけ `scrollIntoView({ block: 'nearest' })` で最小限動かす
+（見えているときは何も起きないので、盤面が飛ばない）。
+
+UNDO の境界は変えない。3 投目のあとでも、得点を確定する前なら戻せる。
+戻すと入力状態が解除され、3 投目を狙い直せる。
+
 ---
 
 ## 6. レビュー
@@ -308,7 +358,8 @@ MY ROUTE（得意ダブル）と SETUP の主目標は既存の設定をその�
 | 得点判定と表示位置の一致（2 万点） | `src/engine/simulation/boardGeometry.test.ts` |
 | σ の単調性・First9 遷移・方向と最大ブレ | `src/engine/simulation/accuracy.test.ts` |
 | 代表ケースの PPR キャリブレーション（高速版） | `src/engine/simulation/accuracy.test.ts` |
-| 進行・BUST・UNDO・暗算入力・再現性 | `src/engine/simulation/game.test.ts` |
+| 表記（S20 / D20 / T20 / SB / DB / MISS） | `src/engine/simulation/notation.test.ts` |
+| 進行・BUST・UNDO・暗算入力・再現性・Checkout / BUST の打ち切り | `src/engine/simulation/game.test.ts` |
 | レビューの分類と集計 | `src/engine/simulation/review.test.ts` |
 | 設定の保存と既存設定との独立性 | `src/storage/simulationSettings.test.ts` |
 | 画面の流れ | `src/App.simulation.test.tsx` / `e2e/simulation.spec.ts` |

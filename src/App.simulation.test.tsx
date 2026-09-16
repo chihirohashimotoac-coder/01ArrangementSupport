@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
@@ -109,9 +109,10 @@ describe('SIMULATION のプレイ', () => {
     expect(screen.getByTestId('sim-progress')).toHaveTextContent('ROUND 1');
 
     await user.click(screen.getByTestId('segment-t20'));
-    expectLeft(110);
-    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('狙い トリプル20');
-    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('着弾 トリプル20');
+    // LEFT は投げても動かさない（残りの暗算まで含めて練習のため）。
+    expectLeft(170);
+    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('狙い T20');
+    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('着弾 T20');
     // 着弾は文字だけでなく、盤面上の位置としても出す。
     expect(screen.getByTestId('board-marker-hit-1')).toBeInTheDocument();
     expect(screen.getByTestId('board-marker-aim-1')).toBeInTheDocument();
@@ -187,7 +188,8 @@ describe('SIMULATION のプレイ', () => {
     const user = userEvent.setup();
     render(<App />);
     await startPerfectGame(user, 100);
-    await user.click(screen.getByTestId('segment-t20')); // 100 → 40
+    await user.click(screen.getByTestId('segment-t20')); // 内部 100 → 40
+    expectLeft(100);
     await user.click(screen.getByTestId('segment-t20')); // 40 - 60 → BUST
 
     expect(screen.getByTestId('status-flag')).toHaveTextContent('BUST');
@@ -195,6 +197,126 @@ describe('SIMULATION のプレイ', () => {
     await user.click(screen.getByTestId('sim-next-round'));
     expectLeft(100);
     expect(screen.getByTestId('sim-progress')).toHaveTextContent('ROUND 2');
+  });
+
+  it('LEFT はビジット中ずっと動かず、得点を確定して次へ進んだときだけ変わる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+    expectLeft(501);
+
+    await user.click(screen.getByTestId('segment-t20'));
+    expectLeft(501); // 1 投目
+    await user.click(screen.getByTestId('segment-t20'));
+    expectLeft(501); // 2 投目
+    await user.click(screen.getByTestId('segment-t20'));
+    expectLeft(501); // 3 投目・得点の確定前
+
+    await user.type(screen.getByTestId('sim-score-input'), '180');
+    await user.click(screen.getByTestId('sim-score-submit'));
+    expectLeft(501); // 正誤を確認している間もまだ変えない
+
+    await user.click(screen.getByTestId('sim-next-round'));
+    expectLeft(321); // 次のビジットへ進んだときに初めて変わる
+  });
+
+  it('3 投目より前に Checkout しても、LEFT はビジット開始時のまま', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 40);
+
+    await user.click(screen.getByTestId('segment-d20'));
+    expect(screen.getByTestId('status-flag')).toHaveTextContent('CHECKOUT!');
+    // 途中で LEFT 0 を出さない。
+    expectLeft(40);
+    // 残りのダーツは投げられない。
+    expect(screen.getByTestId('sim-throw-row-1')).toBeInTheDocument();
+    await user.click(screen.getByTestId('segment-t20'));
+    expect(screen.queryByTestId('sim-throw-row-2')).toBeNull();
+  });
+
+  it('3 投目より前に BUST してもビジットが終わり、次は同じ LEFT で始まる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 40);
+
+    await user.click(screen.getByTestId('segment-t20')); // 40 - 60 → BUST
+    expect(screen.getByTestId('status-flag')).toHaveTextContent('BUST');
+    expectLeft(40);
+    await user.click(screen.getByTestId('segment-d20'));
+    expect(screen.queryByTestId('sim-throw-row-2')).toBeNull();
+
+    await user.click(screen.getByTestId('sim-next-round'));
+    expectLeft(40);
+    expect(screen.getByTestId('sim-progress')).toHaveTextContent('ROUND 2');
+  });
+
+  it('3 投目の確定と同時に、得点入力欄へフォーカスが移る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+
+    const input = screen.getByTestId('sim-score-input');
+    // 欄を押さなくても、そのまま数字を打てる状態になっている。
+    expect(input).toHaveFocus();
+    // モバイルで数字キーボードが開く属性。
+    expect(input).toHaveAttribute('inputmode', 'numeric');
+
+    await user.keyboard('180{Enter}');
+    expect(screen.getByTestId('sim-entry-verdict')).toHaveTextContent('正解');
+  });
+
+  it('自動フォーカスで画面を大きく動かさない', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const focus = vi.spyOn(HTMLInputElement.prototype, 'focus');
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+
+    // フォーカスによる自動スクロールは抑止する。
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    // 必要なときだけ最小限動かす（block: 'nearest'）。盤面へは寄せない。
+    for (const call of scrollIntoView.mock.calls) {
+      expect(call[0]).toMatchObject({ block: 'nearest' });
+    }
+    for (const context of scrollIntoView.mock.contexts as HTMLElement[]) {
+      expect(context).toBe(screen.getByTestId('sim-entry'));
+    }
+  });
+
+  it('Checkout / BUST のビジットでは入力欄を出さないのでフォーカスも移らない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 40);
+    await user.click(screen.getByTestId('segment-t20')); // BUST
+    expect(screen.queryByTestId('sim-score-input')).toBeNull();
+  });
+
+  it('3 投目のあとでも、得点を確定する前なら UNDO できる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+    expect(screen.getByTestId('sim-score-input')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('sim-undo'));
+    // 入力状態が解除され、3 投目を狙い直せる。
+    expect(screen.queryByTestId('sim-score-input')).toBeNull();
+    expect(screen.queryByTestId('sim-throw-row-3')).toBeNull();
+    expect(screen.getByTestId('sim-progress')).toHaveTextContent('DART 3 of 3');
+
+    await user.click(screen.getByTestId('segment-t19'));
+    expect(screen.getByTestId('sim-throw-row-3')).toHaveTextContent('狙い T19');
+    // 入力欄が戻り、再びフォーカスされる。
+    expect(screen.getByTestId('sim-score-input')).toHaveFocus();
   });
 
   it('直前の 1 投だけ取り消せる', async () => {
@@ -205,15 +327,16 @@ describe('SIMULATION のプレイ', () => {
 
     await user.click(screen.getByTestId('segment-t20'));
     await user.click(screen.getByTestId('segment-t19'));
-    expectLeft(384);
+    // 2 投しても LEFT はビジット開始時のまま。
+    expectLeft(501);
 
     await user.click(screen.getByTestId('sim-undo'));
-    expectLeft(441);
+    expectLeft(501);
     expect(screen.queryByTestId('sim-throw-row-2')).toBeNull();
 
     // 同じ DART 番号から狙い直せる。
     await user.click(screen.getByTestId('segment-t18'));
-    expect(screen.getByTestId('sim-throw-row-2')).toHaveTextContent('狙い トリプル18');
+    expect(screen.getByTestId('sim-throw-row-2')).toHaveTextContent('狙い T18');
   });
 });
 
@@ -247,7 +370,7 @@ describe('GAME REVIEW', () => {
 
     // 1 投ごとの判断が、狙いに対する評価として出る。
     expect(screen.getByTestId('sim-verdict-1')).toHaveTextContent('GOOD DECISION');
-    expect(screen.getByTestId('sim-throw-1')).toHaveTextContent('狙い トリプル20');
+    expect(screen.getByTestId('sim-throw-1')).toHaveTextContent('狙い T20');
   });
 
   it('レビューには CALCULATION MISS も残る', async () => {
