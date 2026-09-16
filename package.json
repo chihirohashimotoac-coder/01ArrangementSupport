@@ -17,7 +17,8 @@
     "import:checkout": "node scripts/import-checkout-excel.mjs",
     "check:base": "node scripts/check-base-path.mjs",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
-    "audit:training": "vite-node scripts/audit-training.ts"
+    "audit:training": "vite-node scripts/audit-training.ts",
+    "audit:simulation": "vite-node scripts/audit-simulation.ts"
   },
   "dependencies": {
     "react": "^19.2.0",

@@ -227,12 +227,32 @@ V1 の履歴は破棄せず移行する。ただし**構造が壊れている、
 
 初期版はログイン・クラウド同期・JSON Export/Import なし。ただし将来足しやすい構造にしてある。
 
+### 4-5. SIMULATION（v1.4.0）
+
+01 を 1 ゲーム通して自力でプレイするモード。既存モードと違い、**正解を選ぶ形式ではない**。
+
+- 開始点数は 301 / 501 / 701 / 任意（CUSTOM）。既定は 501。
+- プレイヤー能力として First9 PPR・Average PPR（0〜167）、ブレ方向（縦 / 横 / 均等）、
+  最大ブレ（小 / 中 / 大）を設定する。設定は `oas.simulation.v1` へ保存する。
+- 1 投ごとに盤面で狙いをタップすると、能力に応じた着弾が**実寸ボードの XY 座標**として
+  決まり、その位置に表示される。得点ベースの命中率テーブルは使わない。
+- 3 投ごとに、ユーザー自身が合計を暗算して入力する。内部の得点と違えば
+  `CALCULATION MISS` としてその場で指摘し、**必ず内部の正しい得点で進める**。
+- Double Out / BUST は既存の `applyDart` をそのまま使う。
+- 誤タップ用に、直前の 1 投だけ UNDO できる（暗算入力の確定が境界）。
+- **ゲーム中は推奨ルート・MY ROUTE・OTHER ROUTE・ヒントを一切表示しない。**
+- 上がったあとに GAME REVIEW を表示する。評価対象は **INTENDED TARGET（狙い）だけ**で、
+  着弾のミスは判断ミスに数えない。
+
+着弾モデル・キャリブレーション・レビューの判定は `docs/SIMULATION_DESIGN.md`。
+
+
 ## 5. アーキテクチャ
 
 ```
 UI (components / pages / hooks)
         ↓ 参照のみ
-Engine (checkout / setup / recovery / ranking / training)
+Engine (checkout / setup / recovery / ranking / training / simulation)
         ↓ 参照のみ
 Data (基準ルート / Bogey / 隣接 / 重み / 説明文 / 資料フィクスチャ)
         ↓ 参照のみ
@@ -243,6 +263,11 @@ Storage (localStorage) は UI からのみ使う
 
 戦術データを React コンポーネントへ直書きしない。
 評価理由は reason code として構造化し、表示用の日本語は `src/data/explanations.ts` で解決する。
+
+SIMULATION は `engine/simulation/**` に閉じており、既存エンジンへは
+`suggestFor()` などの公開 API を呼ぶだけで、判定・順位・データへは一切触れない。
+着弾シミュレーションだけは表示座標系ではなく**実寸（mm）のボード**を使う
+（理由と写像は `docs/SIMULATION_DESIGN.md`）。
 
 ## 6. 性能
 

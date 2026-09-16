@@ -13,6 +13,7 @@
 4. `docs/APPROVALS.md` — どの戦術方針が人間承認済みか（**最重要**）
 5. `docs/SETUP_THEORY.md` — SETUP（171〜350）の考え方
 6. `docs/TEST_STRATEGY.md` — テストの方針
+7. `docs/SIMULATION_DESIGN.md` — SIMULATION（着弾モデル・進行・レビュー）
 
 読まずに実装を始めないこと。
 

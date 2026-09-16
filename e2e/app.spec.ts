@@ -28,11 +28,12 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/');
 });
 
-test('アプリが起動し、3 つのモードが並ぶ', async ({ page }) => {
+test('アプリが起動し、4 つのモードが並ぶ', async ({ page }) => {
   await expect(page.getByTestId('app-title')).toBeVisible();
   await expect(page.getByTestId('home-checkout')).toBeVisible();
   await expect(page.getByTestId('home-setup')).toBeVisible();
   await expect(page.getByTestId('home-training')).toBeVisible();
+  await expect(page.getByTestId('home-simulation')).toBeVisible();
 });
 
 test('CHECKOUT 103 で基準ルートと理由を確認できる', async ({ page }) => {
@@ -718,7 +719,8 @@ test('バージョン履歴: トップから開き、「トップへ戻る」で
   await expect(page.getByRole('heading', { name: 'バージョン履歴' })).toBeVisible();
   const items = page.getByTestId('version-history-item');
   await expect(items.first()).toContainText('現在');
-  await expect(items.first()).toContainText('v1.3');
+  // 版の呼称は更新のたびに変わるので、形だけを見る。
+  await expect(items.first()).toContainText(/v\d+\.\d+/);
   expect(await items.count()).toBeGreaterThan(1);
 
   // トップページのボタンは、この画面では出さない。

@@ -40,11 +40,12 @@ function precedes(a: Element, b: Element) {
 }
 
 describe('アプリの骨格', () => {
-  it('トップに 3 つのモードが並ぶ', () => {
+  it('トップに 4 つのモードが並ぶ', () => {
     render(<App />);
     expect(screen.getByTestId('home-checkout')).toBeInTheDocument();
     expect(screen.getByTestId('home-setup')).toBeInTheDocument();
     expect(screen.getByTestId('home-training')).toBeInTheDocument();
+    expect(screen.getByTestId('home-simulation')).toBeInTheDocument();
   });
 
   it('ナビゲーションでモードを切り替えられる', async () => {

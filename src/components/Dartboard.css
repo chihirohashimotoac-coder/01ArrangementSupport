@@ -164,3 +164,44 @@
     stroke: color-mix(in srgb, var(--accent) 60%, transparent);
   }
 }
+
+/*
+ * 盤面へ重ねる印（SIMULATION の狙い・着弾表示）。
+ *
+ * 表示専用。タップ判定は下の区画がそのまま受けるので pointer-events は切る。
+ * 盤面はライト／ダークどちらのテーマでも暗い配色なので、印の色は
+ * テーマ変数ではなく盤面の上で読める固定色で置く。
+ */
+.dartboard__markers {
+  pointer-events: none;
+}
+
+.dartboard__marker line {
+  stroke: var(--highlight-stroke);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+
+.dartboard__marker-ring {
+  fill: none;
+  stroke: var(--highlight-stroke);
+  stroke-width: 2.4;
+  stroke-dasharray: 5 4;
+}
+
+.dartboard__marker-halo {
+  fill: rgba(4, 9, 18, 0.72);
+  stroke: #f5f8fc;
+  stroke-width: 1.6;
+}
+
+.dartboard__marker-dot {
+  fill: #ffd24a;
+  stroke: #2b1d00;
+  stroke-width: 1;
+}
+
+/* 同じラウンドの前の投擲は、控えめに残す。 */
+.dartboard__marker--past {
+  opacity: 0.5;
+}

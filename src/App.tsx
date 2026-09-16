@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PracticePage } from './pages/PracticePage';
 import { TrainingPage } from './pages/TrainingPage';
+import { SimulationPage } from './pages/SimulationPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { VersionHistoryPage } from './pages/VersionHistoryPage';
 import { ReferencesPage } from './pages/ReferencesPage';
@@ -10,12 +11,21 @@ import { usePreferences } from './hooks/usePreferences';
 import type { Theme } from './storage/preferences';
 import './App.css';
 
-type Tab = 'home' | 'checkout' | 'setup' | 'training' | 'settings' | 'history' | 'references';
+type Tab =
+  | 'home'
+  | 'checkout'
+  | 'setup'
+  | 'training'
+  | 'simulation'
+  | 'settings'
+  | 'history'
+  | 'references';
 
 const TABS: ReadonlyArray<{ id: Tab; label: string; sub: string }> = [
   { id: 'checkout', label: 'CHECKOUT', sub: '2〜170・この3投で上がる' },
   { id: 'setup', label: 'SETUP', sub: '171〜350・次の3投に向けて整える' },
   { id: 'training', label: 'TRAINING', sub: '反復練習で判断を磨く' },
+  { id: 'simulation', label: 'SIMULATION', sub: '1ゲーム通して自力でプレイする' },
 ];
 
 const THEME_COLOR: Record<Theme, string> = {
@@ -150,6 +160,7 @@ export default function App() {
         {tab === 'checkout' && <PracticePage key="checkout" mode="checkout" />}
         {tab === 'setup' && <PracticePage key="setup" mode="setup" />}
         {tab === 'training' && <TrainingPage />}
+        {tab === 'simulation' && <SimulationPage />}
         {tab === 'settings' && (
           <SettingsPage theme={preferences.theme} onThemeChange={setTheme} />
         )}

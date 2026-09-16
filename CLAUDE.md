@@ -41,6 +41,8 @@ Claude Code はこのリポジトリの**主実装担当**です。
 | `src/data/lowStandardRoutes.ts` | v1 承認済み。導出ルールの変更は **Human Approval Required** |
 | `src/data/setupReferenceCases.ts` | 添付資料の記録。**書き換えず、矛盾は報告する** |
 | `src/engine/training/**` | TRAINING 専用。教育設計は `docs/TRAINING_DESIGN.md` |
+| `src/engine/simulation/**` | SIMULATION 専用。設計は `docs/SIMULATION_DESIGN.md`。既存エンジンへは手を入れず、`suggestFor` などを呼ぶだけにする |
+| `SIGMA_ANCHORS`（`accuracy.ts`） | 戦術データではない。`npm run audit:simulation -- --solve` で逆算し直して差し替える |
 | `data/source/*.xlsx` | 一次資料。**変更禁止** |
 
 ## 3-1. 承認済みの戦術方針

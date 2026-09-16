@@ -24,6 +24,21 @@ export interface WedgeSelection {
   readonly ariaLabelOf?: (aimNumber: number) => string;
 }
 
+/**
+ * 盤面へ重ねる印（SIMULATION の狙い・着弾表示）。
+ *
+ * 座標は SVG（表示）座標系。`aim` は狙い点の十字、`hit` は着弾のダーツ。
+ * 盤面の選択動作には一切影響しない（`pointer-events: none`）。
+ */
+export interface BoardMarker {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly kind: 'aim' | 'hit' | 'past';
+  /** 読み上げ用の説明。 */
+  readonly label?: string;
+}
+
 export interface DartboardProps {
   /** 区画がタップ／キー操作で選ばれたとき。 */
   onSelect?: (segment: SegmentDefinition) => void;
@@ -37,6 +52,8 @@ export interface DartboardProps {
   /** 操作できない理由。 */
   disabledReason?: string;
   ariaLabel?: string;
+  /** 盤面へ重ねる印（狙い・着弾）。 */
+  markers?: readonly BoardMarker[];
 }
 
 const SEGMENT_PATHS: ReadonlyArray<{ segment: SegmentDefinition; d: string }> = SEGMENTS.map(
@@ -55,6 +72,7 @@ function DartboardComponent({
   disabled = false,
   disabledReason,
   ariaLabel,
+  markers,
 }: DartboardProps) {
   const highlighted = useMemo(() => new Set(highlightedDartIds ?? []), [highlightedDartIds]);
   const wedgeMode = wedgeSelection !== undefined;
@@ -160,6 +178,34 @@ function DartboardComponent({
             </text>
           ))}
         </g>
+
+        {markers !== undefined && markers.length > 0 && (
+          <g className="dartboard__markers">
+            {markers.map((marker) => (
+              <g
+                key={marker.id}
+                className={`dartboard__marker dartboard__marker--${marker.kind}`}
+                data-testid={`board-marker-${marker.id}`}
+                data-marker-kind={marker.kind}
+                transform={`translate(${marker.x} ${marker.y})`}
+              >
+                {marker.label !== undefined && <title>{marker.label}</title>}
+                {marker.kind === 'aim' ? (
+                  <>
+                    <circle className="dartboard__marker-ring" r={11} />
+                    <line x1={-16} y1={0} x2={16} y2={0} />
+                    <line x1={0} y1={-16} x2={0} y2={16} />
+                  </>
+                ) : (
+                  <>
+                    <circle className="dartboard__marker-halo" r={9} />
+                    <circle className="dartboard__marker-dot" r={4.5} />
+                  </>
+                )}
+              </g>
+            ))}
+          </g>
+        )}
       </svg>
 
       {disabled && disabledReason && (

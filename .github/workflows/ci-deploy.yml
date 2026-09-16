@@ -56,6 +56,11 @@ jobs:
       - name: TRAINING statistical audit
         run: npm run audit:training
 
+      # SIMULATION の散布モデル監査（PPR キャリブレーション・ブレ方向・最大ブレ）。
+      # ここも通常の unit test からは分離している。
+      - name: SIMULATION scatter model audit
+        run: npm run audit:simulation
+
       # E2E はルートパス（base = /）のビルドに対して実行する
       - name: Build (for E2E)
         run: npm run build
