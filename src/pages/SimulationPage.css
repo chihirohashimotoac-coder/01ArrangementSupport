@@ -1,0 +1,546 @@
+/*
+ * SIMULATION の画面。
+ *
+ * 既存モード（PracticePage / TrainingPage）と同じ表現を使う。
+ * スマートフォン縦画面での片手操作を最優先にし、
+ * 盤面を大きく、LEFT と ROUND / DART をその上に置く。
+ */
+.simulation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.simulation__lead {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+.simulation__settings,
+.simulation__play,
+.simulation__review {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.simulation__field {
+  margin: 0;
+  padding: 0.75rem 0.8rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: var(--surface);
+  box-shadow: var(--inner-highlight);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.simulation__field legend {
+  padding: 0 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.simulation__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.simulation__choices button {
+  flex: 1 1 5.5rem;
+  min-height: 2.9rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.6rem;
+  background: var(--chip);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.simulation__choices button small {
+  color: var(--text-dim);
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.simulation__choices button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.simulation__choices button[aria-pressed='true'] small {
+  color: var(--accent);
+}
+
+.simulation__custom {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+}
+
+.simulation__custom input {
+  min-height: 2.9rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.6rem;
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 1.15rem;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+}
+
+.simulation__slider {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.simulation__slider > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-weight: 740;
+  letter-spacing: 0.05em;
+}
+
+.simulation__slider strong {
+  color: var(--text);
+  font-size: 1.3rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.simulation__slider input[type='range'] {
+  width: 100%;
+  min-height: 2.25rem;
+  accent-color: var(--accent);
+}
+
+.simulation__hint {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.simulation__start {
+  min-height: 3.25rem;
+  border: 0;
+  border-radius: 0.8rem;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 1rem;
+  font-weight: 820;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.simulation__progress {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 720;
+  letter-spacing: 0.03em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.simulation__throws {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.simulation__throws li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: var(--surface);
+  font-size: 0.82rem;
+}
+
+.simulation__throws-empty {
+  color: var(--text-dim);
+  justify-content: center;
+}
+
+.simulation__throw-dart {
+  min-width: 1.8rem;
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.simulation__throw-aim {
+  color: var(--text-secondary);
+}
+
+.simulation__throw-hit {
+  color: var(--text);
+  font-weight: 720;
+}
+
+.simulation__throw-score {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 780;
+}
+
+.simulation__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.simulation__actions button {
+  flex: 1 1 auto;
+  min-height: 3rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.7rem;
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.simulation__actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 中断は誤操作しやすい場所に置かず、幅も控えめにする。 */
+.simulation__quit {
+  flex: 0 1 8rem;
+  color: var(--text-dim);
+}
+
+.simulation__entry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.85rem 0.8rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.85rem;
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-sm);
+}
+
+.simulation__entry-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 820;
+  letter-spacing: 0.02em;
+}
+
+.simulation__entry-title--ok {
+  color: var(--positive);
+}
+
+.simulation__entry-title--ng {
+  color: var(--negative);
+}
+
+.simulation__entry-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.simulation__entry-field {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.simulation__entry-field input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 3.25rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.7rem;
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 1.85rem;
+  font-weight: 820;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.simulation__entry-field button,
+.simulation__entry button {
+  min-height: 3.25rem;
+  padding: 0 1.1rem;
+  border: 0;
+  border-radius: 0.7rem;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.simulation__entry button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --- GAME REVIEW ------------------------------------------------------- */
+
+.simulation__review-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 820;
+  letter-spacing: 0.08em;
+}
+
+.simulation__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.simulation__summary > div {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface);
+}
+
+.simulation__summary dt {
+  color: var(--text-dim);
+  font-size: 0.66rem;
+  font-weight: 740;
+  letter-spacing: 0.05em;
+}
+
+.simulation__summary dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.simulation__verdict-counts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.simulation__verdict-counts li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 760;
+  letter-spacing: 0.03em;
+}
+
+.simulation__verdict-counts li[data-tone='good'],
+.simulation__review-throws li[data-tone='good'] .simulation__review-verdict {
+  background: var(--grade-s-bg);
+  color: var(--grade-s-fg);
+}
+
+.simulation__verdict-counts li[data-tone='warn'],
+.simulation__review-throws li[data-tone='warn'] .simulation__review-verdict {
+  background: var(--grade-b-bg);
+  color: var(--grade-b-fg);
+}
+
+.simulation__verdict-counts li[data-tone='bad'],
+.simulation__review-throws li[data-tone='bad'] .simulation__review-verdict {
+  background: var(--grade-c-bg);
+  color: var(--grade-c-fg);
+}
+
+.simulation__verdict-counts li[data-tone='plain'],
+.simulation__review-throws li[data-tone='plain'] .simulation__review-verdict {
+  background: var(--chip);
+  color: var(--text-dim);
+}
+
+.simulation__review-note {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+
+.simulation__rounds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.simulation__round {
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: var(--surface);
+}
+
+.simulation__round h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0 0 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 820;
+  letter-spacing: 0.05em;
+}
+
+.simulation__round-left {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.simulation__round-scored {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.simulation__round-miss {
+  margin: 0 0 0.45rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.5rem;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.75rem;
+  font-weight: 740;
+}
+
+.simulation__review-throws {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.simulation__review-throws li {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: var(--surface-alt);
+}
+
+.simulation__review-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem;
+  font-size: 0.74rem;
+}
+
+.simulation__review-dart {
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.simulation__review-left {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.simulation__review-verdict {
+  margin-left: auto;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.simulation__review-aim {
+  margin: 0.3rem 0 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.simulation__review-explain {
+  margin: 0.25rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.6;
+}
+
+/* --- 広い画面 ---------------------------------------------------------- */
+
+@media (min-width: 48rem) {
+  .simulation__play {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    grid-template-areas:
+      'status status'
+      'board progress'
+      'board throws'
+      'board actions'
+      'board entry';
+    align-content: start;
+    column-gap: 1rem;
+  }
+
+  .simulation__play > :first-child {
+    grid-area: status;
+  }
+  .simulation__progress {
+    grid-area: progress;
+  }
+  .simulation__play .dartboard {
+    grid-area: board;
+    align-self: start;
+  }
+  .simulation__throws {
+    grid-area: throws;
+  }
+  .simulation__actions {
+    grid-area: actions;
+  }
+  .simulation__entry {
+    grid-area: entry;
+  }
+}

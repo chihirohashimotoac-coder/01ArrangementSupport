@@ -42,7 +42,7 @@
   box-shadow: var(--inner-highlight), var(--shadow-sm); cursor: pointer;
 }
 .app__nav {
-  position: relative; z-index: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.3rem; padding: 0.28rem; background: color-mix(in srgb, var(--surface) 84%, transparent);
   border: 1px solid var(--border); border-radius: 0.85rem; box-shadow: var(--inner-highlight), var(--shadow-sm);
 }
@@ -79,6 +79,7 @@
 }
 .home__modes button:nth-child(2) { --mode-accent: #35c6c9; }
 .home__modes button:nth-child(3) { --mode-accent: #8e7eea; }
+.home__modes button:nth-child(4) { --mode-accent: #e8a33d; }
 .home__modes button::before {
   content: ''; position: absolute; z-index: -1; width: 8.4rem; aspect-ratio: 1; top: -2.35rem;
   right: -1.4rem; border: 1px solid color-mix(in srgb, var(--mode-accent) 34%, transparent);

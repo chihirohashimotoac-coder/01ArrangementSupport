@@ -1,0 +1,298 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import App from './App';
+import { MAX_PPR } from './engine/simulation/accuracy';
+import { SIMULATION_SETTINGS_KEY } from './storage/simulationSettings';
+
+type User = ReturnType<typeof userEvent.setup>;
+
+/** LEFT はちょうどその値であること（部分一致だと 2170 が 170 を通してしまう）。 */
+function expectLeft(value: number) {
+  expect(screen.getByTestId('status-left').textContent).toBe(String(value));
+}
+
+/**
+ * 能力を 167 にすると σ = 0 になり、狙った的へ必ず入る。
+ * 画面のテストを乱数に左右されないようにするために使う。
+ */
+function setPerfectAbility() {
+  fireEvent.change(screen.getByTestId('sim-first9'), { target: { value: String(MAX_PPR) } });
+  fireEvent.change(screen.getByTestId('sim-average'), { target: { value: String(MAX_PPR) } });
+}
+
+async function openSimulation(user: User) {
+  await user.click(screen.getByTestId('nav-simulation'));
+}
+
+/** 任意の開始点数で、狙い通りに入るゲームを始める。 */
+async function startPerfectGame(user: User, startScore: number) {
+  await openSimulation(user);
+  await user.click(screen.getByTestId('sim-start-custom'));
+  const input = screen.getByTestId('sim-start-custom-input');
+  await user.clear(input);
+  await user.type(input, String(startScore));
+  setPerfectAbility();
+  await user.click(screen.getByTestId('start-simulation'));
+}
+
+describe('SIMULATION の導線', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('既存モードと同じ階層に SIMULATION がある', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    expect(screen.getByTestId('nav-simulation')).toBeInTheDocument();
+    expect(screen.getByTestId('home-simulation')).toBeInTheDocument();
+    await user.click(screen.getByTestId('home-simulation'));
+    expect(screen.getByTestId('start-simulation')).toBeInTheDocument();
+  });
+
+  it('301 / 501 / 701 / CUSTOM を選べる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSimulation(user);
+    for (const score of [301, 501, 701]) {
+      await user.click(screen.getByTestId(`sim-start-${score}`));
+      expect(screen.getByTestId(`sim-start-${score}`)).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId('start-simulation')).toHaveTextContent(`${score} で始める`);
+    }
+    await user.click(screen.getByTestId('sim-start-custom'));
+    const input = screen.getByTestId('sim-start-custom-input');
+    await user.clear(input);
+    await user.type(input, '407');
+    expect(screen.getByTestId('start-simulation')).toHaveTextContent('407 で始める');
+  });
+
+  it('プレイヤー設定は端末へ保存され、次に開いたときも残る', async () => {
+    const user = userEvent.setup();
+    const first = render(<App />);
+    await openSimulation(user);
+    await user.click(screen.getByTestId('sim-start-701'));
+    fireEvent.change(screen.getByTestId('sim-first9'), { target: { value: '92' } });
+    fireEvent.change(screen.getByTestId('sim-average'), { target: { value: '81' } });
+    await user.click(screen.getByTestId('sim-direction-horizontal'));
+    await user.click(screen.getByTestId('sim-maxmiss-large'));
+
+    const stored = JSON.parse(window.localStorage.getItem(SIMULATION_SETTINGS_KEY) ?? '{}');
+    expect(stored).toMatchObject({
+      startScore: 701,
+      first9Ppr: 92,
+      averagePpr: 81,
+      missDirection: 'horizontal',
+      maxMiss: 'large',
+    });
+
+    first.unmount();
+    render(<App />);
+    await openSimulation(user);
+    expect(screen.getByTestId('sim-first9-value')).toHaveTextContent('92');
+    expect(screen.getByTestId('sim-average-value')).toHaveTextContent('81');
+    expect(screen.getByTestId('sim-direction-horizontal')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('sim-maxmiss-large')).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('SIMULATION のプレイ', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('盤面で狙いを決めると、着弾が盤面に表示されて残りが減る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 170);
+
+    expectLeft(170);
+    expect(screen.getByTestId('sim-progress')).toHaveTextContent('ROUND 1');
+
+    await user.click(screen.getByTestId('segment-t20'));
+    expectLeft(110);
+    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('狙い トリプル20');
+    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('着弾 トリプル20');
+    // 着弾は文字だけでなく、盤面上の位置としても出す。
+    expect(screen.getByTestId('board-marker-hit-1')).toBeInTheDocument();
+    expect(screen.getByTestId('board-marker-aim-1')).toBeInTheDocument();
+  });
+
+  it('ゲーム中はアレンジの答えを一切出さない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 170);
+    await user.click(screen.getByTestId('segment-t20'));
+
+    const play = screen.getByLabelText('SIMULATION プレイ中');
+    expect(within(play).queryByText(/おすすめ/)).toBeNull();
+    expect(within(play).queryByText(/MY ROUTE/)).toBeNull();
+    expect(within(play).queryByText(/OTHER ROUTE/)).toBeNull();
+    expect(within(play).queryByText(/次に狙う/)).toBeNull();
+    // 既存モードで答えを出している要素が、SIMULATION には現れない。
+    expect(screen.queryByTestId('recovery-next')).toBeNull();
+    expect(screen.queryByTestId('standard-route')).toBeNull();
+    expect(screen.queryByTestId('my-route')).toBeNull();
+    expect(screen.queryByTestId('other-routes')).toBeNull();
+    expect(screen.queryByTestId('next-visit-route')).toBeNull();
+  });
+
+  it('3 投そろうまでは、正しい合計を表示しない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 170);
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-s20-outer'));
+
+    const entry = screen.getByTestId('sim-entry');
+    expect(entry).toHaveTextContent('暗算');
+    expect(entry).not.toHaveTextContent('140');
+  });
+
+  it('合計が合っていれば、そのまま次のラウンドへ進む', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+
+    await user.type(screen.getByTestId('sim-score-input'), '180');
+    await user.click(screen.getByTestId('sim-score-submit'));
+    expect(screen.getByTestId('sim-entry-verdict')).toHaveTextContent('正解');
+
+    await user.click(screen.getByTestId('sim-next-round'));
+    expectLeft(321);
+    expect(screen.getByTestId('sim-progress')).toHaveTextContent('ROUND 2');
+  });
+
+  it('暗算を間違えると CALCULATION MISS を即座に指摘し、正しい得点で進む', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t19'));
+    await user.click(screen.getByTestId('segment-s5-outer'));
+
+    await user.type(screen.getByTestId('sim-score-input'), '126');
+    await user.click(screen.getByTestId('sim-score-submit'));
+    expect(screen.getByTestId('sim-entry-verdict')).toHaveTextContent('CALCULATION MISS');
+    expect(screen.getByTestId('sim-entry-detail')).toHaveTextContent('正しいスコアは 122');
+
+    await user.click(screen.getByTestId('sim-next-round'));
+    expectLeft(379);
+  });
+
+  it('BUST ではラウンド開始時の残りへ戻る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 100);
+    await user.click(screen.getByTestId('segment-t20')); // 100 → 40
+    await user.click(screen.getByTestId('segment-t20')); // 40 - 60 → BUST
+
+    expect(screen.getByTestId('status-flag')).toHaveTextContent('BUST');
+    expect(screen.getByTestId('sim-entry')).toHaveTextContent('BUST');
+    await user.click(screen.getByTestId('sim-next-round'));
+    expectLeft(100);
+    expect(screen.getByTestId('sim-progress')).toHaveTextContent('ROUND 2');
+  });
+
+  it('直前の 1 投だけ取り消せる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+    expect(screen.getByTestId('sim-undo')).toBeDisabled();
+
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t19'));
+    expectLeft(384);
+
+    await user.click(screen.getByTestId('sim-undo'));
+    expectLeft(441);
+    expect(screen.queryByTestId('sim-throw-row-2')).toBeNull();
+
+    // 同じ DART 番号から狙い直せる。
+    await user.click(screen.getByTestId('segment-t18'));
+    expect(screen.getByTestId('sim-throw-row-2')).toHaveTextContent('狙い トリプル18');
+  });
+});
+
+describe('GAME REVIEW', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('ダブルアウトで終わると GAME REVIEW を表示する', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 170);
+
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-inner-bull'));
+    expect(screen.getByTestId('status-flag')).toHaveTextContent('CHECKOUT!');
+
+    await user.type(screen.getByTestId('sim-score-input'), '170');
+    await user.click(screen.getByTestId('sim-score-submit'));
+    await user.click(screen.getByTestId('sim-next-round'));
+
+    const review = screen.getByTestId('sim-review');
+    expect(review).toBeInTheDocument();
+    expect(screen.getByTestId('sim-summary-start')).toHaveTextContent('170');
+    expect(screen.getByTestId('sim-summary-darts')).toHaveTextContent('3');
+    expect(screen.getByTestId('sim-summary-ppr')).toHaveTextContent('170.00');
+    expect(screen.getByTestId('sim-summary-miss')).toHaveTextContent('0 回');
+    expect(screen.getByTestId('sim-summary-checkout-darts')).toHaveTextContent('3');
+    expect(screen.getByTestId('sim-summary-checkout-score')).toHaveTextContent('170');
+
+    // 1 投ごとの判断が、狙いに対する評価として出る。
+    expect(screen.getByTestId('sim-verdict-1')).toHaveTextContent('GOOD DECISION');
+    expect(screen.getByTestId('sim-throw-1')).toHaveTextContent('狙い トリプル20');
+  });
+
+  it('レビューには CALCULATION MISS も残る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 40);
+    await user.click(screen.getByTestId('segment-d20'));
+    await user.type(screen.getByTestId('sim-score-input'), '20');
+    await user.click(screen.getByTestId('sim-score-submit'));
+    await user.click(screen.getByTestId('sim-next-round'));
+
+    expect(screen.getByTestId('sim-summary-miss')).toHaveTextContent('1 回');
+    expect(screen.getByTestId('sim-round-miss-1')).toHaveTextContent('正しくは 40');
+  });
+
+  it('設定へ戻ると、次のゲームを始められる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 40);
+    await user.click(screen.getByTestId('segment-d20'));
+    await user.type(screen.getByTestId('sim-score-input'), '40');
+    await user.click(screen.getByTestId('sim-score-submit'));
+    await user.click(screen.getByTestId('sim-next-round'));
+
+    await user.click(screen.getByTestId('sim-restart'));
+    expect(screen.getByTestId('start-simulation')).toBeInTheDocument();
+  });
+});
+
+describe('既存モードへの影響', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('SIMULATION を触ったあとでも CHECKOUT は同じように動く', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+    await user.click(screen.getByTestId('segment-t20'));
+
+    await user.click(screen.getByTestId('nav-checkout'));
+    const input = screen.getByTestId('score-input');
+    await user.clear(input);
+    await user.type(input, '170');
+    // CHECKOUT では従来どおり答えが出る。
+    expect(await screen.findByTestId('standard-route')).toBeInTheDocument();
+  });
+});
