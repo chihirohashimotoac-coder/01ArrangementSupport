@@ -309,15 +309,38 @@ describe('GAME REVIEW の集計', () => {
   it('CALCULATION MISS の回数を数え、そのラウンドへ印を残す', () => {
     let game = createGame({ ...PERFECT, startScore: 180 }, 1);
     game = throwMany(game, ['segment-t20', 'segment-t20', 'segment-s20-outer']);
-    game = advanceRound(submitScore(game, 145)); // 正しくは 140
+    // 間違えても進めない。正解するまで入力を求める。
+    game = submitScore(game, 145); // 正しくは 140
+    expect(advanceRound(game)).toBe(game);
+    game = advanceRound(submitScore(game, 140));
+
     game = throwMany(game, ['segment-d20']);
     game = advanceRound(submitScore(game, 40));
 
     const review = buildGameReview(game);
     expect(review.summary.calculationMissCount).toBe(1);
-    expect(review.rounds[0].entry).toEqual({ entered: 145, actual: 140, miss: true });
+    expect(review.rounds[0].entry).toEqual({
+      entered: 140,
+      actual: 140,
+      miss: true,
+      wrongEntries: [145],
+    });
     expect(review.summary.checkoutDarts).toBe(1);
     expect(review.summary.checkoutScore).toBe(40);
+  });
+
+  it('同じラウンドで複数回間違えたら、その回数だけ数える', () => {
+    let game = createGame({ ...PERFECT, startScore: 180 }, 1);
+    game = throwMany(game, ['segment-t20', 'segment-t20', 'segment-s20-outer']);
+    game = submitScore(game, 145);
+    game = submitScore(game, 130);
+    game = advanceRound(submitScore(game, 140));
+    game = throwMany(game, ['segment-d20']);
+    game = advanceRound(submitScore(game, 40));
+
+    const review = buildGameReview(game);
+    expect(review.summary.calculationMissCount).toBe(2);
+    expect(review.rounds[0].entry?.wrongEntries).toEqual([145, 130]);
   });
 
   it('分類ごとの件数を数える', () => {

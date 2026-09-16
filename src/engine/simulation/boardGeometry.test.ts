@@ -105,9 +105,15 @@ describe('狙い点', () => {
     expect(wrong).toEqual([]);
   });
 
-  it('BULL は内外どちらの区画でも中心を狙う', () => {
+  it('BULL は内外を区別する（DB は中心、SB はリングの中ほど）', () => {
     expect(aimPointOf(requireSegment('segment-inner-bull'))).toEqual({ x: 0, y: 0 });
-    expect(aimPointOf(requireSegment('segment-outer-bull'))).toEqual({ x: 0, y: 0 });
+
+    const outer = aimPointOf(requireSegment('segment-outer-bull'));
+    const radius = radiusOf(outer);
+    expect(radius).toBeGreaterThan(REAL_RADII.innerBull);
+    expect(radius).toBeLessThan(REAL_RADII.outerBull);
+    // 狙い通りに入れば SB（25 点）であること。
+    expect(landingAt(outer).dart.id).toBe('SB');
   });
 
   it('MISS リングは狙えない', () => {
@@ -125,7 +131,7 @@ describe('狙い点', () => {
     expect(aimSegmentForDart('D16')?.id).toBe('segment-d16');
     expect(aimSegmentForDart('S5')?.id).toBe('segment-s5-inner');
     expect(aimSegmentForDart('BULL')?.id).toBe('segment-inner-bull');
-    expect(aimSegmentForDart('SB')?.id).toBe('segment-inner-bull');
+    expect(aimSegmentForDart('SB')?.id).toBe('segment-outer-bull');
     expect(aimSegmentForDart('MISS')).toBeUndefined();
   });
 });

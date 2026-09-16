@@ -211,10 +211,13 @@
   font-weight: 720;
 }
 
-.simulation__throw-score {
+/* BUST / CHECKOUT だけを示す。得点は出さない（暗算のため）。 */
+.simulation__throw-flag {
   margin-left: auto;
-  font-variant-numeric: tabular-nums;
-  font-weight: 780;
+  font-size: 0.72rem;
+  font-weight: 820;
+  letter-spacing: 0.04em;
+  color: var(--accent);
 }
 
 .simulation__actions {

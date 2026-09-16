@@ -16,6 +16,19 @@ async function startPerfectGame(page: Page, startScore: number) {
   await expect(page.getByTestId('dartboard')).toBeVisible();
 }
 
+/**
+ * アウターブル（SB）のリングをタップする。
+ *
+ * 区画は中心を含む円として描かれていて、真ん中はインナーブル（DB）が覆っている。
+ * 既定の「要素の中心をクリック」では DB を押してしまうので、リングの上側を狙う。
+ */
+async function clickOuterBull(page: Page) {
+  const box = await page.getByTestId('segment-outer-bull').boundingBox();
+  if (box === null) throw new Error('アウターブルの位置が取れません。');
+  // 中心から半径の 3/4 ぶん上（インナーブルの外・アウターブルの内）。
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.125);
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
 });
@@ -127,10 +140,14 @@ test('ターゲット表記が Sxx / Txx / Dxx / SB / DB でそろう', async ({
   await startPerfectGame(page, 170);
   await page.getByTestId('segment-t20').click();
   await expect(page.getByTestId('sim-throw-row-1')).toContainText('狙い T20');
-  await page.getByTestId('segment-s20-outer').click();
-  await expect(page.getByTestId('sim-throw-row-2')).toContainText('狙い S20');
+  // アウターブル（SB）とインナーブル（DB）は別の的。
+  // 中心はインナーブルが覆っているので、SB はリングの部分をタップする。
+  await clickOuterBull(page);
+  await expect(page.getByTestId('sim-throw-row-2')).toContainText('狙い SB');
+  await expect(page.getByTestId('sim-throw-row-2')).toContainText('着弾 SB');
   await page.getByTestId('segment-inner-bull').click();
   await expect(page.getByTestId('sim-throw-row-3')).toContainText('狙い DB');
+  await expect(page.getByTestId('sim-throw-row-3')).toContainText('着弾 DB');
 
   // 読み下し表記が残っていないこと。
   const play = page.getByLabel('SIMULATION プレイ中');
@@ -167,21 +184,65 @@ test('直前の 1 投だけ取り消せる', async ({ page }) => {
   await expect(page.getByTestId('sim-throw-row-2')).toContainText('狙い T18');
 });
 
-test('暗算を間違えると CALCULATION MISS が出て、正しい得点で進む', async ({ page }) => {
+test('暗算を間違えると CALCULATION MISS が出て、正解するまで次へ進めない', async ({ page }) => {
   await startPerfectGame(page, 501);
-  await page.getByTestId('segment-t20').click();
-  await page.getByTestId('segment-t20').click();
-  await page.getByTestId('segment-t20').click();
+  for (let dart = 0; dart < 3; dart += 1) await page.getByTestId('segment-t20').click();
 
-  // 3 投そろうまで正解は出さない。
+  // 3 投そろっても正解は出さない。
   await expect(page.getByTestId('sim-entry')).not.toContainText('180');
   await page.getByTestId('sim-score-input').fill('170');
   await page.getByTestId('sim-score-submit').click();
 
   await expect(page.getByTestId('sim-entry-verdict')).toContainText('CALCULATION MISS');
-  await expect(page.getByTestId('sim-entry-detail')).toContainText('正しいスコアは 180');
+  await expect(page.getByTestId('sim-entry-detail')).toContainText('計算が間違っています');
+  // 進むボタンは出ない。LEFT も動かない。
+  await expect(page.getByTestId('sim-next-round')).toHaveCount(0);
+  await expect(page.getByTestId('status-left')).toHaveText('501');
+
+  // 欄は空に戻り、フォーカスもあるのでそのまま打ち直せる。
+  const input = page.getByTestId('sim-score-input');
+  await expect(input).toHaveValue('');
+  await expect(input).toBeFocused();
+
+  await page.keyboard.type('180');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('sim-entry-verdict')).toContainText('正解');
+  await expect(page.getByTestId('sim-entry-detail')).toContainText('CALCULATION MISS 1 回');
   await page.getByTestId('sim-next-round').click();
   await expect(page.getByTestId('status-left')).toHaveText('321');
+});
+
+test('「次のラウンドへ」を Enter キーで押せる', async ({ page }) => {
+  await startPerfectGame(page, 501);
+  for (let dart = 0; dart < 3; dart += 1) await page.getByTestId('segment-t20').click();
+
+  await page.keyboard.type('180');
+  await page.keyboard.press('Enter');
+  // 確定すると「次のラウンドへ」へフォーカスが移る。
+  await expect(page.getByTestId('sim-next-round')).toBeFocused();
+
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('status-left')).toHaveText('321');
+  await expect(page.getByTestId('sim-progress')).toContainText('ROUND 2');
+});
+
+test('BUST の「次のラウンドへ」も Enter で押せる', async ({ page }) => {
+  await startPerfectGame(page, 40);
+  await page.getByTestId('segment-t20').click(); // 40 - 60 → BUST
+
+  await expect(page.getByTestId('sim-next-round')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('sim-progress')).toContainText('ROUND 2');
+});
+
+test('投擲リストに得点を出さない', async ({ page }) => {
+  await startPerfectGame(page, 501);
+  await page.getByTestId('segment-t20').click();
+
+  const row = page.getByTestId('sim-throw-row-1');
+  await expect(row).toContainText('狙い T20');
+  await expect(row).not.toContainText('60');
+  await expect(row).not.toContainText('点');
 });
 
 test('BUST するとラウンド開始時の残りへ戻る', async ({ page }) => {

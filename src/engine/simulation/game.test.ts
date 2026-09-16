@@ -11,6 +11,7 @@ import {
   currentLeft,
   dartsLeftInRound,
   describeThrow,
+  hasWrongEntry,
   needsScoreEntry,
   normalizeSettings,
   roundScoreOf,
@@ -197,24 +198,64 @@ describe('暗算入力と CALCULATION MISS', () => {
       'segment-s20-outer',
     ]);
     game = submitScore(game, 140);
-    expect(game.current?.entry).toEqual({ entered: 140, actual: 140, miss: false });
+    expect(game.current?.entry).toEqual({
+      entered: 140,
+      actual: 140,
+      miss: false,
+      wrongEntries: [],
+    });
     game = advanceRound(game);
     expect(game.left).toBe(361);
   });
 
-  it('違う合計を入れると CALCULATION MISS になり、正しい得点で進む', () => {
+  it('違う合計では次のラウンドへ進めず、正解するまで入力を求める', () => {
     let game = throwMany(createGame(perfect(501), 1), [
       'segment-t20',
       'segment-t19',
       'segment-s5-inner',
     ]);
     const actual = 60 + 57 + 5;
+
     game = submitScore(game, actual + 4);
-    expect(game.current?.entry).toEqual({ entered: actual + 4, actual, miss: true });
+    expect(hasWrongEntry(game.current)).toBe(true);
+    expect(game.current?.entry).toBeNull();
+    expect(game.current?.wrongEntries).toEqual([actual + 4]);
+    // まだ確定していないので進めない。
+    expect(needsScoreEntry(game.current)).toBe(true);
+    expect(advanceRound(game)).toBe(game);
+
+    // 2 回目も間違えれば、そのぶん記録が増える。
+    game = submitScore(game, actual - 1);
+    expect(game.current?.wrongEntries).toEqual([actual + 4, actual - 1]);
+    expect(advanceRound(game)).toBe(game);
+
+    // 正解して初めて確定する。
+    game = submitScore(game, actual);
+    expect(game.current?.entry).toEqual({
+      entered: actual,
+      actual,
+      miss: true,
+      wrongEntries: [actual + 4, actual - 1],
+    });
+    expect(hasWrongEntry(game.current)).toBe(false);
+
     game = advanceRound(game);
-    // 入力値ではなく、内部の正しい得点で進める。
     expect(game.left).toBe(501 - actual);
     expect(game.rounds[0].entry?.miss).toBe(true);
+    expect(game.rounds[0].entry?.wrongEntries).toHaveLength(2);
+  });
+
+  it('UNDO すると、間違えた入力の記録も捨てる（合計が変わるため）', () => {
+    let game = throwMany(createGame(human(501), 9), [
+      'segment-t20',
+      'segment-t20',
+      'segment-t20',
+    ]);
+    game = submitScore(game, 1);
+    expect(game.current?.wrongEntries).toHaveLength(1);
+    game = undoLastThrow(game);
+    expect(game.current?.wrongEntries).toEqual([]);
+    expect(hasWrongEntry(game.current)).toBe(false);
   });
 
   it('入力前は次のラウンドへ進めない', () => {
@@ -226,14 +267,15 @@ describe('暗算入力と CALCULATION MISS', () => {
     expect(advanceRound(game)).toBe(game);
   });
 
-  it('入力は 1 回だけ受け付ける', () => {
+  it('正解を確定したあとは、もう入力を受け付けない', () => {
     const game = throwMany(createGame(perfect(501), 1), [
       'segment-t20',
       'segment-t20',
       'segment-t20',
     ]);
-    const submitted = submitScore(game, 100);
-    expect(submitScore(submitted, 180)).toBe(submitted);
+    const submitted = submitScore(game, 180);
+    expect(submitted.current?.entry?.miss).toBe(false);
+    expect(submitScore(submitted, 100)).toBe(submitted);
   });
 });
 
@@ -344,14 +386,11 @@ describe('表示用の説明', () => {
     expect(inner.current!.throws[0].score).toBe(50);
   });
 
-  it('アウターブルを押した場合、狙いは SB・着弾は中心（DB）になる', () => {
-    /*
-     * 着弾モデルでは BULL は内外どちらの区画を押しても「中心を狙う」。
-     * アウターブルのリングだけを狙う投げ方は実戦では行わないため。
-     * 狙いの記録は押した区画のまま（SB）、着弾は座標から DB と判定される。
-     */
+  it('アウターブルを押したら SB を狙い、狙い通りなら SB に入る', () => {
+    // DB（中心）と SB（外側のリング）は別の的として扱う。
     const outer = throwAt(createGame(perfect(501), 1), 'segment-outer-bull');
-    expect(describeThrow(outer.current!.throws[0])).toEqual({ intended: 'SB', actual: 'DB' });
+    expect(describeThrow(outer.current!.throws[0])).toEqual({ intended: 'SB', actual: 'SB' });
+    expect(outer.current!.throws[0].score).toBe(25);
   });
 });
 

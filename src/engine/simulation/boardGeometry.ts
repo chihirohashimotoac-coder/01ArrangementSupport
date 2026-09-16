@@ -153,14 +153,21 @@ export function landingAt(point: Point): Landing {
 /**
  * 狙った区画の「狙い点」（実寸座標）。
  *
- * その区画の中央を狙うものとする。BULL は内外どちらを押しても中心を狙う
- * （アウターブルのリングだけを狙う投げ方は実戦では行わないため）。
+ * その区画の中央を狙う。**BULL は内外を区別する。**
+ *
+ * - インナーブル（DB / 50 点）… 中心そのもの
+ * - アウターブル（SB / 25 点）… リングの半径の中ほど
+ *
+ * アウターブルはドーナツ状なので「中央」が一意に決まらない。角度は真上
+ * （20 の方向）に固定する。どの角度を選んでも SB であることに変わりはなく、
+ * 決定論的であればよいため。
  */
 export function aimPointOf(segment: SegmentDefinition): Point {
   switch (segment.ring) {
     case 'inner-bull':
-    case 'outer-bull':
       return { x: 0, y: 0 };
+    case 'outer-bull':
+      return fromPolar((REAL_RADII.innerBull + REAL_RADII.outerBull) / 2, -90);
     case 'miss':
       throw new Error('MISS リングは狙う的にできません。');
     default: {
@@ -179,13 +186,14 @@ export function aimPointOf(segment: SegmentDefinition): Point {
  * シングルは **インナーシングル**（BULL とトリプルの間）を選ぶ。
  * アウターシングルはダブルリングと接していて、外すと Bust しやすいため、
  * 実戦で「S20 を狙う」と言えば普通はインナー側を指す。
- * BULL は内外どちらも中心（インナーブル区画）を狙う。
+ * BULL は DB（50 点）と SB（25 点）をそれぞれの区画へ分ける。
  *
  * ユーザーが盤面をタップして狙うときは、この関数ではなくタップした区画が
  * そのまま狙い（インナー / アウターの選択もユーザーの判断）になる。
  */
 export function aimSegmentForDart(dartId: string): SegmentDefinition | undefined {
-  if (dartId === 'BULL' || dartId === 'SB') return getSegmentById('segment-inner-bull');
+  if (dartId === 'BULL') return getSegmentById('segment-inner-bull');
+  if (dartId === 'SB') return getSegmentById('segment-outer-bull');
   const match = /^([SDT])(\d{1,2})$/.exec(dartId);
   if (match === null) return undefined;
   const [, prefix, number] = match;

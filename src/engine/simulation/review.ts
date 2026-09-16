@@ -100,6 +100,7 @@ export interface GameSummary {
   readonly ppr: number;
   /** 最初の 9 投の 3 ダーツ平均。9 投未満で上がった場合は投げた本数で割る。 */
   readonly first9Ppr: number;
+  /** 暗算を間違えた**回数**（1 ラウンドで複数回あればそのぶん数える）。 */
   readonly calculationMissCount: number;
   readonly bustCount: number;
   /** 上がったラウンドで使った本数。上がっていなければ null。 */
@@ -554,7 +555,11 @@ function summarize(game: SimulationGame): GameSummary {
     totalDarts,
     ppr: totalDarts > 0 ? (scoredTotal / totalDarts) * 3 : 0,
     first9Ppr: first9Count > 0 ? (first9Total / first9Count) * 3 : 0,
-    calculationMissCount: rounds.filter((round) => round.entry?.miss === true).length,
+    // 間違えた入力の**回数**で数える（1 ラウンドで複数回あればそのぶん）。
+    calculationMissCount: rounds.reduce(
+      (sum, round) => sum + (round.entry?.wrongEntries.length ?? 0),
+      0,
+    ),
     bustCount: rounds.filter((round) => round.bust).length,
     checkoutDarts: checkedOut ? last.throws.length : null,
     checkoutScore: checkedOut ? last.leftBefore : null,

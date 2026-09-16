@@ -16,6 +16,7 @@ import {
   createGame,
   dartsLeftInRound,
   describeThrow,
+  hasWrongEntry,
   needsScoreEntry,
   submitScore,
   throwAt,
@@ -103,6 +104,9 @@ export function SimulationPage() {
   const round = game?.current ?? null;
   const entry = round?.entry ?? null;
   const awaitingEntry = game?.phase === 'score-entry' && needsScoreEntry(round);
+  const wrongEntry = hasWrongEntry(round);
+  /** 「次のラウンドへ」を出す状態（Enter でも進めるようにフォーカスする）。 */
+  const readyForNext = game?.phase === 'score-entry' && round !== null && !needsScoreEntry(round);
 
   /*
    * 画面上部の LEFT は **ビジット開始時の残りで固定**する。
@@ -172,7 +176,11 @@ export function SimulationPage() {
    * ぶんの調整は、ブラウザ側が従来どおり面倒を見る。
    */
   const scoreInputRef = useRef<HTMLInputElement>(null);
+  const nextButtonRef = useRef<HTMLButtonElement>(null);
   const entryRef = useRef<HTMLElement>(null);
+
+  /** 間違えた回数。ここが増えたら入力欄へフォーカスを戻す。 */
+  const wrongCount = round?.wrongEntries.length ?? 0;
 
   useLayoutEffect(() => {
     if (!awaitingEntry) return;
@@ -180,13 +188,26 @@ export function SimulationPage() {
     if (input === null) return;
     input.focus({ preventScroll: true });
     entryRef.current?.scrollIntoView?.({ block: 'nearest' });
-  }, [awaitingEntry]);
+  }, [awaitingEntry, wrongCount]);
+
+  /*
+   * 「次のラウンドへ」もキーボードだけで進めるようにする。
+   * ボタンへフォーカスを当てておけば、Enter / Space がそのまま押下になる
+   * （独自のキー処理を足さずに済み、読み上げの操作とも食い違わない）。
+   */
+  useLayoutEffect(() => {
+    if (!readyForNext) return;
+    nextButtonRef.current?.focus({ preventScroll: true });
+    entryRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [readyForNext]);
 
   const handleSubmitScore = () => {
     if (game === null) return;
     const parsed = Number(scoreDraft.trim());
     if (!/^\d+$/.test(scoreDraft.trim()) || !Number.isInteger(parsed)) return;
     setGame(submitScore(game, parsed));
+    // 間違っていたら打ち直してもらうので、いずれにせよ欄は空にする。
+    setScoreDraft('');
   };
 
   const next = () => {
@@ -430,18 +451,41 @@ export function SimulationPage() {
                     {bustNoteJa(round.bustReason)}
                     このラウンドは 0 点です。残り {round.leftBefore} へ戻ります。
                   </p>
-                  <button type="button" data-testid="sim-next-round" onClick={next}>
+                  <button
+                    ref={nextButtonRef}
+                    type="button"
+                    data-testid="sim-next-round"
+                    onClick={next}
+                  >
                     次のラウンドへ
                   </button>
                 </>
               ) : entry === null ? (
                 <>
-                  <p className="simulation__entry-title">
-                    この {round.throws.length} 投の合計は？
-                  </p>
-                  <p className="simulation__entry-note">
-                    自分で暗算して入力してください。正しい得点はまだ出しません。
-                  </p>
+                  {wrongEntry ? (
+                    <>
+                      <p
+                        className="simulation__entry-title simulation__entry-title--ng"
+                        data-testid="sim-entry-verdict"
+                      >
+                        CALCULATION MISS
+                      </p>
+                      <p className="simulation__entry-note" data-testid="sim-entry-detail">
+                        計算が間違っています。もう一度、この {round.throws.length} 投の合計を
+                        計算してください（入力 {round.wrongEntries.join(' / ')}）。
+                        正しい合計を入れるまで次のラウンドへは進みません。
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="simulation__entry-title">
+                        この {round.throws.length} 投の合計は？
+                      </p>
+                      <p className="simulation__entry-note">
+                        自分で暗算して入力してください。正しい得点はまだ出しません。
+                      </p>
+                    </>
+                  )}
                   <div className="simulation__entry-field">
                     <input
                       ref={scoreInputRef}
@@ -474,19 +518,23 @@ export function SimulationPage() {
               ) : (
                 <>
                   <p
-                    className={`simulation__entry-title simulation__entry-title--${
-                      entry.miss ? 'ng' : 'ok'
-                    }`}
+                    className="simulation__entry-title simulation__entry-title--ok"
                     data-testid="sim-entry-verdict"
                   >
-                    {entry.miss ? 'CALCULATION MISS' : '正解'}
+                    正解
                   </p>
                   <p className="simulation__entry-note" data-testid="sim-entry-detail">
-                    {entry.miss
-                      ? `入力 ${entry.entered} ／ 正しいスコアは ${entry.actual} です。この ${entry.actual} で進みます。`
-                      : `${entry.actual} 点。残り ${round.leftBefore - entry.actual} です。`}
+                    {entry.actual} 点。残り {round.leftBefore - entry.actual} です。
+                    {entry.miss &&
+                      `（CALCULATION MISS ${entry.wrongEntries.length} 回: ${entry.wrongEntries.join(' / ')}）`}
                   </p>
-                  <button type="button" data-testid="sim-next-round" onClick={next}>
+                  {/* Enter / Space でそのまま進めるよう、自動でフォーカスを当てている。 */}
+                  <button
+                    ref={nextButtonRef}
+                    type="button"
+                    data-testid="sim-next-round"
+                    onClick={next}
+                  >
                     {round.checkout ? 'ゲームを終える' : '次のラウンドへ'}
                   </button>
                 </>
@@ -570,7 +618,8 @@ export function SimulationPage() {
 
                 {item.entry?.miss === true && (
                   <p className="simulation__round-miss" data-testid={`sim-round-miss-${item.round}`}>
-                    CALCULATION MISS — 入力 {item.entry.entered} ／ 正しくは {item.entry.actual}
+                    CALCULATION MISS {item.entry.wrongEntries.length} 回 — 入力{' '}
+                    {item.entry.wrongEntries.join(' / ')} ／ 正しくは {item.entry.actual}
                   </p>
                 )}
 
@@ -628,6 +677,12 @@ export function SimulationPage() {
   );
 }
 
+/**
+ * 1 投の記録。
+ *
+ * **得点は出さない。** 合計はもちろん、1 投ごとの点数も出してしまうと
+ * 暗算がただの足し算の読み上げになる。出すのは狙いと着弾だけ。
+ */
 function ThrowRow({ record }: { record: ThrowRecord }) {
   const described = describeThrow(record);
   return (
@@ -635,7 +690,9 @@ function ThrowRow({ record }: { record: ThrowRecord }) {
       <span className="simulation__throw-dart">D{record.dartNumber}</span>
       <span className="simulation__throw-aim">狙い {described.intended}</span>
       <span className="simulation__throw-hit">着弾 {described.actual}</span>
-      <span className="simulation__throw-score">{record.bust ? 'BUST' : `${record.score} 点`}</span>
+      {(record.bust || record.checkout) && (
+        <span className="simulation__throw-flag">{record.bust ? 'BUST' : 'CHECKOUT'}</span>
+      )}
     </li>
   );
 }

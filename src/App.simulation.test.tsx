@@ -167,7 +167,7 @@ describe('SIMULATION のプレイ', () => {
     expect(screen.getByTestId('sim-progress')).toHaveTextContent('ROUND 2');
   });
 
-  it('暗算を間違えると CALCULATION MISS を即座に指摘し、正しい得点で進む', async () => {
+  it('暗算を間違えると CALCULATION MISS を出し、正解するまで次へ進めない', async () => {
     const user = userEvent.setup();
     render(<App />);
     await startPerfectGame(user, 501);
@@ -178,10 +178,85 @@ describe('SIMULATION のプレイ', () => {
     await user.type(screen.getByTestId('sim-score-input'), '126');
     await user.click(screen.getByTestId('sim-score-submit'));
     expect(screen.getByTestId('sim-entry-verdict')).toHaveTextContent('CALCULATION MISS');
-    expect(screen.getByTestId('sim-entry-detail')).toHaveTextContent('正しいスコアは 122');
+    expect(screen.getByTestId('sim-entry-detail')).toHaveTextContent('計算が間違っています');
+    // 正しい合計は教えない（教えたら暗算にならない）。
+    expect(screen.getByTestId('sim-entry-detail')).not.toHaveTextContent('122 です');
+    // 「次のラウンドへ」は出ない。
+    expect(screen.queryByTestId('sim-next-round')).toBeNull();
+    expectLeft(501);
 
+    // 入力欄が空に戻り、フォーカスも戻っているので、そのまま打ち直せる。
+    const input = screen.getByTestId('sim-score-input');
+    expect(input).toHaveValue('');
+    expect(input).toHaveFocus();
+
+    // もう一度間違えても進めない。
+    await user.keyboard('130{Enter}');
+    expect(screen.queryByTestId('sim-next-round')).toBeNull();
+
+    // 正解して初めて進める。
+    await user.keyboard('122{Enter}');
+    expect(screen.getByTestId('sim-entry-verdict')).toHaveTextContent('正解');
+    expect(screen.getByTestId('sim-entry-detail')).toHaveTextContent('CALCULATION MISS 2 回');
     await user.click(screen.getByTestId('sim-next-round'));
     expectLeft(379);
+  });
+
+  it('「次のラウンドへ」は Enter キーで押せる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+
+    // 3 投目 → 数字 → Enter で確定 → ボタンへフォーカスが移る。
+    await user.keyboard('180{Enter}');
+    const nextButton = screen.getByTestId('sim-next-round');
+    expect(nextButton).toHaveFocus();
+
+    // そのまま Enter でもう一度押せる（マウスへ持ち替えなくてよい）。
+    await user.keyboard('{Enter}');
+    expectLeft(321);
+    expect(screen.getByTestId('sim-progress')).toHaveTextContent('ROUND 2');
+  });
+
+  it('BUST の「次のラウンドへ」も Enter で押せる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 40);
+    await user.click(screen.getByTestId('segment-t20')); // BUST
+
+    expect(screen.getByTestId('sim-next-round')).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByTestId('sim-progress')).toHaveTextContent('ROUND 2');
+  });
+
+  it('投擲リストに得点を出さない（暗算の手がかりにしない）', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+    await user.click(screen.getByTestId('segment-t20'));
+
+    const row = screen.getByTestId('sim-throw-row-1');
+    expect(row).toHaveTextContent('狙い T20');
+    expect(row).toHaveTextContent('着弾 T20');
+    expect(row).not.toHaveTextContent('60');
+    expect(row).not.toHaveTextContent('点');
+  });
+
+  it('アウターブルとインナーブルを別の的として扱う', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+
+    await user.click(screen.getByTestId('segment-outer-bull'));
+    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('狙い SB');
+    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('着弾 SB');
+
+    await user.click(screen.getByTestId('segment-inner-bull'));
+    expect(screen.getByTestId('sim-throw-row-2')).toHaveTextContent('狙い DB');
+    expect(screen.getByTestId('sim-throw-row-2')).toHaveTextContent('着弾 DB');
   });
 
   it('BUST ではラウンド開始時の残りへ戻る', async () => {
@@ -378,8 +453,11 @@ describe('GAME REVIEW', () => {
     render(<App />);
     await startPerfectGame(user, 40);
     await user.click(screen.getByTestId('segment-d20'));
+    // 一度間違えてから正解する。
     await user.type(screen.getByTestId('sim-score-input'), '20');
     await user.click(screen.getByTestId('sim-score-submit'));
+    expect(screen.getByTestId('sim-entry-verdict')).toHaveTextContent('CALCULATION MISS');
+    await user.keyboard('40{Enter}');
     await user.click(screen.getByTestId('sim-next-round'));
 
     expect(screen.getByTestId('sim-summary-miss')).toHaveTextContent('1 回');

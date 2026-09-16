@@ -67,11 +67,15 @@ export interface ThrowRecord {
   readonly drawsBefore: number;
 }
 
-/** 暗算入力の結果。 */
+/** 暗算入力の結果（正解した時点で確定する）。 */
 export interface ScoreEntry {
+  /** 最終的に入力した値。正解なので `actual` と同じ。 */
   readonly entered: number;
   readonly actual: number;
+  /** 正解までに 1 回でも間違えたか。 */
   readonly miss: boolean;
+  /** 間違えた入力（入力順）。CALCULATION MISS の記録。 */
+  readonly wrongEntries: readonly number[];
 }
 
 /** 進行中のラウンド。 */
@@ -84,7 +88,14 @@ export interface ActiveRound {
   readonly checkout: boolean;
   /** 3 投投げ切った／上がった／BUST した。 */
   readonly complete: boolean;
-  /** 暗算入力の結果。未入力は null。BUST のラウンドでは入力を求めない。 */
+  /**
+   * まだ正解していない入力（入力順）。
+   *
+   * 合計を間違えても次のラウンドへは進めない。正しい合計を入れるまで
+   * ここへ積み、`entry` は null のままにする。
+   */
+  readonly wrongEntries: readonly number[];
+  /** 暗算入力の結果。正解するまで null。BUST のラウンドでは入力を求めない。 */
   readonly entry: ScoreEntry | null;
 }
 
@@ -178,6 +189,7 @@ function newRound(round: number, leftBefore: number): ActiveRound {
     bustReason: null,
     checkout: false,
     complete: false,
+    wrongEntries: [],
     entry: null,
   };
 }
@@ -276,6 +288,7 @@ function throwAtSegment(game: SimulationGame, segment: SegmentDefinition): Simul
     bustReason: record.bustReason,
     checkout: record.checkout,
     complete,
+    wrongEntries: [],
     // BUST のラウンドは 3 投そろわないので暗算入力を求めない（得点は 0）。
     entry: null,
   };
@@ -305,6 +318,8 @@ export function undoLastThrow(game: SimulationGame): SimulationGame {
       bustReason: null,
       checkout: false,
       complete: false,
+      // 投げ直すと合計が変わるので、間違えた入力の記録も捨てる。
+      wrongEntries: [],
       entry: null,
     },
   };
@@ -324,19 +339,42 @@ export function needsScoreEntry(round: ActiveRound | null): boolean {
 /**
  * 暗算した 3 投合計を入力する。
  *
- * 内部の正しい合計と違っても、進行には必ず正しい合計を使う。
+ * **正しい合計を入れるまで次のラウンドへは進めない。** 間違えた入力は
+ * CALCULATION MISS として記録し、ラウンドは入力待ちのままにする。
+ * 暗算そのものが練習なので、合っていない答えで先へは進めない。
  */
 export function submitScore(game: SimulationGame, entered: number): SimulationGame {
   if (game.phase !== 'score-entry' || game.current === null) return game;
   if (!needsScoreEntry(game.current)) return game;
+
   const actual = roundScoreOf(game.current);
+  if (entered !== actual) {
+    return {
+      ...game,
+      current: {
+        ...game.current,
+        wrongEntries: [...game.current.wrongEntries, entered],
+      },
+    };
+  }
+
   return {
     ...game,
     current: {
       ...game.current,
-      entry: { entered, actual, miss: entered !== actual },
+      entry: {
+        entered,
+        actual,
+        miss: game.current.wrongEntries.length > 0,
+        wrongEntries: game.current.wrongEntries,
+      },
     },
   };
+}
+
+/** 直前の入力が間違っていたか（「計算が間違っています」の表示用）。 */
+export function hasWrongEntry(round: ActiveRound | null): boolean {
+  return round !== null && round.entry === null && round.wrongEntries.length > 0;
 }
 
 /** 次のラウンドへ進む（上がっていればゲーム終了）。 */
