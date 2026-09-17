@@ -338,6 +338,35 @@ test('残り 178 / 最後の 1 投で T19 を狙うと、159 を理由に指摘�
   await expect(round1).toContainText('T18');
 });
 
+test('残り 178 / 最後の 1 投で S18 を狙うと、T18 を勧められる', async ({ page }) => {
+  /*
+   * 258 → T20 → S20 で 178 を残し、最後の 1 投で S18（160 残し）を狙う。
+   * 成立はしているが、T18 ならシングル落ちでも同じ 160 で、当たれば 124。
+   */
+  await startPerfectGame(page, 258);
+  await page.getByTestId('segment-t20').click();
+  await page.getByTestId('segment-s20-outer').click();
+  await page.getByTestId('segment-s18-outer').click();
+  await page.getByTestId('sim-score-input').fill('98');
+  await page.getByTestId('sim-score-submit').click();
+  await page.getByTestId('sim-next-round').click();
+
+  // 160 = T20 → T20 → D20 で上がる。
+  await page.getByTestId('segment-t20').click();
+  await page.getByTestId('segment-t20').click();
+  await page.getByTestId('segment-d20').click();
+  await page.getByTestId('sim-score-input').fill('160');
+  await page.getByTestId('sim-score-submit').click();
+  await page.getByTestId('sim-next-round').click();
+
+  await expect(page.getByTestId('sim-review')).toBeVisible();
+  await expect(page.getByTestId('sim-verdict-3')).toContainText('BETTER OPTION AVAILABLE');
+  const round1 = page.getByTestId('sim-round-1');
+  await expect(round1).toContainText('テンパイは作れますが');
+  await expect(round1).toContainText('T18');
+  await expect(round1).toContainText('124');
+});
+
 test('設定は端末に残り、次に開いたときも引き継ぐ', async ({ page }) => {
   await page.getByTestId('nav-simulation').click();
   await page.getByTestId('sim-start-301').click();

@@ -24,6 +24,21 @@ export interface VersionHistoryEntry {
 /** 新しい順。先頭が現在の版。 */
 export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
   {
+    label: 'v1.4.2 SIMULATION のレビューが、同じナンバーのトリプル狙いを勧める',
+    date: '2026-09-17',
+    summary:
+      '残り 1 投でシングルを直接狙ってテンパイを作ったとき、同じナンバーのトリプルを狙えば「外しても同じ残り・当たればさらに前進」になる場面では、トリプルを狙う方が実戦的だと伝えるようにしました。',
+    changes: [
+      '例: 残り 178 で S18 を狙うと 160 を残せますが、T18 を狙えばシングルに落ちても同じ 160 で、T18 に入れば 124 まで進められます。この場合は GOOD DECISION ではなく BETTER OPTION AVAILABLE として理由を添えます。',
+      'S20 → 158（T20 なら 118）のような同じ形も、同じ扱いになります。',
+      'シングルを直接狙うこと自体を悪手にはしません。同じナンバーのトリプルが「シングルに落ちてもテンパイを保て、かつ当たっても 3 本で上がれる」場合だけです。例えば残り 171 の S4（167 残し）は、T4 が 159 のノーテンになるため GOOD DECISION のままです。',
+      '160 や 170 といった特定の残り点は、これまでどおり特別扱いしません。',
+      'この判定は 171 以上の残り点に限ります。170 以下の「次のラウンドへの残し」は、これまでどおりの判定です。',
+      '既存の CHECKOUT / SETUP / TRAINING と、SIMULATION の着弾モデル・設定は変更していません。',
+    ],
+    current: true,
+  },
+  {
     label: 'v1.4.1 SIMULATION の設定説明と、レビューの判定・言い方',
     date: '2026-09-17',
     summary:
@@ -38,7 +53,6 @@ export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
       '着弾のミスは、これまでどおり判断ミスに数えません。評価するのは狙いだけです。',
       '既存の CHECKOUT / SETUP / TRAINING の判定・データ・着弾モデル・PPR の設定は変更していません。',
     ],
-    current: true,
   },
   {
     label: 'v1.4.0 SIMULATION — 1 ゲームを通して自力でプレイする',
