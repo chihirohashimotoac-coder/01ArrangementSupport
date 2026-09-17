@@ -87,8 +87,24 @@ function neighborNumbers(target: number, distance: number): readonly number[] {
   ];
 }
 
+/** 時計の文字盤で `hour` 時の方向にあるナンバー（20 が 12 時）。 */
+function sideNumberAt(hour: number): number {
+  const index = Math.round((hour / 12) * BOARD_NUMBERS.length) % BOARD_NUMBERS.length;
+  return BOARD_NUMBERS[index];
+}
+
 const NEIGHBORS_OF_20 = neighborNumbers(20, 1);
 const TWO_AWAY_FROM_20 = neighborNumbers(20, 2);
+
+/**
+ * 盤面の左右（3 時 / 9 時方向）付近にあるナンバーの例。
+ *
+ * 散布は**盤面に固定した XY 軸**へかかる（`scatterProfile` は狙いの向きで
+ * 回転しない）。そのため「縦ブレ＝同じナンバー内・横ブレ＝隣のナンバー」が
+ * 成り立つのは、20 や 3 のように盤面の上下にあるナンバーを狙うときで、
+ * 左右にあるナンバーでは向きが入れ替わる。説明文でその例として使う。
+ */
+const SIDE_NUMBER_EXAMPLES = [sideNumberAt(3), sideNumberAt(9)] as const;
 
 export const DIRECTION_GUIDE: readonly DirectionGuide[] = [
   {
@@ -96,16 +112,20 @@ export const DIRECTION_GUIDE: readonly DirectionGuide[] = [
     label: '縦ブレ',
     hint: '上下に散りやすい',
     detail:
-      '同じナンバーの中で上下へ外れやすくなります。トリプルの帯は 8 mm しかないので、' +
-      'トリプル狙いがシングルへ落ちる回数が増えます。',
+      '着弾が盤面の上下方向へ散ります。20 や 3 のように盤面の上下にあるナンバーでは、' +
+      '同じナンバーの中でトリプル帯（幅 8 mm）を上下に外しやすくなり、' +
+      `シングルへ落ちる回数が増えます（${SIDE_NUMBER_EXAMPLES.join(' や ')} のように` +
+      '盤面の左右にあるナンバーでは、逆に隣のナンバーへ流れる向きになります）。',
   },
   {
     value: 'horizontal',
     label: '横ブレ',
     hint: '左右に散りやすい',
     detail:
-      `隣のナンバーへ流れやすくなります（20 を狙うと ${NEIGHBORS_OF_20.join(' や ')}）。` +
-      '狙ったナンバーのトリプル帯には届いていても、点数が大きく変わります。',
+      '着弾が盤面の左右方向へ散ります。20 を狙うと ' +
+      `${NEIGHBORS_OF_20.join(' や ')} など隣のナンバーへ流れやすくなります` +
+      `（${SIDE_NUMBER_EXAMPLES.join(' や ')} のように盤面の左右にあるナンバーでは、` +
+      '逆に同じナンバーの中で内外へ外れる向きになります）。',
   },
   {
     value: 'even',
@@ -116,8 +136,9 @@ export const DIRECTION_GUIDE: readonly DirectionGuide[] = [
 ];
 
 export const DIRECTION_CRITERION_JA =
-  '自分の外し方で選びます。グルーピングが縦に伸びるなら縦ブレ、' +
-  '左右のナンバーへこぼれることが多いなら横ブレです。' +
+  '自分の外し方で選びます。散布は盤面に対する上下・左右で決まるので、' +
+  'グルーピングが盤面のどちら向きに伸びるかで選んでください' +
+  '（狙いに対する内外ではありません）。' +
   '同じ PPR ならどの方向でも平均点はほぼ変わらず、外れ方だけが変わります。';
 
 /** 「最大ブレ」を選ぶときの説明。 */

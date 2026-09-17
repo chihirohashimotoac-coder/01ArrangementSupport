@@ -165,8 +165,8 @@
   font-weight: 740;
   letter-spacing: 0.02em;
   cursor: pointer;
-  /* 指で押せる高さを確保する。 */
-  min-height: 2.25rem;
+  /* タップ領域は 44px 以上（docs/SPEC.md §7）。 */
+  min-height: 2.75rem;
   display: flex;
   align-items: center;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MAX_PPR } from './accuracy';
 import {
   AVERAGE_HELP_JA,
+  DIRECTION_CRITERION_JA,
   DIRECTION_GUIDE,
   FIRST9_HELP_JA,
   MAX_MISS_CRITERION_JA,
@@ -49,6 +50,23 @@ describe('SIMULATION の設定説明', () => {
     expect(horizontal.detail).toContain('1');
     expect(horizontal.detail).toContain('5');
     expect(even.detail).toContain('かたより');
+  });
+
+  it('散布が盤面固定の軸であることを、説明に落とさない', () => {
+    /*
+     * `scatterProfile` は σx / σy を**盤面の XY 軸**へかける（狙いの向きで
+     * 回転しない）。「縦＝同じナンバー内・横＝隣のナンバー」が成り立つのは
+     * 盤面の上下にあるナンバーを狙うときだけで、左右のナンバー（6 / 11）では
+     * 向きが入れ替わる。この但し書きを説明から落とさない。
+     */
+    const vertical = DIRECTION_GUIDE.find((item) => item.value === 'vertical')!;
+    const horizontal = DIRECTION_GUIDE.find((item) => item.value === 'horizontal')!;
+    for (const detail of [vertical.detail, horizontal.detail]) {
+      expect(detail).toContain('盤面の左右にあるナンバー');
+      expect(detail).toContain('6');
+      expect(detail).toContain('11');
+    }
+    expect(DIRECTION_CRITERION_JA).toContain('盤面に対する上下・左右');
   });
 
   it('最大ブレは、外れ幅の違いと選ぶ基準を書いている', () => {
