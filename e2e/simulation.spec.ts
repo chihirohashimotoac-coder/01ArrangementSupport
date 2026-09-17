@@ -276,6 +276,61 @@ test('ダブルアウトで上がると GAME REVIEW が出る', async ({ page })
   await expect(page.getByTestId('sim-review')).toContainText('狙い');
 });
 
+test('設定の意味と選び方を、折りたたみで読める', async ({ page }) => {
+  await page.getByTestId('nav-simulation').click();
+
+  const ppr = page.getByTestId('sim-help-ppr');
+  // 設定画面を長くしないため、既定は閉じている。
+  expect(await ppr.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(false);
+  await ppr.locator('summary').click();
+  await expect(ppr).toContainText('開始から 9 投まで');
+  await expect(ppr).toContainText('ゲーム全体の精度');
+  await expect(ppr).toContainText('501 を約');
+
+  await page.getByTestId('sim-help-direction').locator('summary').click();
+  await expect(page.getByTestId('sim-help-direction')).toContainText('同じナンバー');
+  await expect(page.getByTestId('sim-help-direction')).toContainText('隣のナンバー');
+
+  await page.getByTestId('sim-help-maxmiss').locator('summary').click();
+  await expect(page.getByTestId('sim-help-maxmiss')).toContainText('OUT BOARD');
+  await expect(page.getByTestId('sim-help-maxmiss')).toContainText('ひどく外した');
+
+  // 説明をすべて開いても横スクロールは出ない。
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test('残り 178 / 最後の 1 投で T19 を狙うと、159 を理由に指摘される', async ({ page }) => {
+  /*
+   * 添付実例の回帰。258 → T20 → S20 で 178 を残し、最後の 1 投で T19 を狙う。
+   * T19 は狙い通りなら 121 だが、シングルへ落ちると 159（Bogey）。
+   */
+  await startPerfectGame(page, 258);
+  await page.getByTestId('segment-t20').click();
+  await page.getByTestId('segment-s20-outer').click();
+  await page.getByTestId('segment-t19').click();
+  await page.getByTestId('sim-score-input').fill('137');
+  await page.getByTestId('sim-score-submit').click();
+  await page.getByTestId('sim-next-round').click();
+
+  // 121 = T20 → T15 → D8 で上がる。
+  await page.getByTestId('segment-t20').click();
+  await page.getByTestId('segment-t15').click();
+  await page.getByTestId('segment-d8').click();
+  await page.getByTestId('sim-score-input').fill('121');
+  await page.getByTestId('sim-score-submit').click();
+  await page.getByTestId('sim-next-round').click();
+
+  await expect(page.getByTestId('sim-review')).toBeVisible();
+  await expect(page.getByTestId('sim-verdict-3')).toContainText('BETTER OPTION AVAILABLE');
+  const round1 = page.getByTestId('sim-round-1');
+  await expect(round1).toContainText('159');
+  await expect(round1).toContainText('T20');
+  await expect(round1).toContainText('T18');
+});
+
 test('設定は端末に残り、次に開いたときも引き継ぐ', async ({ page }) => {
   await page.getByTestId('nav-simulation').click();
   await page.getByTestId('sim-start-301').click();

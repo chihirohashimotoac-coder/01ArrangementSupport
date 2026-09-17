@@ -3,6 +3,10 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { MAX_PPR } from './engine/simulation/accuracy';
+import {
+  PPR_GUIDE_ROWS,
+  SETTINGS_HELP_SUMMARY_JA,
+} from './engine/simulation/settingsGuide';
 import { SIMULATION_SETTINGS_KEY } from './storage/simulationSettings';
 
 type User = ReturnType<typeof userEvent.setup>;
@@ -64,6 +68,42 @@ describe('SIMULATION の導線', () => {
     await user.clear(input);
     await user.type(input, '407');
     expect(screen.getByTestId('start-simulation')).toHaveTextContent('407 で始める');
+  });
+
+  it('設定の意味と選び方を、折りたたみで読める', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openSimulation(user);
+
+    // 設定画面を長くしないため、既定は閉じた状態にする。
+    const ppr = screen.getByTestId('sim-help-ppr');
+    expect(ppr).not.toHaveAttribute('open');
+
+    // FIRST 9 / AVERAGE の意味と、167 だけが完全一致であること。
+    expect(ppr).toHaveTextContent('開始から 9 投まで');
+    expect(ppr).toHaveTextContent('ゲーム全体の精度');
+    expect(ppr).toHaveTextContent(`${MAX_PPR} のときだけ`);
+    // 設定目安は「501 が何投で終わるか」。
+    const rows = within(screen.getByTestId('sim-help-ppr-rows')).getAllByRole('listitem');
+    expect(rows.length).toBe(PPR_GUIDE_ROWS.length);
+    expect(rows[0]).toHaveTextContent(String(PPR_GUIDE_ROWS[0].ppr));
+    expect(rows[0]).toHaveTextContent(`${PPR_GUIDE_ROWS[0].darts} 投`);
+
+    // ブレ方向は、縦 = 同じナンバー内の上下 / 横 = 隣のナンバー。
+    const direction = screen.getByTestId('sim-help-direction');
+    expect(direction).toHaveTextContent('同じナンバー');
+    expect(direction).toHaveTextContent('隣のナンバー');
+    expect(direction).toHaveTextContent('設定目安');
+
+    // 最大ブレは、外れ幅と「ひどく外したときどこまで飛ぶか」。
+    const maxMiss = screen.getByTestId('sim-help-maxmiss');
+    expect(maxMiss).toHaveTextContent('隣接エリア');
+    expect(maxMiss).toHaveTextContent('OUT BOARD');
+    expect(maxMiss).toHaveTextContent('ひどく外した');
+
+    // 開けること（折りたたみは summary のクリックで開く）。
+    await user.click(within(ppr).getByText(SETTINGS_HELP_SUMMARY_JA));
+    expect(ppr).toHaveAttribute('open');
   });
 
   it('プレイヤー設定は端末へ保存され、次に開いたときも残る', async () => {

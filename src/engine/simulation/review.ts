@@ -13,6 +13,25 @@
  * CHECKOUT / SETUP / NEXT VISIT のランキングには一切手を入れない。
  * 「正解が一意ではない」局面を不正解にしないため、推奨度 S・A（＝非常に良い代替）は
  * どちらも GOOD DECISION として扱う。
+ *
+ * ## ビジット最後の 1 投だけは、別の軸を足す
+ *
+ * 残り 1 投で「次のラウンドへ残す形」を作る場面は、ランキングの推奨度だけでは
+ * 足りない。推奨度は**狙い通り入ったときの残り点の質**で決まるので、
+ * 残り 178 では T19（シングル落ちで 159 の Bogey）と T20 / T18
+ * （シングル落ちでもテンパイ）が同じ推奨度 B に並ぶ。
+ *
+ * そこで残り 1 投の SETUP 側だけ、`lastDartSetup.ts` の
+ * 「次のラウンドに 3 本で上がれる数字を作れるか」を主軸にする。
+ * **エンジンは変更していない**（レビューの分類方針だけをこの層で足している）。
+ * 160・170 のような特定の残り点を特別扱いはせず、条件を満たすターゲットは
+ * どれも GOOD DECISION として扱う。
+ *
+ * ## 表現の強さ
+ *
+ * 学習用途のモードなので、悪い選択は悪いと分かる言い方にする。
+ * 「成立する」と「良い選択」を区別し、何がどう悪いのか・次にどう考えるかを
+ * 短く書く。罵倒や煽りは書かない。
  */
 import { DARTS_PER_VISIT, MAX_SETUP_REMAINING, applyDart, isBogey } from '../../domain/checkoutRules';
 import { requireDart } from '../../domain/dart';
@@ -20,6 +39,11 @@ import type { RouteGrade } from '../../data/rankingRules';
 import { suggestFor, type Suggestion } from '../recovery/suggest';
 import { rankCheckoutRoutes } from '../ranking/checkoutRanking';
 import { displayRouteText, displayTargetId } from './notation';
+import {
+  analyzeLastDartSetup,
+  recommendedLastDartTargets,
+  type LastDartOption,
+} from './lastDartSetup';
 import {
   allThrows,
   roundScoreOf,
@@ -228,6 +252,17 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
   const grade = context.gradeOfFirstDart(record.intendedDartId);
 
   /*
+   * ビジット最後の 1 投で「次のラウンドへ残す形」を作る場面は、
+   * 推奨度ではなく「次のラウンドに 3 本で上がれる数字を作れるか」を主軸にする。
+   * 判定できない場面（テンパイを作れない残り点・BULL 狙い・ダブル狙い）は
+   * null が返り、従来どおり推奨度で判定する。
+   */
+  if (context.kind === 'setup' && dartsLeft === 1) {
+    const lastDart = lastDartSetupReview(record, left, intendedLabel, grade, best);
+    if (lastDart !== null) return lastDart;
+  }
+
+  /*
    * Bogey を作る狙いは、成立していても先に指摘する。
    *
    * ただし **ビジット最後の 1 投のときだけ**。途中の投で一時的に 159 のような
@@ -248,7 +283,8 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       recommendedRouteText: best?.routeText ?? null,
       recommendedDartId: best?.firstDartId ?? null,
       noteJa:
-        `${intendedLabel} が狙い通り入ると残り ${intendedLeave} で、3 本あっても上がれないノーテンになります。` +
+        `この選択で Bogey Number（残り ${intendedLeave}）を作っています。` +
+        `狙い通りに入っても 3 本あって上がれないノーテンで、次のラウンドの Checkout 機会を失います。` +
         (best ? `${best.routeText} なら上がり（または上がれる残り）を保てました。` : ''),
     };
   }
@@ -293,7 +329,8 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       recommendedRouteText: best?.routeText ?? null,
       recommendedDartId: best?.firstDartId ?? null,
       noteJa:
-        `${intendedLabel} でも成立しますが、${context.label}としてはより良い狙いがありました。` +
+        `成立はしますが、良い選択ではありません。${intendedLabel} は${context.label}として明確に劣ります` +
+        `（狙い通りだと残り ${intendedLeave}）。` +
         (best ? `おすすめは ${best.routeText}（${best.reasonJa ?? '推奨度 S'}）。` : ''),
     };
   }
@@ -308,7 +345,8 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       recommendedRouteText: best?.routeText ?? null,
       recommendedDartId: best?.firstDartId ?? null,
       noteJa:
-        `${intendedLabel} は成立はしますが、${context.label}としては非推奨です。` +
+        `この選択は不適切です。${intendedLabel} は成立はしますが、${context.label}としては非推奨で` +
+        `（狙い通りだと残り ${intendedLeave}）、この 1 投を活かせていません。` +
         (best ? `おすすめは ${best.routeText}（${best.reasonJa ?? '推奨度 S'}）。` : ''),
     };
   }
@@ -362,10 +400,129 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     recommendedRouteText: best?.routeText ?? null,
     recommendedDartId: best?.firstDartId ?? null,
     noteJa:
-      `${intendedLabel} からは、この ${dartsLeft} 本で上がる組み立てがありません` +
-      `（狙い通りだと残り ${intendedLeave}）。` +
+      `この選択は不適切です。${intendedLabel} からは、この ${dartsLeft} 本で上がる組み立てがありません` +
+      `（狙い通りだと残り ${intendedLeave}）。上がれる場面を自分から捨てています。` +
       (best ? `おすすめは ${best.routeText}（${best.reasonJa ?? '推奨度 S'}）。` : ''),
   };
+}
+
+/**
+ * ビジット最後の 1 投で「次のラウンドへ残す形」を作る場面の判定。
+ *
+ * 判定できるときだけ `ThrowReview` を返し、判定しない場面は null を返して
+ * 従来どおり推奨度で判定させる。null を返すのは次の場合。
+ *
+ * - この 1 投ではどの的でもテンパイを作れない残り点（そもそも比べる軸が無い）
+ * - BULL 狙い（外した 1 投の落ち先を「同ナンバーのシングル」と決められない）
+ * - ダブル狙い（SETUP の得点手段として選ぶ的ではないので、この観点で
+ *   良い判断へ引き上げない。悪い場合は従来の判定がそのまま拾う）
+ */
+function lastDartSetupReview(
+  record: ThrowRecord,
+  left: number,
+  intendedLabel: string,
+  grade: RouteGrade | null,
+  best: RouteSummary | null,
+): ThrowReview | null {
+  const analysis = analyzeLastDartSetup(left);
+  if (!analysis.hasTenpaiTargets) return null;
+
+  const option = analysis.optionFor(record.intendedDartId);
+  if (option === null) return null;
+  if (option.leaveOnSingleMiss === null) return null;
+  if (option.dart.kind === 'double') return null;
+
+  const base = {
+    record,
+    grade,
+    intendedLeave: option.leaveOnHit,
+    recommendedRouteText: best?.routeText ?? null,
+    recommendedDartId: best?.firstDartId ?? null,
+  };
+  const alternatives = recommendedLastDartTargets(analysis, 2, option.dartId);
+  const alternativesText = alternatives.map(describeLastDartOption).join('または ');
+
+  /* 1. 狙い通りでもテンパイにならない — 残り 1 投で作れるはずの機会を捨てている。 */
+  if (!option.hitTenpai) {
+    const lead = option.createsBogey
+      ? `この選択で Bogey Number（残り ${option.leaveOnHit}）を作っています。` +
+        `${intendedLabel} が狙い通りに入っても、3 本あって上がれないノーテンです。`
+      : `この狙いではテンパイを作れません。${intendedLabel} は狙い通りに入っても` +
+        `残り ${option.leaveOnHit} で、次のラウンドに 3 本では上がりきれません。`;
+    /*
+     * シングル落ちまで守れる的が 1 つも無い残り点（191〜230 など）では、
+     * 「シングルに外れても」を基準として出さない。無い条件を勧めないため。
+     */
+    const advice =
+      analysis.safeTargets.length > 0
+        ? '残り 1 投では、シングルに外れても次のラウンドに 3 本で Checkout できる数字を' +
+          '残せるターゲットを優先してください。'
+        : 'まず、次のラウンドに 3 本で Checkout できる残りを作れるターゲットを選んでください。';
+    return {
+      ...base,
+      verdict: option.createsBogey ? 'BOGEY_CREATED' : 'SETUP_MISTAKE',
+      noteJa: lead + advice + (alternativesText === '' ? '' : `例: ${alternativesText}。`),
+    };
+  }
+
+  /* 2. 狙い通りならテンパイで、同ナンバーのシングルへ落ちてもテンパイ。 */
+  if (option.singleMissTenpai) {
+    const teach =
+      option.dart.kind !== 'triple' && analysis.safeTripleTargets.length > 0
+        ? `同じ条件を満たすトリプルなら、得点も伸ばせます。例: ${alternativesText}。`
+        : alternativesText === ''
+          ? ''
+          : `他に ${alternativesText}も同じ条件を満たします。`;
+    /*
+     * シングル狙いは「外しても着弾が同じナンバーのシングル」なので、
+     * 狙い通りの残りとシングル落ちの残りが一致する。同じ数字を 2 回書かない。
+     */
+    const leaveNote =
+      option.leaveOnHit === option.leaveOnSingleMiss
+        ? `狙い通りなら残り ${option.leaveOnHit} で、次のラウンドに 3 本で Checkout できます。`
+        : `狙い通りなら残り ${option.leaveOnHit}、同じナンバーのシングルに落ちても` +
+          `残り ${option.leaveOnSingleMiss} で、どちらも次のラウンドに 3 本で Checkout できます。`;
+    return {
+      ...base,
+      verdict: 'GOOD_DECISION',
+      noteJa: leaveNote + teach,
+    };
+  }
+
+  /* 3. 狙い通りならテンパイだが、シングルへ落ちるとテンパイを外す。 */
+  if (analysis.safeTargets.length === 0) {
+    /*
+     * この残り点では、シングル落ちまで守れるターゲットが存在しない。
+     * 無い選択肢を理由に減点しない。
+     */
+    return {
+      ...base,
+      verdict: 'GOOD_DECISION',
+      noteJa:
+        `狙い通りなら残り ${option.leaveOnHit} で、次のラウンドに 3 本で Checkout できます。` +
+        `この残り点には、シングルに外れてもテンパイを保てるターゲットがありません。`,
+    };
+  }
+
+  const missNote = isBogey(option.leaveOnSingleMiss)
+    ? `残り ${option.leaveOnSingleMiss}（Bogey Number）となり、次のラウンドで Checkout できません`
+    : `残り ${option.leaveOnSingleMiss} となり、次のラウンドで Checkout できません`;
+  return {
+    ...base,
+    verdict: 'BETTER_OPTION_AVAILABLE',
+    noteJa:
+      `成立はしますが、良い選択ではありません。${intendedLabel} はシングルに外れると${missNote}。` +
+      `${alternativesText}なら、シングルに外れてもテンパイを作れます。`,
+  };
+}
+
+/** 説明文へ出すターゲットの書き方。 */
+function describeLastDartOption(option: LastDartOption): string {
+  const label = displayTargetId(option.dartId);
+  if (option.leaveOnSingleMiss === null || !option.singleMissTenpai) {
+    return `${label}（狙い通り ${option.leaveOnHit}）`;
+  }
+  return `${label}（狙い通り ${option.leaveOnHit}・シングルでも ${option.leaveOnSingleMiss}）`;
 }
 
 interface RouteSummary {
@@ -524,7 +681,8 @@ function bustNoteJa(
         ? '残り 1 になり Bust です'
         : 'ダブルで上がっていないため Bust です';
   return (
-    `${intendedNameJa} が狙い通り入ると ${reason}。` +
+    `この選択は不適切です。${intendedNameJa} は狙い通り入ると ${reason}。` +
+    `このビジットの得点が無効になり、残り点は変わりません。` +
     (recommended ? `おすすめは ${recommended}。` : '')
   );
 }

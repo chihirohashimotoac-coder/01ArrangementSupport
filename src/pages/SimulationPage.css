@@ -147,6 +147,87 @@
   line-height: 1.6;
 }
 
+/*
+ * 設定の説明は折りたたみで置く。初見のユーザーが意味を確かめられるようにしつつ、
+ * 設定画面そのものは短いままにする。
+ */
+.simulation__help {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface-alt);
+  font-size: 0.74rem;
+  line-height: 1.7;
+}
+
+.simulation__help > summary {
+  padding: 0.55rem 0.7rem;
+  color: var(--text-secondary);
+  font-weight: 740;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  /* 指で押せる高さを確保する。 */
+  min-height: 2.25rem;
+  display: flex;
+  align-items: center;
+}
+
+.simulation__help[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.simulation__help-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.6rem;
+  margin: 0;
+  padding: 0.6rem 0.7rem 0;
+}
+
+.simulation__help-list dt {
+  color: var(--text);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.simulation__help-list dd {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.simulation__help-criterion {
+  margin: 0;
+  padding: 0.6rem 0.7rem;
+  color: var(--text-dim);
+}
+
+.simulation__help-criterion strong {
+  color: var(--text);
+}
+
+.simulation__help-rows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0 0.7rem 0.7rem;
+  list-style: none;
+}
+
+.simulation__help-rows li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.simulation__help-rows strong {
+  color: var(--text);
+}
+
 .simulation__start {
   min-height: 3.25rem;
   border: 0;

@@ -1,12 +1,18 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Dartboard, type BoardMarker } from '../components/Dartboard';
 import { StatusBar } from '../components/StatusBar';
 import { toDisplayPoint } from '../engine/simulation/boardGeometry';
+import { MAX_PPR } from '../engine/simulation/accuracy';
 import {
-  MAX_PPR,
-  type MaxMissLevel,
-  type MissDirection,
-} from '../engine/simulation/accuracy';
+  AVERAGE_HELP_JA,
+  DIRECTION_CRITERION_JA,
+  DIRECTION_GUIDE,
+  FIRST9_HELP_JA,
+  MAX_MISS_CRITERION_JA,
+  MAX_MISS_GUIDE,
+  PPR_GUIDE_ROWS,
+  SETTINGS_HELP_SUMMARY_JA,
+} from '../engine/simulation/settingsGuide';
 import {
   MAX_START_SCORE,
   MIN_START_SCORE,
@@ -39,17 +45,6 @@ import {
 import { usePreferences } from '../hooks/usePreferences';
 import './SimulationPage.css';
 
-const DIRECTION_LABELS: ReadonlyArray<{ value: MissDirection; label: string; hint: string }> = [
-  { value: 'vertical', label: '縦ブレ', hint: '上下に散りやすい' },
-  { value: 'horizontal', label: '横ブレ', hint: '左右に散りやすい' },
-  { value: 'even', label: '均等', hint: '方向のかたよりなし' },
-];
-
-const MAX_MISS_LABELS: ReadonlyArray<{ value: MaxMissLevel; label: string; hint: string }> = [
-  { value: 'small', label: '小', hint: '大きく外しても隣の区画あたり' },
-  { value: 'medium', label: '中', hint: 'たまに隣のナンバーを越える' },
-  { value: 'large', label: '大', hint: 'まれに大きく外し、盤外もある' },
-];
 
 /** 判断の分類ごとの見た目（既存の推奨度バッジと同じ配色体系に合わせる）。 */
 const VERDICT_TONE: Readonly<Record<ThrowVerdict, 'good' | 'warn' | 'bad' | 'plain'>> = {
@@ -324,12 +319,39 @@ export function SimulationPage() {
               AVERAGE を {MAX_PPR} にしたときだけ、狙った的へ 100% 入ります。
               開始点数を変えても、この設定の意味は 501 基準のままです。
             </p>
+            <details className="simulation__help" data-testid="sim-help-ppr">
+              <summary>{SETTINGS_HELP_SUMMARY_JA}</summary>
+              <dl className="simulation__help-list">
+                <dt>{FIRST9_HELP_JA.title}</dt>
+                <dd>
+                  {FIRST9_HELP_JA.meaning}
+                  {FIRST9_HELP_JA.detail}
+                </dd>
+                <dt>{AVERAGE_HELP_JA.title}</dt>
+                <dd>
+                  {AVERAGE_HELP_JA.meaning}
+                  {AVERAGE_HELP_JA.detail}
+                </dd>
+              </dl>
+              <p className="simulation__help-criterion">
+                <strong>設定目安</strong>: ふだん 501 が何投で終わるかで選びます
+                （PPR = 501 ÷ 投数 × 3）。
+              </p>
+              <ul className="simulation__help-rows" data-testid="sim-help-ppr-rows">
+                {PPR_GUIDE_ROWS.map((row) => (
+                  <li key={row.ppr}>
+                    <strong>{row.ppr}</strong>
+                    <span>501 を約 {row.darts} 投</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
           </fieldset>
 
           <fieldset className="simulation__field">
             <legend>ブレ方向</legend>
             <div className="simulation__choices">
-              {DIRECTION_LABELS.map((option) => (
+              {DIRECTION_GUIDE.map((option) => (
                 <button
                   key={option.value}
                   type="button"
@@ -342,12 +364,26 @@ export function SimulationPage() {
                 </button>
               ))}
             </div>
+            <details className="simulation__help" data-testid="sim-help-direction">
+              <summary>{SETTINGS_HELP_SUMMARY_JA}</summary>
+              <dl className="simulation__help-list">
+                {DIRECTION_GUIDE.map((option) => (
+                  <Fragment key={option.value}>
+                    <dt>{option.label}</dt>
+                    <dd>{option.detail}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+              <p className="simulation__help-criterion">
+                <strong>設定目安</strong>: {DIRECTION_CRITERION_JA}
+              </p>
+            </details>
           </fieldset>
 
           <fieldset className="simulation__field">
             <legend>最大ブレ</legend>
             <div className="simulation__choices">
-              {MAX_MISS_LABELS.map((option) => (
+              {MAX_MISS_GUIDE.map((option) => (
                 <button
                   key={option.value}
                   type="button"
@@ -360,6 +396,20 @@ export function SimulationPage() {
                 </button>
               ))}
             </div>
+            <details className="simulation__help" data-testid="sim-help-maxmiss">
+              <summary>{SETTINGS_HELP_SUMMARY_JA}</summary>
+              <dl className="simulation__help-list">
+                {MAX_MISS_GUIDE.map((option) => (
+                  <Fragment key={option.value}>
+                    <dt>{option.label}</dt>
+                    <dd>{option.detail}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+              <p className="simulation__help-criterion">
+                <strong>設定目安</strong>: {MAX_MISS_CRITERION_JA}
+              </p>
+            </details>
           </fieldset>
 
           <button
