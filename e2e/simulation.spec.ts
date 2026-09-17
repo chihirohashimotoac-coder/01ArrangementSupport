@@ -125,6 +125,13 @@ test('3 投目のあとでも、得点を確定する前なら UNDO できる', 
   await startPerfectGame(page, 501);
   for (let dart = 0; dart < 3; dart += 1) await page.getByTestId('segment-t20').click();
   await expect(page.getByTestId('sim-score-input')).toBeVisible();
+  /*
+   * 3 投目の確定と同時に、入力欄へのフォーカスと `scrollIntoView` が走る
+   * （SimulationPage の useLayoutEffect）。フォーカスが移るまで待たずに
+   * UNDO を押すと、スクロール中のボタンをクリックしにいくことがある。
+   * 表示だけでなくフォーカスの移動まで待ってから押す。
+   */
+  await expect(page.getByTestId('sim-score-input')).toBeFocused();
 
   await page.getByTestId('sim-undo').click();
   await expect(page.getByTestId('sim-score-input')).toHaveCount(0);
