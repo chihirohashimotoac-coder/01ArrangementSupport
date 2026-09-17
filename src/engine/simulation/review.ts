@@ -33,7 +33,13 @@
  * 「成立する」と「良い選択」を区別し、何がどう悪いのか・次にどう考えるかを
  * 短く書く。罵倒や煽りは書かない。
  */
-import { DARTS_PER_VISIT, MAX_SETUP_REMAINING, applyDart, isBogey } from '../../domain/checkoutRules';
+import {
+  DARTS_PER_VISIT,
+  MAX_CHECKOUT,
+  MAX_SETUP_REMAINING,
+  applyDart,
+  isBogey,
+} from '../../domain/checkoutRules';
 import { requireDart } from '../../domain/dart';
 import type { RouteGrade } from '../../data/rankingRules';
 import { suggestFor, type Suggestion } from '../recovery/suggest';
@@ -43,6 +49,7 @@ import {
   analyzeLastDartSetup,
   recommendedLastDartTargets,
   type LastDartOption,
+  type LastDartSetupAnalysis,
 } from './lastDartSetup';
 import {
   allThrows,
@@ -465,7 +472,31 @@ function lastDartSetupReview(
     };
   }
 
-  /* 2. 狙い通りならテンパイで、同ナンバーのシングルへ落ちてもテンパイ。 */
+  /*
+   * 2-a. シングルを直接狙ってテンパイを作ったが、**同じナンバーのトリプル**が
+   *      明確な上位互換になっている。
+   *
+   * S18 で 160 を残すのと、T18 を狙って S18 へ落ちて 160 を残すのは、
+   * 外したときの残りが同じ。そのうえ T18 に入れば 124 まで進める。
+   * 「シングル落ちでもテンパイを維持でき、かつトリプルに入っても
+   * 3 本で上がれる」場合だけ、トリプルを狙う方が実戦的だと伝える。
+   * 成立はしているので MISTAKE にはしない。
+   */
+  const tripleUpgrade = sameNumberTripleUpgradeOf(analysis, option, left);
+  if (tripleUpgrade !== null) {
+    const tripleLabel = displayTargetId(tripleUpgrade.dartId);
+    return {
+      ...base,
+      verdict: 'BETTER_OPTION_AVAILABLE',
+      noteJa:
+        `テンパイは作れますが、${tripleLabel} を狙えば、シングルに落ちても同じ残り ` +
+        `${option.leaveOnHit} を維持でき、${tripleLabel} に入れば残り ` +
+        `${tripleUpgrade.leaveOnHit} まで進められます。` +
+        `同じナンバーのトリプルを狙う方が実戦的です。`,
+    };
+  }
+
+  /* 2-b. 狙い通りならテンパイで、同ナンバーのシングルへ落ちてもテンパイ。 */
   if (option.singleMissTenpai) {
     const teach =
       option.dart.kind !== 'triple' && analysis.safeTripleTargets.length > 0
@@ -514,6 +545,44 @@ function lastDartSetupReview(
       `成立はしますが、良い選択ではありません。${intendedLabel} はシングルに外れると${missNote}。` +
       `${alternativesText}なら、シングルに外れてもテンパイを作れます。`,
   };
+}
+
+/**
+ * 「同じナンバーのトリプルが明確な上位互換か」。
+ *
+ * シングル `Sn` を直接狙ってテンパイを作った場面で、`Tn` を狙っていたら
+ * どうだったかを見る。`Tn` の同ナンバーシングル落ちは **`Sn` を狙ったときと
+ * 同じ残り**になるので、`Tn` が次の 2 つを満たすとき、`Sn` を狙う理由が
+ * 残らない（守りは同じで、当たれば前進する）。
+ *
+ *   1. トリプルに入っても次のラウンドに 3 本で上がれる（Bust もしない）
+ *   2. シングルへ落ちてもテンパイを保てる（＝ `Sn` 狙いと同じ残り）
+ *
+ * 判定は SETUP 帯（171 以上）だけに限る。170 以下は「次のラウンドに残す形」を
+ * 承認済みの NEXT VISIT セレクタが選ぶ場面で、そこでは残りが小さいほど良いとは
+ * 限らない（残り 41 の `S1` → 40 は D20 で上がれる残りで、`T1` → 38 が
+ * 上位互換とは言えない）。特定の残り点を優劣の根拠にしないためにも、
+ * 「残りが小さいほど良い」が成り立つ SETUP 帯だけで使う。
+ */
+function sameNumberTripleUpgradeOf(
+  analysis: LastDartSetupAnalysis,
+  option: LastDartOption,
+  left: number,
+): LastDartOption | null {
+  if (left <= MAX_CHECKOUT) return null;
+  if (option.dart.kind !== 'single') return null;
+  if (!option.hitTenpai) return null;
+
+  const baseNumber = option.dart.baseNumber;
+  if (baseNumber === null) return null;
+
+  const triple = analysis.optionFor(`T${baseNumber}`);
+  if (triple === null) return null;
+  if (!triple.hitTenpai || !triple.singleMissTenpai) return null;
+  // トリプルのシングル落ちが、この狙いとまったく同じ残りになることを確かめる。
+  if (triple.leaveOnSingleMiss !== option.leaveOnHit) return null;
+
+  return triple;
 }
 
 /** 説明文へ出すターゲットの書き方。 */

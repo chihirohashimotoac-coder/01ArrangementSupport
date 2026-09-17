@@ -302,19 +302,16 @@ describe('残り 1 投で「次のラウンドで上がれる数字」を作れ�
   });
 
   it('160 を作る狙いだけを特別扱いしない', () => {
-    // アプリの第 1 候補（S18 → 160）も GOOD DECISION のままだが、
-    // それが唯一の正解ではないことを説明に書く。
-    const single = reviewThrow(record(178, 'S18', 'S18', 3));
-    expect(single.verdict).toBe('GOOD_DECISION');
-    expect(single.noteJa).toContain('トリプル');
-    expect(single.noteJa).toContain('T20');
-
     // 160 を作れても、シングル落ちでテンパイを外す狙いは GOOD にしない。
     // 178 の T6 は 160 を残すが、S6 へ落ちると 172 で次に上がれない。
     const triple = reviewThrow(record(178, 'T6', 'S6', 3));
     expect(triple.intendedLeave).toBe(160);
     expect(triple.verdict).toBe('BETTER_OPTION_AVAILABLE');
     expect(triple.noteJa).toContain('172');
+
+    // 160 を残す S18 も、同じナンバーのトリプルが上位互換なら GOOD にしない
+    // （下の「同じナンバーのトリプルが上位互換」の節を参照）。
+    expect(reviewThrow(record(178, 'S18', 'S18', 3)).verdict).toBe('BETTER_OPTION_AVAILABLE');
   });
 
   it('181〜189 / 残り 1 投で、テンパイを作れるかを評価軸にする', () => {
@@ -430,6 +427,100 @@ describe('残り 1 投で「次のラウンドで上がれる数字」を作れ�
     expect(outBoard.verdict).toBe(onTarget.verdict);
     expect(wayOff.noteJa).toBe(onTarget.noteJa);
     expect(outBoard.noteJa).toBe(onTarget.noteJa);
+  });
+
+  it('同じナンバーのトリプルが上位互換なら、シングル直接狙いは GOOD にしない', () => {
+    /*
+     * S18 で 160 を残すのと、T18 を狙って S18 へ落ちて 160 を残すのは、
+     * 外したときの残りが同じ。そのうえ T18 に入れば 124 まで進める。
+     * 守りが同じで当たれば前進するので、トリプルを狙う方が実戦的。
+     */
+    const result = reviewThrow(record(178, 'S18', 'S18', 3));
+    expect(result.verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(result.intendedLeave).toBe(160);
+    expect(result.noteJa).toContain('テンパイは作れますが');
+    expect(result.noteJa).toContain('T18');
+    expect(result.noteJa).toContain('160');
+    expect(result.noteJa).toContain('124');
+    // 悪手扱いにはしない。
+    expect(result.verdict).not.toBe('SETUP_MISTAKE');
+  });
+
+  it('S20 → 158 のような同種のケースも同じ扱いになる', () => {
+    const result = reviewThrow(record(178, 'S20', 'S20', 3));
+    expect(result.verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(result.intendedLeave).toBe(158);
+    expect(result.noteJa).toContain('T20');
+    expect(result.noteJa).toContain('158');
+    expect(result.noteJa).toContain('118');
+  });
+
+  it('同じナンバーのトリプルが上位互換でなければ、シングル直接狙いは GOOD のまま', () => {
+    /*
+     * 171 の S4 は 167 を残してテンパイ。T4 を狙うと 159（Bogey）なので、
+     * トリプルは上位互換ではない。シングル狙いを一律で下げない。
+     */
+    const analysis = analyzeLastDartSetup(171);
+    expect(analysis.optionFor('T4')!.hitTenpai).toBe(false);
+    expect(isBogey(analysis.optionFor('T4')!.leaveOnHit)).toBe(true);
+
+    const result = reviewThrow(record(171, 'S4', 'S4', 3));
+    expect(result.verdict).toBe('GOOD_DECISION');
+    expect(result.intendedLeave).toBe(167);
+  });
+
+  it('BETTER になるのは「同じナンバーのトリプルが上位互換」のときだけ（171〜350 全件）', () => {
+    /*
+     * 上位互換の条件は 2 つだけ。
+     *   1. トリプルに入っても 3 本で上がれる（Bust もしない）
+     *   2. シングルへ落ちてもテンパイを保てる（＝シングル直接狙いと同じ残り）
+     * 特定の残り点（160 / 170 など）は条件に入れない。
+     */
+    const wrong: string[] = [];
+    for (let left = 171; left <= 350; left += 1) {
+      const analysis = analyzeLastDartSetup(left);
+      for (const option of analysis.safeTargets) {
+        if (option.dart.kind !== 'single') continue;
+        const triple = analysis.optionFor(`T${option.dart.baseNumber}`);
+        const upgrade =
+          triple !== null &&
+          triple.hitTenpai &&
+          triple.singleMissTenpai &&
+          triple.leaveOnSingleMiss === option.leaveOnHit;
+        const expected = upgrade ? 'BETTER_OPTION_AVAILABLE' : 'GOOD_DECISION';
+        const verdict = reviewThrow(record(left, option.dartId, 'MISS', 3)).verdict;
+        if (verdict !== expected) {
+          wrong.push(`${left}: ${option.dartId} → ${verdict}（期待 ${expected}）`);
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it('CHECKOUT 帯（170 以下）の残しには、この上位互換の判定を持ち込まない', () => {
+    /*
+     * 170 以下は承認済みの NEXT VISIT セレクタが残しを選ぶ場面で、
+     * 「残りが小さいほど良い」とは限らない（残り 41 の S1 → 40 は D20 で
+     * 上がれる残りで、T1 → 38 が上位互換とは言えない）。
+     */
+    const analysis = analyzeLastDartSetup(41);
+    const triple = analysis.optionFor('T1')!;
+    expect([triple.hitTenpai, triple.singleMissTenpai]).toEqual([true, true]);
+
+    const result = reviewThrow(record(41, 'S1', 'S1', 3));
+    expect(result.verdict).toBe('GOOD_DECISION');
+    expect(result.intendedLeave).toBe(40);
+  });
+
+  it('181〜189 のシングル落ち耐性の判定は変わらない', () => {
+    const wrong: string[] = [];
+    for (let left = 181; left <= 189; left += 1) {
+      for (const option of analyzeLastDartSetup(left).safeTripleTargets) {
+        const verdict = reviewThrow(record(left, option.dartId, 'MISS', 3)).verdict;
+        if (verdict !== 'GOOD_DECISION') wrong.push(`${left}: ${option.dartId} → ${verdict}`);
+      }
+    }
+    expect(wrong).toEqual([]);
   });
 
   it('1 投目・2 投目にはこの軸を持ち込まない（作り直せるため）', () => {
