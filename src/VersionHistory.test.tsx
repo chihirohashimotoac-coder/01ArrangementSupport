@@ -49,19 +49,34 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴に v1.4.0 の主要変更がある', async () => {
+  it('最新の履歴に v1.4.1 の主要変更がある', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('v1.4.0');
+    expect(latest).toHaveTextContent('v1.4.1');
     expect(latest).toHaveTextContent('現在');
     expect(latest.textContent ?? '').toMatch(/SIMULATION/);
-    expect(latest.textContent ?? '').toMatch(/CALCULATION MISS/);
-    expect(latest.textContent ?? '').toMatch(/GAME REVIEW/);
+    // 設定説明と、残り 1 投のレビュー（178 の実例）。
+    expect(latest.textContent ?? '').toMatch(/設定目安|意味と設定目安/);
+    expect(latest.textContent ?? '').toMatch(/178/);
+    expect(latest.textContent ?? '').toMatch(/159/);
     // 既存モードを変えていないことも明示する。
     expect(latest.textContent ?? '').toMatch(/変更していません/);
+  });
+
+  it('v1.4.0 の履歴は残り、現在版ではなくなっている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const items = screen.getAllByTestId('version-history-item');
+    const previous = items.find((item) => (item.textContent ?? '').includes('v1.4.0'));
+    expect(previous).toBeDefined();
+    expect(previous!.textContent ?? '').toMatch(/CALCULATION MISS/);
+    expect(previous!.textContent ?? '').toMatch(/GAME REVIEW/);
+    expect(previous!.querySelector('.version-history__badge')).toBeNull();
   });
 
   it('v1.3.7 の履歴は残り、現在版ではなくなっている', async () => {
