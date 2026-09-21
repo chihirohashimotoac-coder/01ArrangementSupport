@@ -730,7 +730,15 @@ describe('動画ケース: SETUP', () => {
     expect(isCheckoutable(167, DARTS_PER_VISIT)).toBe(true);
     expect(route.reasons.map((r) => r.code)).toContain('SETUP_USES_SBULL');
 
-    // 100 点だと 171 でテンパイ外になる、というのが動画の対比。
+    /*
+     * 「1 点足りないとテンパイを失う」という対比。
+     * 268 からちょうど 100 点だと 168 の Bogey になる（101 点の 167 との差は 1 点）。
+     */
+    expect(268 - 100).toBe(168);
+    expect(isBogey(168)).toBe(true);
+    expect(isCheckoutable(168, DARTS_PER_VISIT)).toBe(false);
+
+    // 同じ対比を 271 で見ると 171 で、こちらはテンパイの範囲外になる。
     expect(271 - 100).toBe(171);
     expect(isCheckoutable(171, DARTS_PER_VISIT)).toBe(false);
 
