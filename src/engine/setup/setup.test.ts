@@ -654,3 +654,123 @@ describe('v1.3.7 第一ターゲットは「狙う得点用トリプル」', () 
     }
   });
 });
+
+/*
+ * 動画「アレンジディスカッション#1」の SETUP ケースの Golden test。
+ * 出典: https://www.youtube.com/watch?v=687FgfVnINs
+ * 経緯と FACT / STRATEGY / PREFERENCE の切り分けは
+ * docs/VIDEO_ARRANGEMENT_DISCUSSION_01.md に記録してある。
+ *
+ * ここで固定するのは **現在の挙動**であって、動画へ寄せる変更ではない。
+ * 動画の中心理論（狙いどおりの得点だけでなく、同ナンバーのシングルへ落ちた
+ * あとも立て直せる的を選ぶ）は A-11 / A-18 のふるいとして既に実装済みで、
+ * 303 はその一般ルールが動く実例にあたる。残り点ごとの例外表は作らない。
+ */
+describe('動画ケース: SETUP', () => {
+  it('V-303-1: 303 の第一ターゲットは T19（安全な得点用トリプルのうち最高得点）', () => {
+    const best = rankSetupRoutes(303, DARTS_PER_VISIT, { maxRoutes: 1 })[0];
+    expect(best.darts[0].id).toBe('T19');
+    expect(isCheckoutable(best.leave, DARTS_PER_VISIT)).toBe(true);
+
+    // T20 は S20 へ落ちると立て直せない。これが動画の「T19 始動」の理由。
+    expect(isSingleMissTenpaiSafe(303, requireDart('T20'), DARTS_PER_VISIT)).toBe(false);
+    expect(isSingleMissTenpaiSafe(303, requireDart('T19'), DARTS_PER_VISIT)).toBe(true);
+
+    // 303 で安全な得点用トリプルは 3 つあり、最高得点は T19。
+    const safe = TRIPLE_DARTS.filter((dart) =>
+      isSingleMissTenpaiSafe(303, dart, DARTS_PER_VISIT),
+    );
+    expect(safe.map((dart) => dart.id)).toEqual(['T13', 'T16', 'T19']);
+    expect(safe.reduce((a, b) => (b.score > a.score ? b : a)).id).toBe('T19');
+  });
+
+  it('V-303-2: S19 へ落ちた 284 / 2 本からは T20 → T20 で 164 を残す', () => {
+    expect(303 - 19).toBe(284);
+    const best = rankSetupRoutes(284, DARTS_PER_VISIT - 1, { maxRoutes: 1 })[0];
+    expect(best.darts.map((dart) => dart.id)).toEqual(['T20', 'T20']);
+    expect(best.leave).toBe(164);
+    expect(isCheckoutable(164, DARTS_PER_VISIT)).toBe(true);
+  });
+
+  it('V-303-3: T19 が入った 246 / 2 本からは 19 を続けて 170 を残す', () => {
+    expect(303 - 57).toBe(246);
+    const best = rankSetupRoutes(246, DARTS_PER_VISIT - 1, { maxRoutes: 1 })[0];
+    expect(best.darts.map((dart) => dart.id)).toEqual(['T19', 'S19']);
+    expect(best.leave).toBe(170);
+    // 動画の「T19 + S19 で計 76、3 投合計 133」。
+    expect(57 + 19).toBe(76);
+    expect(57 + 57 + 19).toBe(133);
+    expect(303 - 133).toBe(170);
+  });
+
+  it('V-303-4: S20 へ落ちた 283 / 2 本は、最大得点でもテンパイにできない', () => {
+    expect(303 - 20).toBe(283);
+    expect(canReachTenpai(283, DARTS_PER_VISIT - 1)).toBe(false);
+    // 残り 2 本の最大は T20 × 2 = 120。それでも 163 の Bogey が残る。
+    expect(283 - 120).toBe(163);
+    expect(isBogey(163)).toBe(true);
+  });
+
+  it('V-271-1: 271 の BEST は T20 × 3 で 91 残し（S-BULL 案を最上位にしない / A-2）', () => {
+    const best = rankSetupRoutes(271, DARTS_PER_VISIT, { maxRoutes: 1 })[0];
+    expect(best.darts.map((dart) => dart.id)).toEqual(['T20', 'T20', 'T20']);
+    expect(best.leave).toBe(91);
+
+    // 資料・動画の S-BULL 案は合法だが、BEST ではない（docs/DATA_CONFLICTS.md #2）。
+    const sbull = evaluateSetupRoute(271, DARTS_PER_VISIT, parseRoute(['T19', 'S19', 'SB']))!;
+    expect(sbull.leave).toBe(170);
+    expect(sbull.score).toBeLessThan(best.score);
+  });
+
+  it('V-268-1: 101 点の S-BULL 技術は 268 でも成立し、167 が残る', () => {
+    // 動画 07:31–07:58。同じ 101 点で 167 を作れる。
+    const route = evaluateSetupRoute(268, DARTS_PER_VISIT, parseRoute(['T19', 'S19', 'SB']))!;
+    expect(routeTotal(route.darts)).toBe(101);
+    expect(route.leave).toBe(167);
+    expect(isCheckoutable(167, DARTS_PER_VISIT)).toBe(true);
+    expect(route.reasons.map((r) => r.code)).toContain('SETUP_USES_SBULL');
+
+    /*
+     * 「1 点足りないとテンパイを失う」という対比。
+     * 268 からちょうど 100 点だと 168 の Bogey になる（101 点の 167 との差は 1 点）。
+     */
+    expect(268 - 100).toBe(168);
+    expect(isBogey(168)).toBe(true);
+    expect(isCheckoutable(168, DARTS_PER_VISIT)).toBe(false);
+
+    // 同じ対比を 271 で見ると 171 で、こちらはテンパイの範囲外になる。
+    expect(271 - 100).toBe(171);
+    expect(isCheckoutable(171, DARTS_PER_VISIT)).toBe(false);
+
+    // 268 の BEST は 91 残し。教材ルートを候補の先頭へは上げない（A-2）。
+    expect(rankSetupRoutes(268, DARTS_PER_VISIT, { maxRoutes: 1 })[0].leave).toBe(91);
+  });
+
+  it('V-231-1: 231 の BEST は T20 → T20 → S20 で 91 残し', () => {
+    const best = rankSetupRoutes(231, DARTS_PER_VISIT, { maxRoutes: 1 })[0];
+    expect(best.darts.map((dart) => dart.id)).toEqual(['T20', 'T20', 'S20']);
+    expect(best.leave).toBe(91);
+  });
+
+  it('V-231-2: 231 の S20 → SB → SB は 70 点で 161 残しとして成立する', () => {
+    // 動画 08:41–09:27。S20 のあと SB を 2 本使う分岐。
+    const route = evaluateSetupRoute(231, DARTS_PER_VISIT, parseRoute(['S20', 'SB', 'SB']))!;
+    expect(routeTotal(route.darts)).toBe(70);
+    expect(route.leave).toBe(161);
+    expect(isCheckoutable(161, DARTS_PER_VISIT)).toBe(true);
+
+    // 実着弾で S20 が入ったあとの BEST は、これまでどおり 91 残しを作る。
+    const afterS20 = rankSetupRoutes(231 - 20, DARTS_PER_VISIT - 1, { maxRoutes: 1 })[0];
+    expect(afterS20.darts.map((dart) => dart.id)).toEqual(['T20', 'T20']);
+    expect(afterS20.leave).toBe(91);
+  });
+
+  it('V-233-1: 233 の T19 → T19 → S19 は 133 点で 100 残し、通常候補に存在する', () => {
+    // 動画 10:56–11:31。seven-count が決まれば高得点側へ移ってよい。
+    const route = evaluateSetupRoute(233, DARTS_PER_VISIT, parseRoute(['T19', 'T19', 'S19']))!;
+    expect(routeTotal(route.darts)).toBe(133);
+    expect(route.leave).toBe(100);
+    // 教材 TIP ではなく、ふつうに列挙される候補のひとつ。
+    expect(rankSetupRoutes(233, DARTS_PER_VISIT).some((r) => r.key === 'T19-T19-S19')).toBe(true);
+  });
+});

@@ -1204,3 +1204,41 @@ test('参考資料・出典は 320px でも横にはみ出さない', async ({ p
   });
   expect(linkOverflow, 'URL がカードからはみ出している').toBe(false);
 });
+
+/*
+ * 動画「アレンジディスカッション#1」12:10–13:38 の 121。
+ * 出典: https://www.youtube.com/watch?v=687FgfVnINs
+ * 記録: docs/VIDEO_ARRANGEMENT_DISCUSSION_01.md
+ *
+ * 主表示（STANDARD T20 → S11 → BULL）は変えない。
+ * 動画の T20 → T11 → D14 を選んだときの追従と、外したときの再計算だけを確認する。
+ */
+test('動画ケース: 121 の T20 → T11 → D14 を選ぶと追従し、S20 なら計算し直す', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openCheckout(page, 121);
+
+  // 基準ルートは変わらない。
+  await expect(page.getByTestId('standard-route')).toContainText('BULL');
+
+  // 動画のルートは上位 5 件には出ないので「すべて表示」を通る。
+  await page.getByTestId('show-all-routes').click();
+  const other = page.getByTestId('route-T20-T11-D14');
+  await other.getByRole('button', { name: /^1 投目/ }).click();
+  await expect(page.getByTestId('dartboard')).toBeVisible();
+
+  // 予定どおり T20 → 選んだ続き（T11 → D14）。
+  await page.getByTestId('segment-t20').click();
+  await expect(page.getByTestId('status-bar')).toContainText('61');
+  const next = page.getByTestId('recovery-next-route');
+  await expect(next).toContainText('T11');
+  await expect(next).toContainText('D14');
+
+  // Undo して S20 を入れると、101 / 2 本の答え（T17 → BULL）へ戻る。
+  await page.getByTestId('undo-button').click();
+  await page.getByTestId('segment-s20-outer').click();
+  await expect(page.getByTestId('status-bar')).toContainText('101');
+  await expect(next).toContainText('T17');
+  await expect(next).toContainText('BULL');
+});
