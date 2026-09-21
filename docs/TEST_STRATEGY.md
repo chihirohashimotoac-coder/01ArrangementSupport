@@ -137,6 +137,20 @@ Excel の「OK」は信用しません。さらに「—（不成立）」が本
 資料 (3) の 10 件と資料 (4) の 7 件が、計算結果と全件一致すること。
 さらに、計算で求めた TON トラップの全件が資料の 7 件と過不足なく一致すること。
 
+### 動画ケース（アレンジディスカッション#1）
+
+添付資料ではなく討論動画を照合した Golden test。**挙動を動画へ寄せるためのものではなく、
+既存の一般ルールが動画の判断と同じ結果を出していることを固定する**ためのもの。
+
+- 303 / 271 / 268 / 231〜235 / 233 … `src/engine/setup/setup.test.ts`
+- 121 / 101 / 61 … `src/engine/ranking/checkoutRanking.test.ts`
+- 121 の実着弾分岐と 84・58 の残し … `src/engine/recovery/recovery.test.ts`
+- 121 の OTHER ROUTE 追従 … `src/App.test.tsx` / `e2e/app.spec.ts`
+
+61 / 2 本の基準ルート（`T15 → D8`）は動画と競合するが**変更しない**。
+経緯・FACT / STRATEGY / PREFERENCE の切り分け・test ID の対応表は
+`docs/VIDEO_ARRANGEMENT_DISCUSSION_01.md` を参照。
+
 ## 3-1. 大量統計監査（`npm run audit:training`）
 
 10 万問規模の監査は通常の unit test に埋め込まない。
@@ -272,7 +286,7 @@ vitest の既定タイムアウト（5 秒）を超えます。違反を配列�
 
 ## 7. 現在の規模
 
-- ユニット / コンポーネント: **25 ファイル / 823 テスト**
-- E2E: **76 テスト × 2 プロジェクト = 152**
+- ユニット / コンポーネント: **28 ファイル / 915 テスト**
+- E2E: **89 テスト × 2 プロジェクト = 178**
 - 統計監査: `npm run audit:training`（各モード 10 万問、約 25 秒）
 - 統計監査: `npm run audit:simulation`（501 を数千ゲーム＋散布 20 万点、約 5 秒）

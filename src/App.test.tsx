@@ -1815,3 +1815,63 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     expect(nextRoute()?.length ?? 0).toBeGreaterThan(0);
   });
 });
+
+/*
+ * 動画「アレンジディスカッション#1」12:10–13:38 の 121 を UI で辿る Golden test。
+ * 出典: https://www.youtube.com/watch?v=687FgfVnINs
+ * 記録: docs/VIDEO_ARRANGEMENT_DISCUSSION_01.md
+ *
+ * 動画の T20 → T11 → D14 は STANDARD ではなく OTHER ROUTE として実装済み。
+ * 主表示（STANDARD T20 → S11 → BULL）は変えず、選べば追従すること・
+ * 外せば現在の状態から計算し直すことだけを固定する。
+ */
+describe('動画ケース: 121 の OTHER ROUTE を選んで追従する', () => {
+  /** カードの n 投目のチップ。 */
+  function chipOf(card: HTMLElement, index: number) {
+    return within(card).getByRole('button', { name: new RegExp(`^${index} 投目`) });
+  }
+
+  /** 盤面直下の NEXT に出ているルート。 */
+  function nextRoute() {
+    const route = screen.queryByTestId('recovery-next-route');
+    if (route === null) return null;
+    return Array.from(within(route).getByLabelText('次に狙うルート').children).map(
+      (item) => item.textContent ?? '',
+    );
+  }
+
+  /** 121 で動画のルートを選ぶ。上位 5 件には出ないので「すべて表示」を通る。 */
+  async function selectVideoRoute(user: User) {
+    render(<App />);
+    await openCheckoutWith(user, '121');
+    // 主表示は基準ルートのまま。
+    expect(within(screen.getByTestId('standard-route')).getByText('BULL')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('show-all-routes'));
+    await user.click(chipOf(screen.getByTestId('route-T20-T11-D14'), 1));
+  }
+
+  it('T20 が入っているあいだは、選んだ T11 → D14 を案内する', async () => {
+    const user = userEvent.setup();
+    await selectVideoRoute(user);
+
+    await user.click(screen.getByTestId('segment-t20'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('61');
+    // 61 / 2 本の STANDARD（T15 → D8）ではなく、選んだ続き。
+    expect(nextRoute()).toEqual(['T11', 'D14']);
+
+    await user.click(screen.getByTestId('segment-t11'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('28');
+    expect(nextRoute()).toEqual(['D14']);
+  });
+
+  it('S20 へ落ちたら、101 / 2 本の T17 → BULL へ計算し直す', async () => {
+    const user = userEvent.setup();
+    await selectVideoRoute(user);
+
+    // T20 の予定に対して S20。選択は自動で解除され、現在の答えへ戻る。
+    await user.click(screen.getByTestId('segment-s20-outer'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('101');
+    expect(nextRoute()).toEqual(['T17', 'BULL']);
+  });
+});

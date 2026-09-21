@@ -176,3 +176,82 @@ describe('MY ROUTE（得意ダブル）', () => {
     expect(ranked[0].darts[ranked[0].darts.length - 1].id).toBe('BULL');
   });
 });
+
+/*
+ * 動画「アレンジディスカッション#1」の CHECKOUT ケースの Golden test。
+ * 出典: https://www.youtube.com/watch?v=687FgfVnINs
+ * 経緯は docs/VIDEO_ARRANGEMENT_DISCUSSION_01.md に記録してある。
+ *
+ * 61 / 2 本の基準ルートは **変更しない**。
+ * 動画は T11 → D14（S11 でも BULL が残る）を推すが、41〜170 の基準ルートは
+ * 添付 Excel の第1候補を Source of Truth とする人間承認済みの仕様であり
+ * （docs/CHECKOUT_DATA_POLICY.md §1 / docs/APPROVALS.md）、
+ * ここで engine が T11 を主表示へ繰り上げてはいけない。
+ * その代わり、T11 → D14 が安全な代替として実在し、engine 自身が
+ * T15 → D8 の弱点を理由コードで説明できていることを固定する。
+ */
+describe('動画ケース: 121 からのチェックアウト', () => {
+  it('V-121-1: 121 の基準ルートは T20 → S11 → BULL のまま', () => {
+    expect(getStandardRoute(121)?.darts.map((d) => d.id)).toEqual(['T20', 'S11', 'BULL']);
+    const ranked = rankCheckoutRoutes(121, 3);
+    expect(ranked[0].routeText).toBe('T20 → S11 → BULL');
+    expect(ranked[0].isStandard).toBe(true);
+  });
+
+  it('V-121-1: T20 始動は S20 へ落ちても 101 / 2 本でまだ上がれる', () => {
+    expect(121 - 20).toBe(101);
+    expect(isCheckoutable(101, 2)).toBe(true);
+    expect(codesOf(121, ['T20', 'S11', 'BULL'])).toContain('SINGLE_MISS_SAFE');
+  });
+
+  it('V-121-2: 動画の T20 → T11 → D14 も合法で、第一ターゲットは安全と評価される', () => {
+    const route = evaluateCheckoutRoute(121, 3, parseRoute(['T20', 'T11', 'D14']))!;
+    expect(route.darts.map((d) => d.id)).toEqual(['T20', 'T11', 'D14']);
+    expect(route.reasons.map((r) => r.code)).toContain('SINGLE_MISS_SAFE');
+    // 候補一覧に実在する（選べば実戦入力で追従できる）。
+    expect(rankCheckoutRoutes(121, 3).some((r) => r.key === 'T20-T11-D14')).toBe(true);
+  });
+
+  it('V-101-1: S20 へ落ちた 101 / 2 本では T17 → BULL が第 1 候補', () => {
+    const ranked = rankCheckoutRoutes(101, 2);
+    expect(ranked[0].routeText).toBe('T17 → BULL');
+  });
+
+  it('V-61-1: 61 / 2 本の基準ルートは T15 → D8 のまま（動画へ寄せない）', () => {
+    const ranked = rankCheckoutRoutes(61, 2);
+    expect(ranked[0].routeText).toBe('T15 → D8');
+    expect(ranked[0].isStandard).toBe(true);
+    expect(getStandardRoute(61)?.darts.map((d) => d.id)).toEqual(['T15', 'D8']);
+  });
+
+  it('V-61-1: T11 → D14 は最上位の OTHER ROUTE として実在し、安全と評価される', () => {
+    const others = rankCheckoutRoutes(61, 2).filter((route) => !route.isStandard);
+    expect(others[0].routeText).toBe('T11 → D14');
+
+    const t11 = evaluateCheckoutRoute(61, 2, parseRoute(['T11', 'D14']))!;
+    const t15 = evaluateCheckoutRoute(61, 2, parseRoute(['T15', 'D8']))!;
+    expect(t11.reasons.map((r) => r.code)).toContain('SINGLE_MISS_SAFE');
+    expect(t15.reasons.map((r) => r.code)).toContain('SINGLE_MISS_LOSES_CHECKOUT');
+    expect(t15.reasons.map((r) => r.code)).toContain('SAFER_START_EXISTS');
+
+    /*
+     * 戦術評価（基準ルート加点を除いた tacticalScore）では T11 が上。
+     * それでも主表示は STANDARD のまま、というのが現行の製品方針。
+     * 主表示を入れ替えるには別 RFC と人間の承認が必要
+     * （docs/VIDEO_ARRANGEMENT_DISCUSSION_01.md §5）。
+     */
+    expect(t11.tacticalScore).toBeGreaterThan(t15.tacticalScore);
+    expect(t15.score).toBeGreaterThan(t11.score);
+  });
+
+  it('V-61-1: 動画の算術どおり、S11 でも BULL が残り、S15 では上がれない', () => {
+    expect(61 - 33).toBe(28);
+    expect(rankCheckoutRoutes(28, 1)[0].routeText).toBe('D14');
+    // T11 が S11 へ落ちても 50 が残り、BULL の 1 本上がりが生きている。
+    expect(61 - 11).toBe(50);
+    expect(rankCheckoutRoutes(50, 1)[0].routeText).toBe('BULL');
+    // T15 が S15 へ落ちると 46 / 1 本で、もう上がれない。
+    expect(61 - 15).toBe(46);
+    expect(isCheckoutable(46, 1)).toBe(false);
+  });
+});
