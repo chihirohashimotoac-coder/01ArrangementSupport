@@ -147,3 +147,28 @@ deep navy / graphite を基調とし、盤面の色は実際のダーツボー�
 - `:focus-visible` で 3px のフォーカスリング
 - 採点結果は `aria-live="polite"`、制限時間は `role="timer"`
 - `prefers-reduced-motion: reduce` でアニメーションを無効化
+
+## 8. アプリの更新のお知らせ
+
+Service Worker が新しいビルドを見つけたとき、**勝手にリロードしない**。
+画面のいちばん上へ「新しいバージョンがあります。」のお知らせを出し、
+更新するかどうかをユーザーが決める。
+
+- 表示位置は上部（sticky）。スクロールしていても気づけるようにする。
+  iOS の PWA でステータスバーへ潜らないよう `--app-safe-top` を使う。
+- **更新** … 待機中の Service Worker へ切り替え、そのまま読み込み直す。
+- **閉じる** … お知らせだけを消す。更新は待機したままで、
+  次にアプリを開き直したときか、さらに新しいビルドが待機したときに再び尋ねる。
+- TRAINING の回答中・SIMULATION のゲーム中でも表示する。
+  押すまで何も起こらないので、進行中の状態は失われない。
+
+実装は `registerType: 'prompt'` と `workbox.skipWaiting: false`
+（`vite.config.ts`）＋ `src/pwa/updateStore.ts` / `src/components/UpdateBanner.tsx`。
+
+`clientsClaim` は `true` のまま。これは初回にインストールされた Service Worker が
+すでに開いているページの制御を引き取るかどうかで、更新の待機とは別の話。
+`false` にすると初回訪問がリロードまでオフラインで動かなくなる。
+
+以前は `registerType: 'autoUpdate'` で、新しいビルドを検出すると
+`window.location.reload()` が走っていた。TRAINING の回答途中でも読み込み直されるため、
+ユーザーへ尋ねる形へ変更した。

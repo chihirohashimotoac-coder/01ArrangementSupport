@@ -49,20 +49,38 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴は、アレンジ理論の照合と回帰テストの追加', async () => {
+  it('最新の履歴は、更新のお知らせの追加', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('アレンジ理論の照合と回帰テストの追加');
+    expect(latest).toHaveTextContent('更新のお知らせ');
     expect(latest).toHaveTextContent('現在');
+    expect(latest.textContent ?? '').toMatch(/新しいバージョンがあります/);
+    // 押すまで何も起こらないこと・閉じられることを伝える。
+    expect(latest.textContent ?? '').toMatch(/更新ボタンを押したときだけ/);
+    expect(latest.textContent ?? '').toMatch(/閉じる/);
+    expect(latest.textContent ?? '').toMatch(/TRAINING/);
+  });
+
+  it('アレンジ理論の照合の履歴は残り、現在版ではなくなっている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const items = screen.getAllByTestId('version-history-item');
+    const previous = items.find((item) =>
+      (item.textContent ?? '').includes('アレンジ理論の照合と回帰テストの追加'),
+    );
+    expect(previous).toBeDefined();
     // 画面の動作を変えていないことを、いちばん先に伝える。
-    expect(latest.textContent ?? '').toMatch(/画面の動作・アレンジの判定は変更していません/);
+    expect(previous!.textContent ?? '').toMatch(/画面の動作・アレンジの判定は変更していません/);
     // 照合したケースと、基準ルートを変えなかったこと。
-    expect(latest.textContent ?? '').toMatch(/303/);
-    expect(latest.textContent ?? '').toMatch(/T15 → D8/);
-    expect(latest.textContent ?? '').toMatch(/T11 → D14/);
+    expect(previous!.textContent ?? '').toMatch(/303/);
+    expect(previous!.textContent ?? '').toMatch(/T15 → D8/);
+    expect(previous!.textContent ?? '').toMatch(/T11 → D14/);
+    expect(previous!.querySelector('.version-history__badge')).toBeNull();
   });
 
   it('v1.4.2 の履歴は残り、現在版ではなくなっている', async () => {

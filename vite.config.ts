@@ -14,7 +14,13 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      /*
+       * 'autoUpdate' では新しいビルドを検出した時点で window.location.reload() が
+       * 走り、TRAINING の回答途中や SIMULATION のゲーム中でも問答無用で
+       * 読み込み直されていた。'prompt' にして、更新するかどうかをユーザーへ渡す。
+       * 画面側の実装は src/components/UpdateBanner.tsx。
+       */
+      registerType: 'prompt',
       injectRegister: null,
       includeAssets: ['favicon.svg', 'icons/apple-touch-icon-180.png'],
       manifest: {
@@ -46,8 +52,19 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
         cleanupOutdatedCaches: true,
+        /*
+         * clientsClaim は true のまま。これは「初回にインストールされた
+         * Service Worker が、すでに開いているページの制御を引き取るか」であって、
+         * 更新の待機とは別の話。false にすると初回訪問がリロードまで
+         * 制御されず、オフライン動作が 1 回遅れる。
+         *
+         * skipWaiting は false にする。true だと新しい Service Worker が
+         * 即座に有効化されてしまい、「更新しますか」と尋ねる余地が無くなる。
+         * 待機させておき、ユーザーが更新ボタンを押した時点で
+         * messageSkipWaiting() を送る（virtual:pwa-register が行う）。
+         */
         clientsClaim: true,
-        skipWaiting: true,
+        skipWaiting: false,
         navigateFallback: 'index.html',
       },
       devOptions: {

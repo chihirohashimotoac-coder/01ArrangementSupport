@@ -9,6 +9,10 @@ function readText(relativePath: string): string {
 
 /** コメントは宣言の切れ目を隠すので、構造検査の前に取り除く。 */
 const appCss = readText('./App.css').replace(/\/\*[\s\S]*?\*\//g, '');
+const updateBannerCss = readText('./components/UpdateBanner.css').replace(
+  /\/\*[\s\S]*?\*\//g,
+  '',
+);
 const indexHtml = readText('../index.html');
 
 /**
@@ -85,6 +89,18 @@ describe('Safe Area（iOS PWA）', () => {
     for (const selector of ['.app__header', '.app__nav', '.app__main']) {
       expect(ruleBody(appCss, selector), selector).not.toContain('safe-area-inset');
     }
+  });
+
+  /*
+   * 更新のお知らせは画面上部へ sticky で置く。iOS の PWA では
+   * top: 0 のままだとステータスバー（時計・Dynamic Island）の下に潜るため、
+   * .app が持つ --app-safe-top を使う。env() を直接書かないことも含めて固定する。
+   */
+  it('更新バナーの sticky は --app-safe-top を使う', () => {
+    const banner = ruleBody(updateBannerCss, '.update-banner');
+    expect(declaration(banner, 'position')).toBe('sticky');
+    expect(declaration(banner, 'top')).toBe('var(--app-safe-top, 0px)');
+    expect(banner).not.toContain('safe-area-inset');
   });
 });
 

@@ -1,0 +1,67 @@
+/*
+ * 新しいバージョンのお知らせ。
+ *
+ * 画面上部に sticky で置く。スクロールしていても気づけるようにしたいが、
+ * バージョン履歴の「トップへ戻る」バー（z-index: 3）より前には出さない。
+ */
+.update-banner {
+  position: sticky;
+  top: var(--app-safe-top, 0px);
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  background: var(--surface-highlight);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.85rem;
+  box-shadow: var(--inner-highlight), var(--shadow-sm);
+}
+
+.update-banner__text {
+  flex: 1 1 10rem;
+  min-width: 0;
+  margin: 0;
+  font-size: clamp(0.76rem, 3vw, 0.88rem);
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.update-banner__actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.update-banner__apply,
+.update-banner__dismiss {
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  font-size: 0.78rem;
+  font-weight: 740;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.update-banner__apply {
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--accent-soft);
+  box-shadow: var(--inner-highlight), var(--shadow-sm);
+}
+
+.update-banner__dismiss {
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.update-banner__apply:focus-visible,
+.update-banner__dismiss:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
