@@ -719,9 +719,15 @@ test('バージョン履歴: トップから開き、「トップへ戻る」で
   await expect(page.getByRole('heading', { name: 'バージョン履歴' })).toBeVisible();
   const items = page.getByTestId('version-history-item');
   await expect(items.first()).toContainText('現在');
-  // 版の呼称は更新のたびに変わるので、形だけを見る。
-  await expect(items.first()).toContainText(/v\d+\.\d+/);
+  /*
+   * 版の呼称は更新のたびに変わるので、形だけを見る。
+   * 呼称を持たない更新もあるため（存在しない版番号は作らない方針）、
+   * ここで見るのは「日付が入っていること」にする。
+   */
+  await expect(items.first().locator('time')).toContainText(/^\d{4}-\d{2}-\d{2}$/);
   expect(await items.count()).toBeGreaterThan(1);
+  // どの版にも呼称か日付のどちらかは必ずある。
+  await expect(items.first().locator('.version-history__label')).not.toBeEmpty();
 
   // トップページのボタンは、この画面では出さない。
   await expect(page.getByTestId('home-version-history')).toHaveCount(0);

@@ -22,6 +22,38 @@ test('manifest と Service Worker が配信される', async ({ page, request })
   expect(serviceWorker.ok()).toBe(true);
 });
 
+/*
+ * 更新は「新しいバージョンがあります。」のお知らせでユーザーへ尋ねる（registerType: 'prompt'）。
+ * 新しい Service Worker が待機したままになることが前提なので、配信される sw.js の
+ * 形を確認する。待機の検出からお知らせの表示・更新ボタンの動きまでは
+ * src/UpdateBanner.test.tsx が受け持つ。
+ */
+test('配信される Service Worker は、待機して更新の合図を待つ', async ({ page, request }) => {
+  await page.goto('/');
+  const response = await request.get(new URL('sw.js', page.url()).toString());
+  expect(response.ok()).toBe(true);
+  const source = await response.text();
+
+  // 更新ボタンから送る SKIP_WAITING を受け付ける。
+  expect(source).toContain('SKIP_WAITING');
+  // 無条件の self.skipWaiting() は無い（あると尋ねる間もなく差し替わる）。
+  expect(source.match(/skipWaiting\(\)/g) ?? []).toHaveLength(1);
+  // 初回訪問がオフラインで動くよう、制御の引き取りは従来どおり行う。
+  expect(source).toContain('clientsClaim()');
+});
+
+test('更新が無いあいだは、お知らせを出さない', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('app-title')).toBeVisible();
+  await expect(page.getByTestId('update-banner')).toHaveCount(0);
+
+  // 画面を移っても出ない。
+  await page.getByTestId('nav-checkout').click();
+  await page.getByTestId('score-input').fill('103');
+  await expect(page.getByTestId('standard-route')).toBeVisible();
+  await expect(page.getByTestId('update-banner')).toHaveCount(0);
+});
+
 test('SPA フォールバック（404.html）が用意されている', async ({ page, request }) => {
   await page.goto('/');
   const fallback = await request.get(new URL('404.html', page.url()).toString());

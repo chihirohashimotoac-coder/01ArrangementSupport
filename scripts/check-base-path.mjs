@@ -89,9 +89,10 @@ try {
   const sw = join(outDir, 'sw.js');
   check(existsSync(sw), 'sw.js が出力されていません。');
   if (existsSync(sw)) {
+    const swSource = readFileSync(sw, 'utf8');
     // precache のエントリは SW スコープからの相対 URL でなければならない。
     // ルート絶対パスが混ざると、サブパス配信でキャッシュが 404 になる。
-    const entries = [...readFileSync(sw, 'utf8').matchAll(/url:"([^"]+)"/g)].map((m) => m[1]);
+    const entries = [...swSource.matchAll(/url:"([^"]+)"/g)].map((m) => m[1]);
     check(entries.length > 0, 'sw.js に precache のエントリがありません。');
     check(entries.includes('index.html'), 'sw.js が index.html を precache していません。');
     for (const entry of entries) {
@@ -100,6 +101,27 @@ try {
         `sw.js の precache エントリ "${entry}" がルート絶対パスです（サブパスで 404 になります）。`,
       );
     }
+
+    /*
+     * 更新は「新しいバージョンがあります。」のお知らせでユーザーへ尋ねる。
+     * そのためには新しい Service Worker が待機したままでなければならない。
+     * workbox の skipWaiting: true を戻すと sw.js が無条件で self.skipWaiting()
+     * を呼び、お知らせを出す間もなく差し替わる（更新ボタンが無意味になる）。
+     * ここでは「SKIP_WAITING メッセージを受けたときだけ呼ぶ」形を固定する。
+     */
+    check(
+      swSource.includes('SKIP_WAITING'),
+      'sw.js が SKIP_WAITING メッセージを受け付けません（更新ボタンが効かなくなります）。',
+    );
+    const skipWaitingCalls = (swSource.match(/skipWaiting\(\)/g) ?? []).length;
+    check(
+      skipWaitingCalls === 1,
+      `sw.js の skipWaiting() が ${skipWaitingCalls} 回あります（メッセージ受信時の 1 回だけにしてください）。`,
+    );
+    check(
+      swSource.includes('clientsClaim()'),
+      'sw.js が clientsClaim() を呼びません（初回訪問がオフラインで動かなくなります）。',
+    );
   }
 
   // Service Worker の登録先も base 配下でなければならない。

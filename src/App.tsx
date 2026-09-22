@@ -5,6 +5,7 @@ import { SimulationPage } from './pages/SimulationPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { VersionHistoryPage } from './pages/VersionHistoryPage';
 import { ReferencesPage } from './pages/ReferencesPage';
+import { UpdateBanner } from './components/UpdateBanner';
 import { scoringTripleFirstSequenceTables, sequenceTable } from './engine/setup/sequences';
 import { DEFAULT_SETUP_MAIN_TARGET } from './data/rankingRules';
 import { usePreferences } from './hooks/usePreferences';
@@ -120,6 +121,9 @@ export default function App() {
 
   return (
     <div className="app" data-theme={preferences.theme}>
+      {/* 更新が待機しているときだけ出る。どの画面でも、いちばん上。 */}
+      <UpdateBanner />
+
       <header className="app__header">
         <button
           type="button"
