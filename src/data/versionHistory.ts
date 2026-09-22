@@ -24,6 +24,18 @@ export interface VersionHistoryEntry {
 /** 新しい順。先頭が現在の版。 */
 export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
   {
+    label: 'アレンジ理論の照合と回帰テストの追加',
+    date: '2026-09-21',
+    summary:
+      '画面の動作・アレンジの判定は変更していません。討論動画で語られた攻め方を現行アプリと照合し、いまの判断が将来の変更で崩れないよう回帰テストとして固定しました。',
+    changes: [
+      '303 で T19 から入る理由、271 / 268 の S-BULL 調整、121 の各分岐（61 / 101 / 84 / 71 / 58 / 118）など、19 のケースをテストで固定しました。',
+      '61 残り 2 本の基準ルート（T15 → D8）は変更していません。動画が推す T11 → D14 は、これまでどおり他の候補から選べます。',
+      '照合の内容と、基準ルートを変えなかった理由は開発者向けの記録に残しました。',
+    ],
+    current: true,
+  },
+  {
     label: 'v1.4.2 SIMULATION のレビューが、同じナンバーのトリプル狙いを勧める',
     date: '2026-09-17',
     summary:
@@ -36,7 +48,6 @@ export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
       'この判定は 171 以上の残り点に限ります。170 以下の「次のラウンドへの残し」は、これまでどおりの判定です。',
       '既存の CHECKOUT / SETUP / TRAINING と、SIMULATION の着弾モデル・設定は変更していません。',
     ],
-    current: true,
   },
   {
     label: 'v1.4.1 SIMULATION の設定説明と、レビューの判定・言い方',
