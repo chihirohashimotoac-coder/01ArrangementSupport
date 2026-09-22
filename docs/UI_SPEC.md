@@ -172,3 +172,7 @@ Service Worker が新しいビルドを見つけたとき、**勝手にリロー
 以前は `registerType: 'autoUpdate'` で、新しいビルドを検出すると
 `window.location.reload()` が走っていた。TRAINING の回答途中でも読み込み直されるため、
 ユーザーへ尋ねる形へ変更した。
+
+この変更自体は **`src/data/versionHistory.ts` へ載せない**（オーナー判断 2026-09-22:
+サイレントアップデートで構わない）。1 PR = 1 エントリの慣習の例外なので、
+抜けと勘違いして追記しないこと。`src/VersionHistory.test.tsx` で固定している。
