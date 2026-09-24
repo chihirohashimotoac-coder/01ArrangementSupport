@@ -77,14 +77,34 @@ export type ThrowVerdict =
   /** 判定できなかった（データ不整合など）。 */
   | 'NOT_EVALUATED';
 
+/**
+ * 判断の分類の**画面表記**。
+ *
+ * 判定キー（`ThrowVerdict`）・意味・件数の数え方はここでは変えない。
+ * 英語のままだと意味を調べる負担が出るため、短い日本語にしている。
+ * 「ボギー」「BUST」などの用語の意味は `THROW_VERDICT_HINT_JA` と画面の用語説明で補う。
+ */
 export const THROW_VERDICT_JA: Readonly<Record<ThrowVerdict, string>> = {
-  GOOD_DECISION: 'GOOD DECISION',
-  BETTER_OPTION_AVAILABLE: 'BETTER OPTION AVAILABLE',
-  ARRANGEMENT_MISTAKE: 'ARRANGEMENT MISTAKE',
-  SETUP_MISTAKE: 'SETUP MISTAKE',
-  BOGEY_CREATED: 'BOGEY CREATED',
-  SCORING_PHASE: 'SCORING',
-  NOT_EVALUATED: '—',
+  GOOD_DECISION: '良い判断',
+  BETTER_OPTION_AVAILABLE: 'もっと良い狙いあり',
+  ARRANGEMENT_MISTAKE: '上がり方を見直す',
+  SETUP_MISTAKE: '残し方を見直す',
+  BOGEY_CREATED: 'ボギーを残した',
+  SCORING_PHASE: '得点を伸ばす場面',
+  NOT_EVALUATED: '判定対象外',
+};
+
+/** 判断の分類が何を指すかの短い補足（画面の「判断の内訳」で使う）。 */
+export const THROW_VERDICT_HINT_JA: Readonly<Record<ThrowVerdict, string>> = {
+  GOOD_DECISION: 'その場面で推奨できる狙い（推奨度 S・A、得意ダブル設定どおりの狙いなど）。',
+  BETTER_OPTION_AVAILABLE: '成立はするが、もっと良い狙いがあった。',
+  ARRANGEMENT_MISTAKE:
+    'この 3 投で上がる形として不適切な狙い（狙い通りに入ると BUST する狙いを含む）。',
+  SETUP_MISTAKE: '次のビジットへ残す形として不適切な狙い。',
+  BOGEY_CREATED:
+    'ビジット最後の 1 投で、狙い通りに入ってもボギー（次の 3 投で上がれない残り）になる狙い。',
+  SCORING_PHASE: '残り 351 以上。1 ビジットでは上がりに絡まないので、狙いを採点していない。',
+  NOT_EVALUATED: '候補一覧の外などで、良し悪しを断定していない。良い・悪いのどちらにも数えない。',
 };
 
 export const THROW_VERDICTS: readonly ThrowVerdict[] = [

@@ -191,7 +191,22 @@ test('直前の 1 投だけ取り消せる', async ({ page }) => {
   await expect(page.getByTestId('sim-throw-row-2')).toContainText('狙い T18');
 });
 
-test('暗算を間違えると CALCULATION MISS が出て、正解するまで次へ進めない', async ({ page }) => {
+test('「1投戻す」は盤面のすぐ下にあり、直前の狙いと着弾が並ぶ', async ({ page }) => {
+  await startPerfectGame(page, 501);
+  await page.getByTestId('segment-t20').click();
+  await expect(page.getByTestId('sim-last-throw')).toContainText('狙い T20');
+  await expect(page.getByTestId('sim-last-throw')).toContainText('着弾 T20');
+
+  // 盤面の下端と「1投戻す」の上端が離れていない（投擲の一覧より前に置く）。
+  const board = await page.locator('.dartboard__svg').boundingBox();
+  const undo = await page.getByTestId('sim-undo').boundingBox();
+  if (board === null || undo === null) throw new Error('位置が取れません。');
+  expect(undo.y).toBeGreaterThanOrEqual(board.y + board.height - 1);
+  expect(undo.y - (board.y + board.height)).toBeLessThan(40);
+  await expect(page.getByTestId('sim-undo')).toBeInViewport();
+});
+
+test('暗算を間違えると「計算ミス」が出て、正解するまで次へ進めない', async ({ page }) => {
   await startPerfectGame(page, 501);
   for (let dart = 0; dart < 3; dart += 1) await page.getByTestId('segment-t20').click();
 
@@ -200,7 +215,7 @@ test('暗算を間違えると CALCULATION MISS が出て、正解するまで�
   await page.getByTestId('sim-score-input').fill('170');
   await page.getByTestId('sim-score-submit').click();
 
-  await expect(page.getByTestId('sim-entry-verdict')).toContainText('CALCULATION MISS');
+  await expect(page.getByTestId('sim-entry-verdict')).toContainText('計算ミス');
   await expect(page.getByTestId('sim-entry-detail')).toContainText('計算が間違っています');
   // 進むボタンは出ない。LEFT も動かない。
   await expect(page.getByTestId('sim-next-round')).toHaveCount(0);
@@ -214,7 +229,7 @@ test('暗算を間違えると CALCULATION MISS が出て、正解するまで�
   await page.keyboard.type('180');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('sim-entry-verdict')).toContainText('正解');
-  await expect(page.getByTestId('sim-entry-detail')).toContainText('CALCULATION MISS 1 回');
+  await expect(page.getByTestId('sim-entry-detail')).toContainText('計算ミス 1 回');
   await page.getByTestId('sim-next-round').click();
   await expect(page.getByTestId('status-left')).toHaveText('321');
 });
@@ -264,7 +279,7 @@ test('BUST するとラウンド開始時の残りへ戻る', async ({ page }) =
   await expect(page.getByTestId('sim-progress')).toContainText('ROUND 2');
 });
 
-test('ダブルアウトで上がると GAME REVIEW が出る', async ({ page }) => {
+test('ダブルアウトで上がると「ゲームの振り返り」が出る', async ({ page }) => {
   await startPerfectGame(page, 170);
   await page.getByTestId('segment-t20').click();
   await page.getByTestId('segment-t20').click();
@@ -278,7 +293,12 @@ test('ダブルアウトで上がると GAME REVIEW が出る', async ({ page })
   await expect(page.getByTestId('sim-review')).toBeVisible();
   await expect(page.getByTestId('sim-summary-darts')).toHaveText('3');
   await expect(page.getByTestId('sim-summary-checkout-score')).toHaveText('170');
-  await expect(page.getByTestId('sim-verdict-1')).toContainText('GOOD DECISION');
+  await expect(page.getByTestId('sim-highlight-good')).toContainText('良い判断');
+  await expect(page.getByTestId('sim-highlight-improve')).toContainText('なし');
+  await expect(page.getByTestId('sim-retry')).toBeVisible();
+  await page.getByTestId('sim-all-throws').locator('summary').click();
+  await expect(page.getByTestId('sim-verdict-1')).toBeVisible();
+  await expect(page.getByTestId('sim-verdict-1')).toContainText('良い判断');
   // レビューが評価するのは狙いであることを画面にも書く。
   await expect(page.getByTestId('sim-review')).toContainText('狙い');
 });
@@ -331,8 +351,21 @@ test('残り 178 / 最後の 1 投で T19 を狙うと、159 を理由に指摘�
   await page.getByTestId('sim-next-round').click();
 
   await expect(page.getByTestId('sim-review')).toBeVisible();
-  await expect(page.getByTestId('sim-verdict-3')).toContainText('BETTER OPTION AVAILABLE');
+  // 見直し候補の一覧に、狙い通りの残り（121）・159 の理由・代案が出る。
+  await page.getByTestId('sim-improvements').locator('summary').click();
+  const focus = page.getByTestId('sim-focus-3').last();
+  await expect(focus).toBeVisible();
+  await expect(focus).toContainText('残り 178');
+  await expect(focus).toContainText('狙い通りなら残り 121');
+  await expect(focus).toContainText('159');
+  await expect(focus).toContainText('T18');
+  // エンジンの第 1 候補（S18）は、この場面の振り返りと食い違うので代案に出さない。
+  await expect(page.getByTestId('sim-focus-3-alt').last()).toContainText('上の説明の例');
+
+  await page.getByTestId('sim-all-throws').locator('summary').click();
+  await expect(page.getByTestId('sim-verdict-3')).toContainText('もっと良い狙いあり');
   const round1 = page.getByTestId('sim-round-1');
+  await expect(round1).toBeVisible();
   await expect(round1).toContainText('159');
   await expect(round1).toContainText('T20');
   await expect(round1).toContainText('T18');
@@ -360,7 +393,7 @@ test('残り 178 / 最後の 1 投で S18 を狙うと、T18 を勧められる'
   await page.getByTestId('sim-next-round').click();
 
   await expect(page.getByTestId('sim-review')).toBeVisible();
-  await expect(page.getByTestId('sim-verdict-3')).toContainText('BETTER OPTION AVAILABLE');
+  await expect(page.getByTestId('sim-verdict-3')).toContainText('もっと良い狙いあり');
   const round1 = page.getByTestId('sim-round-1');
   await expect(round1).toContainText('テンパイは作れますが');
   await expect(round1).toContainText('T18');

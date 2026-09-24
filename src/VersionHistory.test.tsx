@@ -49,14 +49,31 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴は、盤面の狙い方（42 / 46 / 48 / 39 / 43）', async () => {
+  it('最新の履歴は、SIMULATION の振り返りと入力の見直し', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('盤面の狙い方');
+    expect(latest).toHaveTextContent('SIMULATION の振り返りと入力の見直し');
     expect(latest).toHaveTextContent('現在');
+    // 判定を変えていないことを、いちばん先に伝える。
+    expect(latest.textContent ?? '').toMatch(/狙いの判定・着弾のモデル・アレンジの推奨は変更していません/);
+    expect(latest.textContent ?? '').toMatch(/1投戻す/);
+    expect(latest.textContent ?? '').toMatch(/未完了/);
+  });
+
+  it('盤面の狙い方（42 / 46 / 48 / 39 / 43）の履歴は残り、現在版ではなくなっている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const latest = screen
+      .getAllByTestId('version-history-item')
+      .find((item) => (item.textContent ?? '').includes('盤面の狙い方（42'));
+    expect(latest).toBeDefined();
+    if (!latest) return;
+    expect(latest.querySelector('.version-history__badge')).toBeNull();
     // 既存の判定を変えていないこと、48 の T16 BUST と残り 1 本の扱い。
     expect(latest.textContent ?? '').toMatch(/基準ルート・候補の並び・TRAINING の採点は変更していません/);
     expect(latest.textContent ?? '').toMatch(/T16/);

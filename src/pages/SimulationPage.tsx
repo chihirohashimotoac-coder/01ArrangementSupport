@@ -31,9 +31,18 @@ import {
   type SimulationGame,
   type ThrowRecord,
 } from '../engine/simulation/game';
+import { REVIEW_GLOSSARY_JA } from '../engine/simulation/reviewGlossary';
+import {
+  buildReviewHighlights,
+  dartsLeftBefore,
+  describeGameResultJa,
+  type ThrowFocus,
+} from '../engine/simulation/reviewHighlights';
 import { createGameSeed } from '../engine/simulation/throwSimulator';
 import {
+  THROW_VERDICT_HINT_JA,
   THROW_VERDICT_JA,
+  THROW_VERDICTS,
   buildGameReview,
   type ThrowVerdict,
 } from '../engine/simulation/review';
@@ -96,6 +105,13 @@ export function SimulationPage() {
     setScoreDraft('');
   }, [form]);
 
+  /** 終わったゲームと同じ設定で、新しい seed のゲームを始める（別の着弾列になる）。 */
+  const retry = useCallback(() => {
+    if (game === null) return;
+    setGame(createGame(game.settings, createGameSeed()));
+    setScoreDraft('');
+  }, [game]);
+
   const round = game?.current ?? null;
   const entry = round?.entry ?? null;
   const awaitingEntry = game?.phase === 'score-entry' && needsScoreEntry(round);
@@ -115,6 +131,8 @@ export function SimulationPage() {
    * Double Out・履歴・GAME REVIEW はすべてそちらを見ている。
    */
   const displayLeft = game === null ? form.startScore : (round?.leftBefore ?? game.left);
+  /** このビジットの直前の 1 投（盤面の直後に狙いと着弾を出す）。 */
+  const lastThrow = round === null ? null : (round.throws[round.throws.length - 1] ?? null);
 
   const markers = useMemo<readonly BoardMarker[]>(() => {
     if (round === null || round.throws.length === 0) return [];
@@ -146,13 +164,24 @@ export function SimulationPage() {
     return list;
   }, [round]);
 
-  const review = useMemo(() => {
-    if (game === null || game.phase !== 'finished') return null;
-    return buildGameReview(game, {
+  /** 振り返りの判定へ渡すユーザー設定（得意ダブル・SETUP の主目標）。 */
+  const reviewOptions = useMemo(
+    () => ({
       preferredDoubles: preferences.preferredDoubles,
       mainTarget: preferences.setupMainTarget,
-    });
-  }, [game, preferences.preferredDoubles, preferences.setupMainTarget]);
+    }),
+    [preferences.preferredDoubles, preferences.setupMainTarget],
+  );
+
+  const review = useMemo(() => {
+    if (game === null || game.phase !== 'finished') return null;
+    return buildGameReview(game, reviewOptions);
+  }, [game, reviewOptions]);
+
+  const highlights = useMemo(
+    () => (review === null ? null : buildReviewHighlights(review, reviewOptions)),
+    [review, reviewOptions],
+  );
 
   /*
    * 3 投目が確定した瞬間に、得点入力欄へ自動でフォーカスする。
@@ -443,37 +472,59 @@ export function SimulationPage() {
             {totalDarts(game)} 投
           </p>
 
-          <Dartboard
-            onSelect={(segment) => {
-              if (game.phase !== 'aiming') return;
-              setGame(throwAt(game, segment.id));
-            }}
-            markers={markers}
-            disabled={game.phase !== 'aiming'}
-            disabledReason={
-              awaitingEntry ? '3 投の合計を入力してください。' : 'このラウンドは終わりました。'
-            }
-            ariaLabel="ダーツボード。狙う場所をタップすると、その狙いに対する着弾が決まります。"
-          />
+          {/*
+            盤面と「直前の 1 投」「1投戻す」を 1 つの塊にする。
+            押し間違えたとき、スマホ縦画面でも視線と指を大きく動かさずに直せるよう、
+            取り消しは盤面の直後の決まった位置へ置く（投擲の一覧より前）。
+          */}
+          <div className="simulation__board-area">
+            <Dartboard
+              onSelect={(segment) => {
+                if (game.phase !== 'aiming') return;
+                setGame(throwAt(game, segment.id));
+              }}
+              markers={markers}
+              disabled={game.phase !== 'aiming'}
+              disabledReason={
+                awaitingEntry ? '3 投の合計を入力してください。' : 'このラウンドは終わりました。'
+              }
+              ariaLabel="ダーツボード。狙う場所をタップすると、その狙いに対する着弾が決まります。"
+            />
+
+            <div className="simulation__last" data-testid="sim-last-bar">
+              <p className="simulation__last-throw" data-testid="sim-last-throw" aria-live="polite">
+                {lastThrow === null ? (
+                  <span className="simulation__last-empty">
+                    盤面をタップして {round.throws.length + 1} 投目の狙いを決めます。外周の MISS 部分は狙えません。
+                  </span>
+                ) : (
+                  <>
+                    <span className="simulation__last-caption">直前 {lastThrow.dartNumber}投目</span>
+                    <span className="simulation__last-aim">狙い {describeThrow(lastThrow).intended}</span>
+                    <span className="simulation__last-hit">着弾 {describeThrow(lastThrow).actual}</span>
+                  </>
+                )}
+              </p>
+              <button
+                type="button"
+                className="simulation__undo"
+                data-testid="sim-undo"
+                aria-label="直前の 1 投を取り消す"
+                disabled={!canUndo(game)}
+                onClick={() => setGame(undoLastThrow(game))}
+              >
+                1投戻す
+              </button>
+            </div>
+          </div>
 
           <ol className="simulation__throws" aria-label="このラウンドの投擲">
             {round.throws.map((record) => (
               <ThrowRow key={record.dartIndex} record={record} />
             ))}
-            {round.throws.length === 0 && (
-              <li className="simulation__throws-empty">盤面をタップして 1 投目の狙いを決めます。</li>
-            )}
           </ol>
 
           <div className="simulation__actions">
-            <button
-              type="button"
-              data-testid="sim-undo"
-              disabled={!canUndo(game)}
-              onClick={() => setGame(undoLastThrow(game))}
-            >
-              1投戻す
-            </button>
             <button
               type="button"
               className="simulation__quit"
@@ -501,6 +552,9 @@ export function SimulationPage() {
                     {bustNoteJa(round.bustReason)}
                     このラウンドは 0 点です。残り {round.leftBefore} へ戻ります。
                   </p>
+                  <p className="simulation__entry-undo" data-testid="sim-entry-undo-hint">
+                    狙いを押し間違えていたら、次へ進む前に盤面の下の「1投戻す」で直せます。
+                  </p>
                   <button
                     ref={nextButtonRef}
                     type="button"
@@ -518,7 +572,7 @@ export function SimulationPage() {
                         className="simulation__entry-title simulation__entry-title--ng"
                         data-testid="sim-entry-verdict"
                       >
-                        CALCULATION MISS
+                        計算ミス
                       </p>
                       <p className="simulation__entry-note" data-testid="sim-entry-detail">
                         計算が間違っています。もう一度、この {round.throws.length} 投の合計を
@@ -564,6 +618,10 @@ export function SimulationPage() {
                       確定
                     </button>
                   </div>
+                  <p className="simulation__entry-undo" data-testid="sim-entry-undo-hint">
+                    狙いを押し間違えていたら、確定する前に盤面の下の「1投戻す」で直せます。
+                    合計を確定したあとは戻せません。
+                  </p>
                 </>
               ) : (
                 <>
@@ -576,7 +634,7 @@ export function SimulationPage() {
                   <p className="simulation__entry-note" data-testid="sim-entry-detail">
                     {entry.actual} 点。残り {round.leftBefore - entry.actual} です。
                     {entry.miss &&
-                      `（CALCULATION MISS ${entry.wrongEntries.length} 回: ${entry.wrongEntries.join(' / ')}）`}
+                      `（計算ミス ${entry.wrongEntries.length} 回: ${entry.wrongEntries.join(' / ')}）`}
                   </p>
                   {/* Enter / Space でそのまま進めるよう、自動でフォーカスを当てている。 */}
                   <button
@@ -594,134 +652,307 @@ export function SimulationPage() {
         </section>
       )}
 
-      {game !== null && game.phase === 'finished' && review !== null && (
-        <section className="simulation__review" data-testid="sim-review" aria-label="GAME REVIEW">
-          <h2 className="simulation__review-title">GAME REVIEW</h2>
+      {game !== null && game.phase === 'finished' && review !== null && highlights !== null && (
+        <section className="simulation__review" data-testid="sim-review" aria-label="ゲームの振り返り">
+          <h2 className="simulation__review-title">ゲームの振り返り</h2>
 
-          <dl className="simulation__summary" data-testid="sim-summary">
-            <div>
-              <dt>開始点数</dt>
-              <dd data-testid="sim-summary-start">{review.summary.startScore}</dd>
-            </div>
-            <div>
-              <dt>総投数</dt>
-              <dd data-testid="sim-summary-darts">{review.summary.totalDarts}</dd>
-            </div>
-            <div>
-              <dt>PPR</dt>
-              <dd data-testid="sim-summary-ppr">{review.summary.ppr.toFixed(2)}</dd>
-            </div>
-            <div>
-              <dt>FIRST 9 PPR</dt>
-              <dd data-testid="sim-summary-first9">{review.summary.first9Ppr.toFixed(2)}</dd>
-            </div>
-            <div>
-              <dt>CALCULATION MISS</dt>
-              <dd data-testid="sim-summary-miss">{review.summary.calculationMissCount} 回</dd>
-            </div>
-            <div>
-              <dt>BUST</dt>
-              <dd data-testid="sim-summary-bust">{review.summary.bustCount} 回</dd>
-            </div>
-            <div>
-              <dt>CHECKOUT DARTS</dt>
-              <dd data-testid="sim-summary-checkout-darts">
-                {review.summary.checkoutDarts ?? '—'}
-              </dd>
-            </div>
-            <div>
-              <dt>CHECKOUT SCORE</dt>
-              <dd data-testid="sim-summary-checkout-score">
-                {review.summary.checkoutScore ?? '—'}
-              </dd>
-            </div>
-          </dl>
+          {/* --- 最重要: 結果と主要な記録 ------------------------------------ */}
+          <div className="simulation__result" data-testid="sim-summary">
+            <p
+              className="simulation__review-status"
+              data-testid="sim-summary-status"
+              data-abandoned={review.summary.abandoned ? 'true' : undefined}
+            >
+              <strong data-testid="sim-summary-start">{review.summary.startScore}</strong>{' '}
+              から開始し、{describeGameResultJa(review.summary)}
+            </p>
+            {review.summary.checkedOut && (
+              <p className="simulation__result-checkout" data-testid="sim-summary-checkout">
+                上がりのビジット: 開始{' '}
+                <strong data-testid="sim-summary-checkout-score">
+                  {review.summary.checkoutScore}
+                </strong>{' '}
+                点から{' '}
+                <strong data-testid="sim-summary-checkout-darts">
+                  {review.summary.checkoutDarts}
+                </strong>{' '}
+                投
+              </p>
+            )}
+            <dl className="simulation__summary">
+              <div>
+                <dt>総投数</dt>
+                <dd data-testid="sim-summary-darts">{review.summary.totalDarts}</dd>
+              </div>
+              <div>
+                <dt>PPR（3投平均）</dt>
+                <dd data-testid="sim-summary-ppr">{review.summary.ppr.toFixed(2)}</dd>
+              </div>
+              <div>
+                <dt>BUST（0点のビジット）</dt>
+                <dd data-testid="sim-summary-bust">{review.summary.bustCount} 回</dd>
+              </div>
+              <div>
+                <dt>計算ミス</dt>
+                <dd data-testid="sim-summary-miss">{review.summary.calculationMissCount} 回</dd>
+              </div>
+            </dl>
+            <p className="simulation__result-sub">
+              最初の9投のPPR{' '}
+              <strong data-testid="sim-summary-first9">{review.summary.first9Ppr.toFixed(2)}</strong>
+              {review.summary.totalDarts < 9 && `（${review.summary.totalDarts} 投で平均）`}
+            </p>
+          </div>
 
-          <ul className="simulation__verdict-counts" aria-label="判断の内訳">
-            {(Object.keys(review.verdictCounts) as ThrowVerdict[])
-              .filter((verdict) => review.verdictCounts[verdict] > 0)
-              .map((verdict) => (
-                <li key={verdict} data-tone={VERDICT_TONE[verdict]}>
-                  <span>{THROW_VERDICT_JA[verdict]}</span>
-                  <strong data-testid={`sim-count-${verdict}`}>
-                    {review.verdictCounts[verdict]}
-                  </strong>
-                </li>
-              ))}
-          </ul>
+          {/* --- 最重要: 良かった判断 / 改善ポイント / 次に意識すること ------ */}
+          <section
+            className="simulation__highlight"
+            data-tone="good"
+            data-testid="sim-highlight-good"
+            aria-label="良かった判断"
+          >
+            <h3>良かった判断</h3>
+            {highlights.good === null ? (
+              <p className="simulation__highlight-empty">評価できた良い判断はありません。</p>
+            ) : (
+              <HighlightThrow focus={highlights.good} showAlternative={false} />
+            )}
+          </section>
+
+          <section
+            className="simulation__highlight"
+            data-tone={highlights.improvement === null ? 'plain' : VERDICT_TONE[highlights.improvement.review.verdict]}
+            data-testid="sim-highlight-improve"
+            aria-label="改善ポイント"
+          >
+            <h3>改善ポイント</h3>
+            {highlights.improvement === null ? (
+              <p className="simulation__highlight-empty">
+                なし（採点できた狙いの範囲。腕前やゲーム全体を保証するものではありません）。
+              </p>
+            ) : (
+              <HighlightThrow focus={highlights.improvement} showAlternative />
+            )}
+          </section>
+
+          <p className="simulation__next-focus" data-testid="sim-next-focus">
+            <strong>次のゲームで意識すること</strong>
+            {highlights.nextFocusJa}
+          </p>
+
+          <div className="simulation__review-actions">
+            <button
+              type="button"
+              className="simulation__start"
+              data-testid="sim-retry"
+              onClick={retry}
+            >
+              同じ条件でもう一度
+            </button>
+            <button
+              type="button"
+              className="simulation__secondary"
+              data-testid="sim-restart"
+              onClick={() => {
+                setGame(null);
+                setScoreDraft('');
+              }}
+            >
+              設定へ戻る
+            </button>
+          </div>
 
           <p className="simulation__review-note">
             評価しているのは <strong>狙い</strong> だけです。狙いが妥当なら、そこから外れた着弾は
             判断ミスとして数えません。
           </p>
 
-          <ol className="simulation__rounds">
-            {review.rounds.map((item) => (
-              <li key={item.round} className="simulation__round" data-testid={`sim-round-${item.round}`}>
-                <h3>
-                  ROUND {item.round}
-                  <span className="simulation__round-left">LEFT {item.leftBefore}</span>
-                  <span className="simulation__round-scored">
-                    {item.bust ? 'BUST' : `${item.scored} 点`}
-                  </span>
-                </h3>
-
-                {item.entry?.miss === true && (
-                  <p className="simulation__round-miss" data-testid={`sim-round-miss-${item.round}`}>
-                    CALCULATION MISS {item.entry.wrongEntries.length} 回 — 入力{' '}
-                    {item.entry.wrongEntries.join(' / ')} ／ 正しくは {item.entry.actual}
-                  </p>
+          {/* --- 詳細: 内訳 / 改善候補 / 全投 ----------------------------- */}
+          <details className="simulation__help" data-testid="sim-verdict-breakdown">
+            <summary>判断の内訳</summary>
+            <div className="simulation__detail-body">
+              <p className="simulation__review-note" data-testid="sim-evaluated-note">
+                採点した狙い {highlights.evaluatedCount} 投のうち、良い判断{' '}
+                {highlights.goodCount} 投・見直し候補 {highlights.improvementCount} 投。
+                得点を伸ばす場面 {highlights.scoringCount} 投と判定対象外{' '}
+                {highlights.notEvaluatedCount} 投は、どちらにも数えていません。
+              </p>
+              <ul className="simulation__verdict-counts" aria-label="判断の分類ごとの件数">
+                {THROW_VERDICTS.filter((verdict) => review.verdictCounts[verdict] > 0).map(
+                  (verdict) => (
+                    <li key={verdict} data-tone={VERDICT_TONE[verdict]}>
+                      <span>{THROW_VERDICT_JA[verdict]}</span>
+                      <strong data-testid={`sim-count-${verdict}`}>
+                        {review.verdictCounts[verdict]}
+                      </strong>
+                    </li>
+                  ),
                 )}
+              </ul>
+            </div>
+          </details>
 
-                <ol className="simulation__review-throws">
-                  {item.throws.map((throwReview) => {
-                    const described = describeThrow(throwReview.record);
-                    return (
-                      <li
-                        key={throwReview.record.dartIndex}
-                        data-tone={VERDICT_TONE[throwReview.verdict]}
-                        data-testid={`sim-throw-${throwReview.record.dartIndex}`}
+          {highlights.improvements.length > 0 && (
+            <details className="simulation__help" data-testid="sim-improvements">
+              <summary>見直し候補をすべて見る（{highlights.improvements.length} 件）</summary>
+              <ol className="simulation__detail-body simulation__focus-list">
+                {highlights.improvements.map((focus) => (
+                  <li
+                    key={focus.review.record.dartIndex}
+                    data-tone={VERDICT_TONE[focus.review.verdict]}
+                    data-testid={`sim-improvement-${focus.review.record.dartIndex}`}
+                  >
+                    <HighlightThrow focus={focus} showAlternative />
+                  </li>
+                ))}
+              </ol>
+            </details>
+          )}
+
+          <details className="simulation__help" data-testid="sim-all-throws">
+            <summary>全投を見る（{review.summary.totalDarts} 投）</summary>
+            <div className="simulation__detail-body">
+              {highlights.scoringCount > 0 && (
+                <p className="simulation__review-note">
+                  得点を伸ばす場面（残り 351 以上）の投は採点していないため、1 投ごとの説明を省いています。
+                </p>
+              )}
+              <ol className="simulation__rounds">
+                {review.rounds.map((item) => (
+                  <li
+                    key={item.round}
+                    className="simulation__round"
+                    data-testid={`sim-round-${item.round}`}
+                  >
+                    <h3>
+                      {item.round} ビジット目
+                      <span className="simulation__round-left">開始 {item.leftBefore} 点</span>
+                      <span className="simulation__round-scored">
+                        {item.bust ? 'BUST（0点）' : `${item.scored} 点`}
+                      </span>
+                    </h3>
+
+                    {item.entry?.miss === true && (
+                      <p
+                        className="simulation__round-miss"
+                        data-testid={`sim-round-miss-${item.round}`}
                       >
-                        <div className="simulation__review-head">
-                          <span className="simulation__review-dart">
-                            D{throwReview.record.dartNumber}
-                          </span>
-                          <span className="simulation__review-left">
-                            LEFT {throwReview.record.leftBefore}
-                          </span>
-                          <span
-                            className="simulation__review-verdict"
-                            data-testid={`sim-verdict-${throwReview.record.dartIndex}`}
-                          >
-                            {THROW_VERDICT_JA[throwReview.verdict]}
-                          </span>
-                        </div>
-                        <p className="simulation__review-aim">
-                          狙い {described.intended} ／ 着弾 {described.actual}
-                          {throwReview.record.bust && '（BUST）'}
-                          {throwReview.record.checkout && '（CHECKOUT）'}
-                        </p>
-                        <p className="simulation__review-explain">{throwReview.noteJa}</p>
-                      </li>
-                    );
-                  })}
-                </ol>
-              </li>
-            ))}
-          </ol>
+                        計算ミス {item.entry.wrongEntries.length} 回 — 入力{' '}
+                        {item.entry.wrongEntries.join(' / ')} ／ 正しくは {item.entry.actual}
+                      </p>
+                    )}
 
-          <button
-            type="button"
-            className="simulation__start"
-            data-testid="sim-restart"
-            onClick={() => {
-              setGame(null);
-              setScoreDraft('');
-            }}
-          >
-            設定へ戻る
-          </button>
+                    <ol className="simulation__review-throws">
+                      {item.throws.map((throwReview) => {
+                        const described = describeThrow(throwReview.record);
+                        return (
+                          <li
+                            key={throwReview.record.dartIndex}
+                            data-tone={VERDICT_TONE[throwReview.verdict]}
+                            data-testid={`sim-throw-${throwReview.record.dartIndex}`}
+                          >
+                            <div className="simulation__review-head">
+                              <span className="simulation__review-dart">
+                                {throwReview.record.dartNumber}投目
+                              </span>
+                              <span className="simulation__review-left">
+                                残り {throwReview.record.leftBefore}
+                              </span>
+                              <span
+                                className="simulation__review-verdict"
+                                data-testid={`sim-verdict-${throwReview.record.dartIndex}`}
+                              >
+                                {THROW_VERDICT_JA[throwReview.verdict]}
+                              </span>
+                            </div>
+                            <p className="simulation__review-aim">
+                              狙い {described.intended} ／ 着弾 {described.actual}
+                              {throwReview.record.bust && '（BUST）'}
+                              {throwReview.record.checkout && '（CHECKOUT）'}
+                            </p>
+                            {throwReview.verdict !== 'SCORING_PHASE' && (
+                              <p className="simulation__review-explain">{throwReview.noteJa}</p>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </details>
+
+          <details className="simulation__help" data-testid="sim-review-glossary">
+            <summary>判断の分類と用語の意味</summary>
+            <dl className="simulation__help-list simulation__help-list--stacked">
+              {THROW_VERDICTS.map((verdict) => (
+                <Fragment key={verdict}>
+                  <dt>{THROW_VERDICT_JA[verdict]}</dt>
+                  <dd>{THROW_VERDICT_HINT_JA[verdict]}</dd>
+                </Fragment>
+              ))}
+              {REVIEW_GLOSSARY_JA.map((item) => (
+                <Fragment key={item.term}>
+                  <dt>{item.term}</dt>
+                  <dd>{item.meaning}</dd>
+                </Fragment>
+              ))}
+            </dl>
+          </details>
         </section>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 振り返りで取り上げる 1 投。
+ *
+ * **狙い通りに入った場合の残り**と**実際の着弾**を分けて書く（判断の評価に使うのは狙いだけ）。
+ * 代案は、その投を投げる直前の残りと本数で求めた既存のおすすめだけを出し、
+ * 無いときに作らない（食い違う場合の扱いは `reviewHighlights.ts`）。
+ */
+function HighlightThrow({
+  focus,
+  showAlternative,
+}: {
+  focus: ThrowFocus;
+  showAlternative: boolean;
+}) {
+  const { round, review } = focus;
+  const { record } = review;
+  const described = describeThrow(record);
+  const testId = `sim-focus-${record.dartIndex}`;
+  return (
+    <div className="simulation__focus" data-testid={testId}>
+      <p className="simulation__focus-head">
+        <span className="simulation__focus-where">
+          {round.round} ビジット目・{record.dartNumber}投目（残り {record.leftBefore}・
+          この投を含めて {dartsLeftBefore(review)} 本）
+        </span>
+        <span className="simulation__review-verdict">{THROW_VERDICT_JA[review.verdict]}</span>
+      </p>
+      <p className="simulation__focus-aim">
+        狙い {described.intended}
+        {review.intendedLeave === null
+          ? '（狙い通りに入ると BUST）'
+          : review.intendedLeave === 0
+            ? '（狙い通りに入ると上がり）'
+            : `（狙い通りなら残り ${review.intendedLeave}）`}
+        <span className="simulation__focus-hit">
+          実際の着弾 {described.actual}（判断の評価には使っていません）
+        </span>
+      </p>
+      <p className="simulation__review-explain">{review.noteJa}</p>
+      {showAlternative && (
+        <p className="simulation__focus-alt" data-testid={`${testId}-alt`}>
+          {focus.alternative.kind === 'route'
+            ? `この時点でのアプリのおすすめ: ${focus.alternative.text}`
+            : focus.alternative.kind === 'in-note'
+              ? '代案は上の説明の例を参照してください。'
+              : '代案は提示できません。'}
+        </p>
       )}
     </div>
   );
