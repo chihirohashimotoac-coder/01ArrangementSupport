@@ -28,7 +28,8 @@ export interface AimAreaDefinition {
   readonly coreNumbers: readonly number[];
   /**
    * 条件付きの拡張。基本エリアの隣に続くナンバーで、シングルならダブルが残るが、
-   * 基本と同格には勧めない（例: 39 の 17 は D11 という奇数ダブルが残る）。
+   * 基本エリアとは条件が異なるもの（例: 39 の 17 は S17 → D11 の奇数ダブル、T17 は Bust）。
+   * 画面では事実だけを示し、「勧める／勧めない」の戦術判断は付けない。
    */
   readonly extensionNumbers: readonly number[];
   /** 狙うリング。本教材ではシングル帯（内側・外側）だけを扱う。 */

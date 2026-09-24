@@ -106,16 +106,25 @@ export function aimAreaNotesJa(analysis: AimAreaAnalysis): string[] {
     '狙うのはシングル帯（内側・外側）です。トリプル・ダブルの帯まで安全という意味ではなく、ワイヤー上の一点が最適という意味でもありません。',
   ];
 
-  // 条件付きの拡張: シングルなら何が残るか。
+  /*
+   * 条件付きの拡張: 計算で分かる事実（残るダブルの扱いやすさ・Bust する的）だけを書く。
+   * 「勧める／勧めない」という新しい戦術判断はここで作らない（APPROVALS 未記録のため）。
+   */
   for (const number of analysis.definition.extensionNumbers) {
-    const single = analysis.landings.find(
-      (landing) => landing.role === 'extension' && landing.number === number && landing.ring === 'single',
+    const own = analysis.landings.filter(
+      (landing) => landing.role === 'extension' && landing.number === number,
     );
-    if (single?.kind === 'finish-next-dart') {
-      notes.push(
-        `${number} は条件付きです。S${number} なら ${single.finishDartId} が残りますが、基本の ${joinNumbers(analysis.definition.coreNumbers)} と同格には勧めません。`,
-      );
-    }
+    const single = own.find((landing) => landing.ring === 'single');
+    if (single?.kind !== 'finish-next-dart' || single.finishDartId === null) continue;
+    const finishText =
+      DOUBLE_QUALITY[single.finishDartId]?.tier === 'awkward'
+        ? `${single.finishDartId}（奇数ダブル）が`
+        : `${single.finishDartId} が`;
+    const busts = own.filter((landing) => landing.kind === 'bust').map((landing) => landing.dart.id);
+    const bustText = busts.length > 0 ? `が、${busts.join('・')} は BUST です` : '';
+    notes.push(
+      `${number} は条件付きの拡張です。S${number} なら ${finishText}残ります${bustText}。`,
+    );
   }
 
   // 奇数ダブルなど、扱いにくいダブルが残る抜け方。

@@ -375,11 +375,14 @@ describe('盤面の狙い方: 表示文', () => {
     expect(notes42).toMatch(/D10 → D11/);
     expect(notes42).toMatch(/S13 \/ S15/);
     expect(aimAreaNotesJa(analyzeAimArea(48, 3)!).join('\n')).not.toMatch(/奇数ダブル/);
-    expect(aimAreaNotesJa(analyzeAimArea(39, 3)!).join('\n')).toMatch(/S17 なら D11/);
+    expect(aimAreaNotesJa(analyzeAimArea(39, 3)!)).toContain(
+      '17 は条件付きの拡張です。S17 なら D11（奇数ダブル）が残りますが、T17 は BUST です。',
+    );
   });
 
-  it('確率・プロ使用・勝率を断定しない', () => {
-    const banned = /プロ|高確率|勝率|%|必ず得|数学的に正しい/;
+  it('確率・プロ使用・勝率や、未承認の推奨を断定しない', () => {
+    // 承認されていない戦術判断（「勧める／勧めない」「同格」）も書かない。
+    const banned = /プロ|高確率|勝率|%|必ず得|数学的に正しい|勧め|同格/;
     for (const area of AIM_AREAS) {
       for (const darts of [1, 2, 3]) {
         const analysis = analyzeAimArea(area.left, darts)!;
