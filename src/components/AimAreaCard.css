@@ -1,0 +1,172 @@
+.aim-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  min-width: 0;
+}
+
+.aim-area__title {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.5rem;
+}
+
+.aim-area__kicker {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.aim-area__name {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.aim-area__caution {
+  margin: 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.5rem;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.aim-area__toggle {
+  align-self: flex-start;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0.5rem 0;
+  min-height: 2.75rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.aim-area__toggle:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.aim-area__details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.aim-area__details[hidden] {
+  display: none;
+}
+
+.aim-area__lead {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.aim-area__group-label {
+  margin: 0 0 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.aim-area__landings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.aim-area__landing {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.45rem;
+  background: var(--surface-alt);
+  border-left: 3px solid var(--border);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.aim-area__landing[data-kind='finish-next-dart'] {
+  border-left-color: var(--positive);
+}
+
+.aim-area__landing[data-kind='bust'] {
+  border-left-color: var(--danger);
+}
+
+.aim-area__dart {
+  font-weight: 800;
+  color: var(--text);
+}
+
+.aim-area__outcome {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.aim-area__kind {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.aim-area__landing[data-kind='bust'] .aim-area__kind {
+  color: var(--danger);
+}
+
+.aim-area__landing[data-kind='finish-next-dart'] .aim-area__kind {
+  color: var(--positive);
+}
+
+.aim-area__tag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  vertical-align: 0.1em;
+}
+
+.aim-area__tag--standard {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.aim-area__tag--preferred {
+  color: var(--positive);
+  background: var(--positive-bg);
+}
+
+.aim-area__notes {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}

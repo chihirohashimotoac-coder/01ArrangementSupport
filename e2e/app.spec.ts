@@ -1248,3 +1248,57 @@ test('動画ケース: 121 の T20 → T11 → D14 を選ぶと追従し、S20 �
   await expect(next).toContainText('T17');
   await expect(next).toContainText('BULL');
 });
+
+test('盤面の狙い方: 48 は STANDARD 直下にたたんで置き、T16 の BUST だけは常に見える', async ({ page }) => {
+  await openCheckout(page, 48);
+  await expect(page.getByTestId('standard-route')).toContainText('S16');
+
+  const card = page.getByTestId('aim-area');
+  await expect(card).toBeVisible();
+  await expect(page.getByTestId('aim-area-caution')).toBeVisible();
+  await expect(page.getByTestId('aim-area-caution')).toContainText('T16 に入ると BUST');
+  await expect(page.getByTestId('aim-area-lead')).toBeHidden();
+
+  await page.getByTestId('aim-area-toggle').click();
+  await expect(page.getByTestId('aim-area-lead')).toBeVisible();
+  await expect(card.locator('[data-dart="S8"]')).toContainText('残り 40 → 次の 1 本で D20');
+  await expect(card.locator('[data-dart="T16"]')).toContainText('BUST');
+});
+
+test('盤面の狙い方: 39 / 42 / 43 / 46 / 48 を開いても、320px とPC幅で文字がはみ出さない', async ({ page }) => {
+  for (const size of [
+    { width: 320, height: 568 },
+    { width: 1280, height: 800 },
+  ]) {
+    await page.setViewportSize(size);
+    for (const value of [39, 42, 43, 46, 48]) {
+      await openCheckout(page, value);
+      await page.getByTestId('aim-area-toggle').click();
+      await expect(page.getByTestId('aim-area-lead')).toBeVisible();
+
+      const overflows = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      );
+      expect(overflows, `${value} / ${size.width}px で横スクロールが出ている`).toBe(false);
+
+      // 各行の「S6 → 残り 36 → 次の 1 本で D18」がカードの枠内に収まる。
+      const clipped = await page.getByTestId('aim-area').evaluate((card) => {
+        const box = card.getBoundingClientRect();
+        return [...card.querySelectorAll('.aim-area__landing')]
+          .filter((row) => {
+            const rect = row.getBoundingClientRect();
+            return rect.right > box.right + 0.5 || row.scrollWidth > row.clientWidth + 1;
+          })
+          .map((row) => row.getAttribute('data-dart'));
+      });
+      expect(clipped, `${value} / ${size.width}px`).toEqual([]);
+    }
+  }
+});
+
+test('盤面の狙い方: 対象外の残り点・SETUP には出さない', async ({ page }) => {
+  await openCheckout(page, 103);
+  await expect(page.getByTestId('aim-area')).toHaveCount(0);
+  await openSetup(page, 302);
+  await expect(page.getByTestId('aim-area')).toHaveCount(0);
+});
