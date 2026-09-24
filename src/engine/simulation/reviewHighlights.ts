@@ -79,21 +79,27 @@ export const IMPROVEMENT_PRIORITY: Readonly<Partial<Record<ThrowVerdict, number>
   BETTER_OPTION_AVAILABLE: 2,
 };
 
-/** 改善候補ごとの「次のゲームで意識すること」。判定の分類を言い換えるだけにする。 */
+/**
+ * 改善候補ごとの「次のゲームで意識すること」。
+ *
+ * 判定の分類を言い換えるだけにし、**分類の中身より細かい理由は書かない**。
+ * `BETTER_OPTION_AVAILABLE` や `*_MISTAKE` は理由がさまざまで（シングル落ち・
+ * 基準ルートとの差・隣接リスクなど）、1 つに決め打ちすると、その投とは関係のない
+ * 規則を教えてしまう（例: 残り 5 の S3 は基準ルート S1 → D2 との比較で劣るのであって、
+ * 外れたときの残りが理由ではない）。具体的な理由は、取り上げた投の説明文に任せる。
+ * `BOGEY_CREATED` だけは分類そのものが理由なので、それを書く。
+ */
 const NEXT_FOCUS_JA: Readonly<Record<'BOGEY_CREATED' | 'ARRANGEMENT_MISTAKE' | 'SETUP_MISTAKE' | 'BETTER_OPTION_AVAILABLE', string>> = {
   BOGEY_CREATED:
     'ビジット最後の 1 投は、狙い通りに入ってもボギー（次の 3 投で上がれない残り）にならない的を選ぶ。',
   ARRANGEMENT_MISTAKE:
-    '上がれる残りでは、狙う前に「この 3 投で上がる形か・狙い通りに入って BUST しないか」を確かめる。',
-  SETUP_MISTAKE: 'まだ上がれない残りでは、次のビジットで上がれる残りを作る狙いを選ぶ。',
+    '上がれる残りでは、狙う前に、この 3 投で上がる形をほかの候補と比べる（今回の理由は改善ポイントの説明を参照）。',
+  SETUP_MISTAKE:
+    'まだ上がれない残りでは、次のビジットへ残す形をほかの候補と比べてから選ぶ（今回の理由は改善ポイントの説明を参照）。',
   BETTER_OPTION_AVAILABLE:
-    '成立する狙いが複数あるときは、狙い通りの残りだけでなく、外れたときの残りも比べてから選ぶ。',
+    '成立する狙いでも、そこで決めずにほかの候補と比べてから選ぶ（今回の理由は改善ポイントの説明を参照）。',
 };
 
-/**
- * @param options 振り返りを作ったときと同じ設定（得意ダブル・主目標）。
- *   代案の食い違いを確かめるときに、同じ条件で判定するため。
- */
 export function buildReviewHighlights(
   review: GameReview,
   options: ReviewOptions = {},

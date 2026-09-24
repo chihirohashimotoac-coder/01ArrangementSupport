@@ -245,6 +245,28 @@ describe('代案の出し方', () => {
   });
 });
 
+describe('次のゲームで意識すること', () => {
+  it('ボギー以外は理由を決め打ちせず、改善ポイントの説明へ任せる', () => {
+    // 残り 5 の S3 は、基準ルート S1 → D2 との比較で「もっと良い狙いあり」。
+    // 外れたときの残りが理由ではないので、その規則を教えない。
+    let game = createGame({ ...PERFECT, startScore: 5 }, 1);
+    game = throwMany(game, ['segment-s3-outer', 'segment-d1']);
+    game = advanceRound(submitScore(game, 5));
+    const highlights = buildReviewHighlights(buildGameReview(game));
+
+    expect(highlights.improvement?.review.verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(highlights.nextFocusJa).not.toContain('外れた');
+    expect(highlights.nextFocusJa).toContain('改善ポイントの説明を参照');
+
+    for (const verdict of ['ARRANGEMENT_MISTAKE', 'SETUP_MISTAKE'] as const) {
+      const text = buildReviewHighlights(syntheticReview([[verdict]])).nextFocusJa;
+      expect(text).not.toContain('BUST');
+      expect(text).not.toContain('外れた');
+      expect(text).toContain('改善ポイントの説明を参照');
+    }
+  });
+});
+
 describe('ゲームの結果の 1 行', () => {
   it('上がったゲームと、上限で打ち切ったゲームを取り違えない', () => {
     const base = syntheticReview([['GOOD_DECISION']]).summary;
