@@ -74,22 +74,28 @@ describe('CHECKOUT: 盤面の狙い方', () => {
     expect(card.querySelector('[data-dart="S10"]')).toHaveTextContent('D18');
   });
 
-  it('39 は 17 を条件付きの拡張として分け、T19 / D19 / T17 の BUST を消さない', async () => {
+  it('39 は 17・3・19・7 を同じ区分で並べ、17 も事実だけを示す。BUST の注意は消さない', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openCheckoutWith(user, '39');
     expect(standardChips()).toEqual(['S7', 'D16']);
 
     const card = screen.getByTestId('aim-area');
-    expect(card).toHaveTextContent('17 は条件付き');
-    expect(screen.getByTestId('aim-area-caution')).toHaveTextContent('T19・D19・T17');
+    expect(card).toHaveTextContent('17・3・19・7 のシングル');
+    expect(card).not.toHaveTextContent('条件付き');
+    expect(screen.getByTestId('aim-area-caution')).toHaveTextContent('T17・T19・D19');
 
     await user.click(screen.getByTestId('aim-area-toggle'));
-    const extension = card.querySelector('[data-role="extension"]');
-    expect(extension).not.toBeNull();
-    expect(extension!.querySelector('[data-dart="S17"]')).toHaveTextContent('D11');
-    expect(card.querySelector('[data-role="core"] [data-dart="S17"]')).toBeNull();
-    expect(card.querySelector('[data-dart="D19"]')).toHaveTextContent('残り 1 で BUST');
+    // エリア内の区分は 1 つだけで、17 も 3・19・7 と同じグループに入る。
+    expect(card.querySelectorAll('[data-role]')).toHaveLength(2);
+    const area = card.querySelector('[data-role="area"]')!;
+    expect(
+      [...area.querySelectorAll('[data-dart^="S"]')].map((row) => row.getAttribute('data-dart')),
+    ).toEqual(['S17', 'S3', 'S19', 'S7']);
+    expect(area.querySelector('[data-dart="S17"]')).toHaveTextContent('残り 22 → 次の 1 本で D11');
+    expect(area.querySelector('[data-dart="T17"]')).toHaveAttribute('data-kind', 'bust');
+    expect(area.querySelector('[data-dart="T19"]')).toHaveAttribute('data-kind', 'bust');
+    expect(area.querySelector('[data-dart="D19"]')).toHaveTextContent('残り 1 で BUST');
   });
 
   it('別の残り点へ変えたら、開いていた詳細は既定（閉）へ戻る', async () => {

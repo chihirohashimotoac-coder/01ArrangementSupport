@@ -98,16 +98,9 @@ describe('盤面の狙い方: データ定義', () => {
     }
   });
 
-  it('基本エリアは盤面上で時計回りに連続している', () => {
+  it('エリアのナンバーは盤面上で時計回りに連続し、39 は盤面の順で 17 → 3 → 19 → 7', () => {
     for (const area of AIM_AREAS) {
-      expect(isClockwiseRun(area.coreNumbers), `${area.left}`).toBe(true);
-    }
-  });
-
-  it('拡張を含めても連続し、39 は盤面の順で 17 → 3 → 19 → 7', () => {
-    for (const area of AIM_AREAS) {
-      const analysis = analyzeAimArea(area.left, 3)!;
-      expect(isClockwiseRun(analysis.orderedNumbers), `${area.left}`).toBe(true);
+      expect(isClockwiseRun(area.numbers), `${area.left}`).toBe(true);
     }
     expect(analyzeAimArea(39, 3)!.orderedNumbers).toEqual([17, 3, 19, 7]);
     expect(analyzeAimArea(39, 3)!.outsideNumbers).toEqual([2, 16]);
@@ -126,13 +119,13 @@ describe('盤面の狙い方: データ定義', () => {
     expect(pairs.has('1-20')).toBe(true);
   });
 
-  it('基準ルートの 1 投目は、どの点でも基本エリアのシングル', () => {
+  it('基準ルートの 1 投目は、どの点でもエリアのシングル', () => {
     const expected: Record<number, string> = { 42: 'S10', 46: 'S6', 48: 'S16', 39: 'S7', 43: 'S3' };
     for (const area of AIM_AREAS) {
       const standard = getStandardRoute(area.left)!;
       expect(standard.darts[0].id).toBe(expected[area.left]);
       const marked = analyzeAimArea(area.left, 3)!.landings.filter((item) => item.isStandardFirstDart);
-      expect(marked.map((item) => [item.dart.id, item.role])).toEqual([[expected[area.left], 'core']]);
+      expect(marked.map((item) => [item.dart.id, item.role])).toEqual([[expected[area.left], 'area']]);
     }
   });
 
@@ -196,7 +189,23 @@ describe('盤面の狙い方: 42 / 46 / 48 / 39 の固定 30 着弾', () => {
     expect(landingOf(39, 3, 'T19')).toMatchObject({ bustReason: 'BELOW_ZERO', difference: -18 });
     expect(landingOf(39, 3, 'T17')).toMatchObject({ bustReason: 'BELOW_ZERO', difference: -12 });
     expect(landingOf(39, 3, 'D19')).toMatchObject({ bustReason: 'LEFT_ONE', difference: 1 });
-    expect(analyzeAimArea(39, 3)!.bustDartIds).toEqual(['T19', 'D19', 'T17']);
+    // 盤面の順（17 → 3 → 19 → 7）に並ぶ。
+    expect(analyzeAimArea(39, 3)!.bustDartIds).toEqual(['T17', 'T19', 'D19']);
+  });
+
+  it('39 の 17 は他のナンバーと同じ扱いで、S17 → 22 → D11、T17 は BUST という事実だけを持つ', () => {
+    const analysis = analyzeAimArea(39, 3)!;
+    const seventeen = analysis.landings.filter((item) => item.number === 17);
+    expect(seventeen.map((item) => [item.dart.id, item.role, item.kind, item.leave, item.finishDartId])).toEqual([
+      ['S17', 'area', 'finish-next-dart', 22, 'D11'],
+      ['T17', 'area', 'bust', null, null],
+      ['D17', 'area', 'finish-in-two', 5, null],
+    ]);
+    // エリア内は 1 つの区分だけ（主従の区分を持たない）。
+    for (const area of AIM_AREAS) {
+      const roles = new Set(analyzeAimArea(area.left, 3)!.landings.map((item) => item.role));
+      expect([...roles].sort(), `${area.left}`).toEqual(['area', 'outside']);
+    }
   });
 
   it('Bust したらビジット開始時の残りへ戻る（48 / T16、39 / T19・T17・D19）', () => {
@@ -219,10 +228,10 @@ describe('盤面の狙い方: 42 / 46 / 48 / 39 の固定 30 着弾', () => {
     expect(landingOf(39, 3, 'D17').exampleRouteIds).toEqual(['S1', 'D2']);
   });
 
-  it('基本エリアのシングルは、開始 2・3 本ならすべて次の 1 本でダブルが残る', () => {
+  it('エリアのシングルは、開始 2・3 本ならすべて次の 1 本でダブルが残る', () => {
     for (const area of AIM_AREAS) {
       for (const darts of [3, 2]) {
-        expect(analyzeAimArea(area.left, darts)!.coreSinglesFinishNextDart, `${area.left}/${darts}`).toBe(true);
+        expect(analyzeAimArea(area.left, darts)!.areaSinglesFinishNextDart, `${area.left}/${darts}`).toBe(true);
       }
     }
   });
@@ -252,7 +261,7 @@ describe('盤面の狙い方: 残り 1 本', () => {
     for (const area of AIM_AREAS) {
       const analysis = analyzeAimArea(area.left, 1)!;
       expect(analysis.canFinishThisVisit).toBe(false);
-      expect(analysis.coreSinglesFinishNextDart).toBe(false);
+      expect(analysis.areaSinglesFinishNextDart).toBe(false);
       for (const landing of analysis.landings) {
         if (['checkout', 'finish-next-dart', 'finish-in-two'].includes(landing.kind)) {
           offending.push(`${area.left} ${landing.dart.id} ${landing.kind}`);
@@ -345,14 +354,15 @@ describe('盤面の狙い方: 表示文', () => {
     expect(aimAreaCautionJa(analyzeAimArea(48, 3)!)).toBe(
       '注意：T16 に入ると BUST（0 点ちょうどでも最後がダブルではないため）',
     );
-    expect(aimAreaCautionJa(analyzeAimArea(39, 3)!)).toBe('注意：T19・D19・T17 に入ると BUST');
+    expect(aimAreaCautionJa(analyzeAimArea(39, 3)!)).toBe('注意：T17・T19・D19 に入ると BUST');
     expect(aimAreaCautionJa(analyzeAimArea(43, 2)!)).toBe('注意：T19 に入ると BUST（点数を超えるため）');
   });
 
-  it('見出しは 39 の 17 を条件付きと書く', () => {
+  it('見出しは盤面の順にナンバーを並べ、17 を別扱いしない', () => {
     expect(aimAreaTitleJa(analyzeAimArea(42, 3)!)).toBe('6・10 のシングル');
     expect(aimAreaTitleJa(analyzeAimArea(48, 3)!)).toBe('16・8 のシングル');
-    expect(aimAreaTitleJa(analyzeAimArea(39, 3)!)).toBe('3・19・7 のシングル（17 は条件付き）');
+    expect(aimAreaTitleJa(analyzeAimArea(39, 3)!)).toBe('17・3・19・7 のシングル');
+    expect(aimAreaTitleJa(analyzeAimArea(43, 3)!)).toBe('3・19・7 のシングル');
   });
 
   it('着弾ごとの結果の言い方', () => {
@@ -369,20 +379,21 @@ describe('盤面の狙い方: 表示文', () => {
     expect(aimLandingOutcomeJa(landingOf(39, 1, 'S7'))).toBe('残り 32（このビジットはここまで）');
   });
 
-  it('補足は計算から組み立て、奇数ダブル・エリアの外・17 の条件を伝える', () => {
+  it('補足は計算から組み立て、奇数ダブル・エリアの外を事実として伝える', () => {
     const notes42 = aimAreaNotesJa(analyzeAimArea(42, 3)!).join('\n');
     expect(notes42).toMatch(/D6 → D15/);
     expect(notes42).toMatch(/D10 → D11/);
     expect(notes42).toMatch(/S13 \/ S15/);
     expect(aimAreaNotesJa(analyzeAimArea(48, 3)!).join('\n')).not.toMatch(/奇数ダブル/);
+    // 17 も他のナンバーと同じ基準で並ぶ（S17 → D11 は奇数ダブルの一つとして出る）。
     expect(aimAreaNotesJa(analyzeAimArea(39, 3)!)).toContain(
-      '17 は条件付きの拡張です。S17 なら D11（奇数ダブル）が残りますが、T17 は BUST です。',
+      'どれも上がりは残りますが、S17 → D11、T3 → D15、T7 → D9 は奇数ダブルが残ります。',
     );
   });
 
   it('確率・プロ使用・勝率や、未承認の推奨を断定しない', () => {
-    // 承認されていない戦術判断（「勧める／勧めない」「同格」）も書かない。
-    const banned = /プロ|高確率|勝率|%|必ず得|数学的に正しい|勧め|同格/;
+    // 承認されていない戦術判断（「勧める／勧めない」「同格」「条件付き」「基本／拡張」）も書かない。
+    const banned = /プロ|高確率|勝率|%|必ず得|数学的に正しい|勧め|同格|条件付き|拡張|基本のエリア/;
     for (const area of AIM_AREAS) {
       for (const darts of [1, 2, 3]) {
         const analysis = analyzeAimArea(area.left, darts)!;

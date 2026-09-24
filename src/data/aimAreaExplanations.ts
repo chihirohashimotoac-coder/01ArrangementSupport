@@ -34,12 +34,9 @@ function joinNumbers(numbers: readonly number[]): string {
   return numbers.join('・');
 }
 
-/** 見出し。例「6・10 のシングル」「3・19・7 のシングル（17 は条件付き）」。 */
+/** 見出し。例「6・10 のシングル」「17・3・19・7 のシングル」（盤面の順）。 */
 export function aimAreaTitleJa(analysis: AimAreaAnalysis): string {
-  const { coreNumbers, extensionNumbers } = analysis.definition;
-  const extension =
-    extensionNumbers.length > 0 ? `（${joinNumbers(extensionNumbers)} は条件付き）` : '';
-  return `${joinNumbers(coreNumbers)} のシングル${extension}`;
+  return `${joinNumbers(analysis.orderedNumbers)} のシングル`;
 }
 
 /**
@@ -92,11 +89,11 @@ export function aimAreaLeadJa(analysis: AimAreaAnalysis): string {
   if (!analysis.canFinishThisVisit) {
     return '残り 1 本では、このエリアへ投げても今回の 3 投では上がれません。次のラウンドへの残しは NEXT VISIT を見てください。';
   }
-  const core = joinNumbers(analysis.definition.coreNumbers);
-  if (analysis.coreSinglesFinishNextDart) {
-    return `${core} は盤面で隣り合っています。どのシングルに入っても、次の 1 本でダブルが残ります。1 つのナンバーではなく、隣り合う ${core} を一まとまりの的として見る考え方です。`;
+  const area = joinNumbers(analysis.orderedNumbers);
+  if (analysis.areaSinglesFinishNextDart) {
+    return `${area} は盤面で隣り合っています。どのシングルに入っても、次の 1 本でダブルが残ります。1 つのナンバーではなく、隣り合う ${area} を一まとまりの的として見る考え方です。`;
   }
-  return `${core} は盤面で隣り合っています。入った場所ごとの結果は次のとおりです。`;
+  return `${area} は盤面で隣り合っています。入った場所ごとの結果は次のとおりです。`;
 }
 
 /** 本文の補足。すべて計算結果から組み立てる。残り 2 本以上のときだけ使う。 */
@@ -107,38 +104,19 @@ export function aimAreaNotesJa(analysis: AimAreaAnalysis): string[] {
   ];
 
   /*
-   * 条件付きの拡張: 計算で分かる事実（残るダブルの扱いやすさ・Bust する的）だけを書く。
-   * 「勧める／勧めない」という新しい戦術判断はここで作らない（APPROVALS 未記録のため）。
+   * 奇数ダブルなど、扱いにくいダブル（既存の DOUBLE_QUALITY で awkward）が残る着弾。
+   * エリア内のナンバーはすべて同じ基準で並べ、主従は付けない。
    */
-  for (const number of analysis.definition.extensionNumbers) {
-    const own = analysis.landings.filter(
-      (landing) => landing.role === 'extension' && landing.number === number,
-    );
-    const single = own.find((landing) => landing.ring === 'single');
-    if (single?.kind !== 'finish-next-dart' || single.finishDartId === null) continue;
-    const finishText =
-      DOUBLE_QUALITY[single.finishDartId]?.tier === 'awkward'
-        ? `${single.finishDartId}（奇数ダブル）が`
-        : `${single.finishDartId} が`;
-    const busts = own.filter((landing) => landing.kind === 'bust').map((landing) => landing.dart.id);
-    const bustText = busts.length > 0 ? `が、${busts.join('・')} は BUST です` : '';
-    notes.push(
-      `${number} は条件付きの拡張です。S${number} なら ${finishText}残ります${bustText}。`,
-    );
-  }
-
-  // 奇数ダブルなど、扱いにくいダブルが残る抜け方。
   const awkward = analysis.landings.filter(
     (landing) =>
-      landing.role === 'core' &&
-      landing.ring !== 'single' &&
+      landing.role === 'area' &&
       landing.kind === 'finish-next-dart' &&
       landing.finishDartId !== null &&
       DOUBLE_QUALITY[landing.finishDartId]?.tier === 'awkward',
   );
   if (awkward.length > 0) {
     const pairs = awkward.map((landing) => `${landing.dart.id} → ${landing.finishDartId}`).join('、');
-    notes.push(`トリプル・ダブルへ抜けても上がりは残りますが、${pairs} のように奇数ダブルになる場合があります。`);
+    notes.push(`どれも上がりは残りますが、${pairs} は奇数ダブルが残ります。`);
   }
 
   // エリアの外: 「隣り合う 2 つに入れば安全」は、全方向のズレに安全という意味ではない。
@@ -159,7 +137,6 @@ export function aimAreaNotesJa(analysis: AimAreaAnalysis): string[] {
 
 /** 着弾一覧のグループ見出し。 */
 export const AIM_LANDING_GROUP_LABEL_JA = {
-  core: '基本のエリア',
-  extension: '条件付きの拡張',
+  area: 'エリアのナンバー',
   outside: 'エリアのすぐ外',
 } as const;

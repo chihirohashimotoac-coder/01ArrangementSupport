@@ -31,10 +31,8 @@ export type AimRing = 'single' | 'triple' | 'double';
 
 /** エリアの中での位置づけ。 */
 export type AimLandingRole =
-  /** 基本のエリア。 */
-  | 'core'
-  /** 条件付きの拡張（39 の 17 など）。 */
-  | 'extension'
+  /** エリアのナンバー。主従は付けない。 */
+  | 'area'
   /** エリアのすぐ外側の隣。エリアが「全方向に安全」ではないことを示すために見る。 */
   | 'outside';
 
@@ -89,16 +87,16 @@ export interface AimAreaAnalysis {
   readonly definition: AimAreaDefinition;
   /** このビジットで上がる教材として見せられるか（残り 2 本以上）。 */
   readonly canFinishThisVisit: boolean;
-  /** 盤面の時計回りの順に並べた、拡張を含むエリア全体。 */
+  /** 盤面の時計回りの順に並べたエリアのナンバー。 */
   readonly orderedNumbers: readonly number[];
   /** エリアのすぐ外側の 2 つのナンバー（反時計回り側・時計回り側）。 */
   readonly outsideNumbers: readonly [number, number];
-  /** 基本 → 拡張 → 外側の順。各ナンバーについて S / T / D の順。外側は S のみ。 */
+  /** エリア（盤面の順）→ 外側の順。各ナンバーについて S / T / D の順。外側は S のみ。 */
   readonly landings: readonly AimLanding[];
-  /** 基本・拡張のうち、入ると Bust する的。 */
+  /** エリアのうち、入ると Bust する的。 */
   readonly bustDartIds: readonly string[];
-  /** 基本エリアのシングルすべてで、次の 1 本のダブル / BULL が残るか。 */
-  readonly coreSinglesFinishNextDart: boolean;
+  /** エリアのシングルすべてで、次の 1 本のダブル / BULL が残るか。 */
+  readonly areaSinglesFinishNextDart: boolean;
 }
 
 const RING_PREFIX: Readonly<Record<AimRing, string>> = {
@@ -120,27 +118,6 @@ export function isClockwiseRun(numbers: readonly number[]): boolean {
     if (clockwise !== numbers[index + 1]) return false;
   }
   return true;
-}
-
-/**
- * 拡張を含むエリア全体を、盤面の時計回りの順に並べる。
- * 拡張は基本エリアのどちらかの端に続いていなければならない。
- */
-export function orderedAreaNumbers(definition: AimAreaDefinition): number[] {
-  const ordered = [...definition.coreNumbers];
-  const pending = [...definition.extensionNumbers];
-  while (pending.length > 0) {
-    const [ccwOfFirst] = neighborsOf(ordered[0]);
-    const [, cwOfLast] = neighborsOf(ordered[ordered.length - 1]);
-    const index = pending.findIndex((value) => value === ccwOfFirst || value === cwOfLast);
-    if (index < 0) {
-      throw new Error(`エリアの拡張が基本エリアに隣接していません: ${definition.left}`);
-    }
-    const [value] = pending.splice(index, 1);
-    if (value === ccwOfFirst) ordered.unshift(value);
-    else ordered.push(value);
-  }
-  return ordered;
 }
 
 export type AimLandingOutcome = Pick<
@@ -199,7 +176,7 @@ export function analyzeAimArea(left: number, dartsLeft: number): AimAreaAnalysis
   if (definition === null || dartsLeft <= 0) return null;
 
   const standardFirst = getStandardRoute(left)?.darts[0]?.id ?? null;
-  const orderedNumbers = orderedAreaNumbers(definition);
+  const orderedNumbers = definition.numbers;
   const [outsideCcw] = neighborsOf(orderedNumbers[0]);
   const [, outsideCw] = neighborsOf(orderedNumbers[orderedNumbers.length - 1]);
 
@@ -217,8 +194,7 @@ export function analyzeAimArea(left: number, dartsLeft: number): AimAreaAnalysis
     });
 
   const landings: AimLanding[] = [
-    ...definition.coreNumbers.flatMap((number) => landingsOf(number, 'core', RINGS)),
-    ...definition.extensionNumbers.flatMap((number) => landingsOf(number, 'extension', RINGS)),
+    ...orderedNumbers.flatMap((number) => landingsOf(number, 'area', RINGS)),
     ...[outsideCcw, outsideCw].flatMap((number) => landingsOf(number, 'outside', ['single'])),
   ];
 
@@ -233,8 +209,8 @@ export function analyzeAimArea(left: number, dartsLeft: number): AimAreaAnalysis
     bustDartIds: landings
       .filter((landing) => landing.role !== 'outside' && landing.kind === 'bust')
       .map((landing) => landing.dart.id),
-    coreSinglesFinishNextDart: landings
-      .filter((landing) => landing.role === 'core' && landing.ring === 'single')
+    areaSinglesFinishNextDart: landings
+      .filter((landing) => landing.role === 'area' && landing.ring === 'single')
       .every((landing) => landing.kind === 'finish-next-dart'),
   };
 }

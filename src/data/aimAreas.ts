@@ -22,16 +22,15 @@ export interface AimAreaDefinition {
   /** 対象の残り点。 */
   readonly left: number;
   /**
-   * 基本のエリア。盤面上で連続するナンバーを、盤面の時計回りの順で並べる。
-   * どのシングルに入っても、次の 1 本でダブルが残る。
+   * エリアのナンバー。盤面上で連続するナンバーを、盤面の時計回りの順で並べる。
+   * どのシングルに入っても、次の 1 本でダブルが残る（テストで確認する）。
+   *
+   * エリア内のナンバーに主従・優先順位は付けない。どのナンバーについても、
+   * 着弾したときの事実（残り点・上がりのダブル・Bust）だけを同じ形で示す。
+   * 「どこを主に狙うか」は戦術判断であり、承認記録（docs/APPROVALS.md）なしに
+   * ここへ持ち込まない。
    */
-  readonly coreNumbers: readonly number[];
-  /**
-   * 条件付きの拡張。基本エリアの隣に続くナンバーで、シングルならダブルが残るが、
-   * 基本エリアとは条件が異なるもの（例: 39 の 17 は S17 → D11 の奇数ダブル、T17 は Bust）。
-   * 画面では事実だけを示し、「勧める／勧めない」の戦術判断は付けない。
-   */
-  readonly extensionNumbers: readonly number[];
+  readonly numbers: readonly number[];
   /** 狙うリング。本教材ではシングル帯（内側・外側）だけを扱う。 */
   readonly targetRing: 'single';
   /** 教育用の補足であり、戦術ランキングではないことを型で明示する。 */
@@ -39,11 +38,11 @@ export interface AimAreaDefinition {
 }
 
 export const AIM_AREAS: readonly AimAreaDefinition[] = [
-  { left: 42, coreNumbers: [6, 10], extensionNumbers: [], targetRing: 'single', scope: 'educational' },
-  { left: 46, coreNumbers: [6, 10], extensionNumbers: [], targetRing: 'single', scope: 'educational' },
-  { left: 48, coreNumbers: [16, 8], extensionNumbers: [], targetRing: 'single', scope: 'educational' },
-  { left: 39, coreNumbers: [3, 19, 7], extensionNumbers: [17], targetRing: 'single', scope: 'educational' },
-  { left: 43, coreNumbers: [3, 19, 7], extensionNumbers: [], targetRing: 'single', scope: 'educational' },
+  { left: 42, numbers: [6, 10], targetRing: 'single', scope: 'educational' },
+  { left: 46, numbers: [6, 10], targetRing: 'single', scope: 'educational' },
+  { left: 48, numbers: [16, 8], targetRing: 'single', scope: 'educational' },
+  { left: 39, numbers: [17, 3, 19, 7], targetRing: 'single', scope: 'educational' },
+  { left: 43, numbers: [3, 19, 7], targetRing: 'single', scope: 'educational' },
 ];
 
 const AIM_AREA_BY_LEFT = new Map<number, AimAreaDefinition>(

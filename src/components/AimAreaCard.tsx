@@ -21,7 +21,7 @@ export interface AimAreaCardProps {
   readonly testId?: string;
 }
 
-const GROUPS: readonly AimLandingRole[] = ['core', 'extension', 'outside'];
+const GROUPS: readonly AimLandingRole[] = ['area', 'outside'];
 
 /**
  * 「盤面の狙い方」— 隣り合うシングルを一まとまりの的として見る教材。
