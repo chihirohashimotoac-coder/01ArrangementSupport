@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AimAreaCard } from '../components/AimAreaCard';
 import { Dartboard } from '../components/Dartboard';
 import { RouteCard } from '../components/RouteCard';
 import { StatusBar } from '../components/StatusBar';
@@ -14,6 +15,7 @@ import {
 import { generateQuestions, recentTailOf } from '../engine/training/sampling';
 import { gradeAnswer, type GradeResult } from '../engine/training/grade';
 import { buildFeedback, type TrainingFeedback } from '../engine/training/feedback';
+import { analyzeAimArea } from '../engine/aimArea/aimArea';
 import type { LeaveTier } from '../engine/setup/leaveQuality';
 import {
   appendRecord,
@@ -78,6 +80,15 @@ export function TrainingPage() {
 
   const stats = useMemo(() => computeStats(history), [history]);
   const question = session ? (session.questions[session.index] ?? null) : null;
+  /*
+   * 回答後に添える「盤面の狙い方」（CHECKOUT / RECOVERY の 42 / 46 / 48 / 39 / 43 だけ）。
+   * 出題・採点・履歴には関与しない読み取り専用の補足。
+   */
+  const aimArea = useMemo(() => {
+    if (question === null || question.kind === 'setup') return null;
+    const analysis = analyzeAimArea(question.currentRemaining, question.dartsAvailable);
+    return analysis?.canFinishThisVisit ? analysis : null;
+  }, [question]);
 
   /*
    * SETUP の回答は「どのナンバーを狙うか」なので、盤面の 62 セグメントではなく
@@ -529,6 +540,10 @@ export function TrainingPage() {
                     ))}
                   </ul>
                 </details>
+              )}
+
+              {aimArea && question && (
+                <AimAreaCard key={question.id} analysis={aimArea} testId="training-aim-area" />
               )}
 
               {result.checkoutEvaluation && (

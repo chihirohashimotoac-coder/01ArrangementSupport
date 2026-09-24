@@ -49,14 +49,31 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴は、アレンジ理論の照合と回帰テストの追加', async () => {
+  it('最新の履歴は、盤面の狙い方（42 / 46 / 48 / 39 / 43）', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('アレンジ理論の照合と回帰テストの追加');
+    expect(latest).toHaveTextContent('盤面の狙い方');
     expect(latest).toHaveTextContent('現在');
+    // 既存の判定を変えていないこと、48 の T16 BUST と残り 1 本の扱い。
+    expect(latest.textContent ?? '').toMatch(/基準ルート・候補の並び・TRAINING の採点は変更していません/);
+    expect(latest.textContent ?? '').toMatch(/T16/);
+    expect(latest.textContent ?? '').toMatch(/NEXT VISIT/);
+  });
+
+  it('アレンジ理論の照合と回帰テストの追加の履歴は残り、現在版ではなくなっている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const latest = screen
+      .getAllByTestId('version-history-item')
+      .find((item) => (item.textContent ?? '').includes('アレンジ理論の照合と回帰テストの追加'));
+    expect(latest).toBeDefined();
+    if (!latest) return;
+    expect(latest.querySelector('.version-history__badge')).toBeNull();
     // 画面の動作を変えていないことを、いちばん先に伝える。
     expect(latest.textContent ?? '').toMatch(/画面の動作・アレンジの判定は変更していません/);
     // 照合したケースと、基準ルートを変えなかったこと。

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AimAreaCard } from '../components/AimAreaCard';
 import { Dartboard } from '../components/Dartboard';
 import { NextTarget } from '../components/NextTarget';
 import { RouteCard, type RouteReasonView } from '../components/RouteCard';
@@ -8,6 +9,7 @@ import { VisitTrail } from '../components/VisitTrail';
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
 import type { Dart } from '../domain/dart';
 import { CURATED_CHECKOUT_EXPLANATIONS, CURATED_SETUP_EXPLANATIONS } from '../data/explanations';
+import { analyzeAimArea } from '../engine/aimArea/aimArea';
 import { rankCheckoutRoutes } from '../engine/ranking/checkoutRanking';
 import type { VisitState } from '../engine/recovery/visit';
 import { useVisit } from '../hooks/useVisit';
@@ -289,6 +291,16 @@ export function PracticePage({ mode }: PracticePageProps) {
     });
     return ranked.length > 0 ? ranked[0] : null;
   }, [visit, suggestion?.mode, preferences.preferredDoubles]);
+
+  /*
+   * 「盤面の狙い方」（42 / 46 / 48 / 39 / 43 だけ）。
+   * 候補・順位の計算とは独立した読み取り専用の教材で、現在の残り点と本数から導く。
+   */
+  const aimArea = useMemo(() => {
+    if (visit === null || visit.status !== 'in-progress') return null;
+    if (suggestion?.mode !== 'checkout') return null;
+    return analyzeAimArea(visit.remaining, visit.dartsLeft);
+  }, [visit, suggestion?.mode]);
 
   const checkoutRoutes = suggestion?.checkoutRoutes ?? [];
   const setupRoutes = suggestion?.setupRoutes ?? [];
@@ -630,6 +642,14 @@ export function PracticePage({ mode }: PracticePageProps) {
                 focusedDartId={focusedDartId}
                 defaultOpen
               />
+              {aimArea?.canFinishThisVisit && (
+                <AimAreaCard
+                  // 残り点・本数が変わったら別の場面なので、開閉は既定（閉）へ戻す。
+                  key={`${aimArea.left}-${aimArea.dartsLeft}`}
+                  analysis={aimArea}
+                  preferredDoubles={preferences.preferredDoubles}
+                />
+              )}
             </section>
           )}
 
@@ -674,6 +694,18 @@ export function PracticePage({ mode }: PracticePageProps) {
                 focusedDartId={focusedDartId}
               />
             </section>
+          )}
+
+          {/*
+            残り 1 本では、エリアへの 1 投で上がれることはない。
+            チェックアウトの狙いとしては出さず、その事実と Bust の注意だけを伝える。
+          */}
+          {aimArea && !aimArea.canFinishThisVisit && (
+            <AimAreaCard
+              key={`${aimArea.left}-${aimArea.dartsLeft}`}
+              analysis={aimArea}
+              preferredDoubles={preferences.preferredDoubles}
+            />
           )}
 
           {/*

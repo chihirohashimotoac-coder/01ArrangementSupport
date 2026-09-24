@@ -629,6 +629,16 @@ RECOVERY の推奨は「現在の残り・本数に対する合法な best route
 ranking が空のときだけ PR #7 の `expectedRoute` へ落とします
 （通常は発生しないことを監査で確認しています）。
 
+### 盤面の狙い方の補足（2026-09-24）
+
+CHECKOUT / RECOVERY で、回答時点の残り点が 42 / 46 / 48 / 39 / 43、かつ本数が
+2 本以上の問題では、7 の後ろに CHECKOUT 画面と同じ「盤面の狙い方」カードを添えます
+（`docs/SPEC.md` 4-1-1）。
+
+- 回答後にだけ出す。回答形式（盤面のタップ）・採点・`ruleValid` / `learningCorrect`・
+  出題 pool・難易度・quota・anti-repeat・`problemKey`・履歴 V2 は**変えない**。
+- エリアは回答として選べない。S6 → D18 も S10 → D16 も、これまでどおりどちらも正解。
+
 ---
 
 ## 8. 履歴 V2
