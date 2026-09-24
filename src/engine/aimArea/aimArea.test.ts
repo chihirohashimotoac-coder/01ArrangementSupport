@@ -358,7 +358,9 @@ describe('盤面の狙い方: 表示文', () => {
   it('着弾ごとの結果の言い方', () => {
     expect(aimLandingOutcomeJa(landingOf(42, 3, 'S6'))).toBe('残り 36 → 次の 1 本で D18');
     expect(aimLandingOutcomeJa(landingOf(48, 3, 'T16'))).toBe('0 点ちょうど。最後がダブルではないので BUST');
-    expect(aimLandingOutcomeJa(landingOf(39, 3, 'T19'))).toBe('-18 点（マイナス）で BUST');
+    expect(aimLandingOutcomeJa(landingOf(39, 3, 'T19'))).toBe('残り点を 18 点超えるので BUST');
+    expect(aimLandingOutcomeJa(landingOf(39, 3, 'T17'))).toBe('残り点を 12 点超えるので BUST');
+    expect(aimLandingOutcomeJa(landingOf(43, 3, 'T19'))).toBe('残り点を 14 点超えるので BUST');
     expect(aimLandingOutcomeJa(landingOf(39, 3, 'D19'))).toBe('残り 1 で BUST');
     expect(aimLandingOutcomeJa(landingOf(39, 3, 'D7'))).toBe('残り 25 → あと 2 本（例 S9 → D8）');
     expect(aimLandingOutcomeJa(landingOf(39, 2, 'D7'))).toBe(

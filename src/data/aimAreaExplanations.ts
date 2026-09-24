@@ -66,7 +66,8 @@ export function aimLandingOutcomeJa(landing: AimLanding): string {
         return '0 点ちょうど。最後がダブルではないので BUST';
       }
       if (landing.bustReason === 'LEFT_ONE') return '残り 1 で BUST';
-      return `${landing.difference} 点（マイナス）で BUST`;
+      // 例: 39 で T19（57 点）→ 18 点超える。負の数のまま見せると「−18 点を取る」と読めてしまう。
+      return `残り点を ${-landing.difference} 点超えるので BUST`;
     case 'checkout':
       return '上がり';
     case 'finish-next-dart':
