@@ -14,6 +14,7 @@ import {
   SETTINGS_HELP_SUMMARY_JA,
 } from '../engine/simulation/settingsGuide';
 import {
+  MAX_ROUNDS,
   MAX_START_SCORE,
   MIN_START_SCORE,
   PRESET_START_SCORES,
@@ -31,9 +32,12 @@ import {
   type SimulationGame,
   type ThrowRecord,
 } from '../engine/simulation/game';
+import { REVIEW_GLOSSARY_JA } from '../engine/simulation/reviewGlossary';
 import { createGameSeed } from '../engine/simulation/throwSimulator';
 import {
+  THROW_VERDICT_HINT_JA,
   THROW_VERDICT_JA,
+  THROW_VERDICTS,
   buildGameReview,
   type ThrowVerdict,
 } from '../engine/simulation/review';
@@ -545,7 +549,7 @@ export function SimulationPage() {
                         className="simulation__entry-title simulation__entry-title--ng"
                         data-testid="sim-entry-verdict"
                       >
-                        CALCULATION MISS
+                        計算ミス
                       </p>
                       <p className="simulation__entry-note" data-testid="sim-entry-detail">
                         計算が間違っています。もう一度、この {round.throws.length} 投の合計を
@@ -607,7 +611,7 @@ export function SimulationPage() {
                   <p className="simulation__entry-note" data-testid="sim-entry-detail">
                     {entry.actual} 点。残り {round.leftBefore - entry.actual} です。
                     {entry.miss &&
-                      `（CALCULATION MISS ${entry.wrongEntries.length} 回: ${entry.wrongEntries.join(' / ')}）`}
+                      `（計算ミス ${entry.wrongEntries.length} 回: ${entry.wrongEntries.join(' / ')}）`}
                   </p>
                   {/* Enter / Space でそのまま進めるよう、自動でフォーカスを当てている。 */}
                   <button
@@ -626,8 +630,19 @@ export function SimulationPage() {
       )}
 
       {game !== null && game.phase === 'finished' && review !== null && (
-        <section className="simulation__review" data-testid="sim-review" aria-label="GAME REVIEW">
-          <h2 className="simulation__review-title">GAME REVIEW</h2>
+        <section className="simulation__review" data-testid="sim-review" aria-label="ゲームの振り返り">
+          <h2 className="simulation__review-title">ゲームの振り返り</h2>
+          <p
+            className="simulation__review-status"
+            data-testid="sim-summary-status"
+            data-abandoned={review.summary.abandoned ? 'true' : undefined}
+          >
+            {review.summary.checkedOut
+              ? '上がりました（CHECKOUT）。'
+              : review.summary.abandoned
+                ? `${MAX_ROUNDS} ビジットに達したため終了しました（上がっていない・未完了）。`
+                : '上がっていません。'}
+          </p>
 
           <dl className="simulation__summary" data-testid="sim-summary">
             <div>
@@ -639,29 +654,29 @@ export function SimulationPage() {
               <dd data-testid="sim-summary-darts">{review.summary.totalDarts}</dd>
             </div>
             <div>
-              <dt>PPR</dt>
+              <dt>PPR（3投平均）</dt>
               <dd data-testid="sim-summary-ppr">{review.summary.ppr.toFixed(2)}</dd>
             </div>
             <div>
-              <dt>FIRST 9 PPR</dt>
+              <dt>最初の9投のPPR</dt>
               <dd data-testid="sim-summary-first9">{review.summary.first9Ppr.toFixed(2)}</dd>
             </div>
             <div>
-              <dt>CALCULATION MISS</dt>
+              <dt>計算ミス</dt>
               <dd data-testid="sim-summary-miss">{review.summary.calculationMissCount} 回</dd>
             </div>
             <div>
-              <dt>BUST</dt>
+              <dt>BUST（0点のビジット）</dt>
               <dd data-testid="sim-summary-bust">{review.summary.bustCount} 回</dd>
             </div>
             <div>
-              <dt>CHECKOUT DARTS</dt>
+              <dt>上がりのビジットの投数</dt>
               <dd data-testid="sim-summary-checkout-darts">
                 {review.summary.checkoutDarts ?? '—'}
               </dd>
             </div>
             <div>
-              <dt>CHECKOUT SCORE</dt>
+              <dt>上がったビジットの開始残り</dt>
               <dd data-testid="sim-summary-checkout-score">
                 {review.summary.checkoutScore ?? '—'}
               </dd>
@@ -672,7 +687,11 @@ export function SimulationPage() {
             {(Object.keys(review.verdictCounts) as ThrowVerdict[])
               .filter((verdict) => review.verdictCounts[verdict] > 0)
               .map((verdict) => (
-                <li key={verdict} data-tone={VERDICT_TONE[verdict]}>
+                <li
+                  key={verdict}
+                  data-tone={VERDICT_TONE[verdict]}
+                  title={THROW_VERDICT_HINT_JA[verdict]}
+                >
                   <span>{THROW_VERDICT_JA[verdict]}</span>
                   <strong data-testid={`sim-count-${verdict}`}>
                     {review.verdictCounts[verdict]}
@@ -680,6 +699,24 @@ export function SimulationPage() {
                 </li>
               ))}
           </ul>
+
+          <details className="simulation__help" data-testid="sim-review-glossary">
+            <summary>判断の分類と用語の意味</summary>
+            <dl className="simulation__help-list simulation__help-list--stacked">
+              {THROW_VERDICTS.map((verdict) => (
+                <Fragment key={verdict}>
+                  <dt>{THROW_VERDICT_JA[verdict]}</dt>
+                  <dd>{THROW_VERDICT_HINT_JA[verdict]}</dd>
+                </Fragment>
+              ))}
+              {REVIEW_GLOSSARY_JA.map((item) => (
+                <Fragment key={item.term}>
+                  <dt>{item.term}</dt>
+                  <dd>{item.meaning}</dd>
+                </Fragment>
+              ))}
+            </dl>
+          </details>
 
           <p className="simulation__review-note">
             評価しているのは <strong>狙い</strong> だけです。狙いが妥当なら、そこから外れた着弾は
@@ -690,16 +727,16 @@ export function SimulationPage() {
             {review.rounds.map((item) => (
               <li key={item.round} className="simulation__round" data-testid={`sim-round-${item.round}`}>
                 <h3>
-                  ROUND {item.round}
-                  <span className="simulation__round-left">LEFT {item.leftBefore}</span>
+                  {item.round} ビジット目
+                  <span className="simulation__round-left">開始 {item.leftBefore} 点</span>
                   <span className="simulation__round-scored">
-                    {item.bust ? 'BUST' : `${item.scored} 点`}
+                    {item.bust ? 'BUST（0点）' : `${item.scored} 点`}
                   </span>
                 </h3>
 
                 {item.entry?.miss === true && (
                   <p className="simulation__round-miss" data-testid={`sim-round-miss-${item.round}`}>
-                    CALCULATION MISS {item.entry.wrongEntries.length} 回 — 入力{' '}
+                    計算ミス {item.entry.wrongEntries.length} 回 — 入力{' '}
                     {item.entry.wrongEntries.join(' / ')} ／ 正しくは {item.entry.actual}
                   </p>
                 )}
@@ -715,10 +752,10 @@ export function SimulationPage() {
                       >
                         <div className="simulation__review-head">
                           <span className="simulation__review-dart">
-                            D{throwReview.record.dartNumber}
+                            {throwReview.record.dartNumber}投目
                           </span>
                           <span className="simulation__review-left">
-                            LEFT {throwReview.record.leftBefore}
+                            残り {throwReview.record.leftBefore}
                           </span>
                           <span
                             className="simulation__review-verdict"

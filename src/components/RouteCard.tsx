@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 import type { RouteGrade } from '../data/rankingRules';
+import { ROUTE_GRADE_LABEL_JA } from '../data/gradeLabels';
 import type { ReasonPolarity } from '../domain/reasonCodes';
 import './RouteCard.css';
 
@@ -30,12 +31,7 @@ export interface RouteCardProps {
   readonly testId?: string;
 }
 
-const GRADE_LABEL: Record<RouteGrade, string> = {
-  S: '基準推奨',
-  A: '非常に良い代替',
-  B: '十分実用的',
-  C: '成立するが非推奨',
-};
+const GRADE_LABEL = ROUTE_GRADE_LABEL_JA;
 
 /**
  * 1 ルートの表示。

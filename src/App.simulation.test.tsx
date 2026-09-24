@@ -207,7 +207,7 @@ describe('SIMULATION のプレイ', () => {
     expect(screen.getByTestId('sim-progress')).toHaveTextContent('ROUND 2');
   });
 
-  it('暗算を間違えると CALCULATION MISS を出し、正解するまで次へ進めない', async () => {
+  it('暗算を間違えると「計算ミス」を出し、正解するまで次へ進めない', async () => {
     const user = userEvent.setup();
     render(<App />);
     await startPerfectGame(user, 501);
@@ -217,7 +217,7 @@ describe('SIMULATION のプレイ', () => {
 
     await user.type(screen.getByTestId('sim-score-input'), '126');
     await user.click(screen.getByTestId('sim-score-submit'));
-    expect(screen.getByTestId('sim-entry-verdict')).toHaveTextContent('CALCULATION MISS');
+    expect(screen.getByTestId('sim-entry-verdict')).toHaveTextContent('計算ミス');
     expect(screen.getByTestId('sim-entry-detail')).toHaveTextContent('計算が間違っています');
     // 正しい合計は教えない（教えたら暗算にならない）。
     expect(screen.getByTestId('sim-entry-detail')).not.toHaveTextContent('122 です');
@@ -237,7 +237,7 @@ describe('SIMULATION のプレイ', () => {
     // 正解して初めて進める。
     await user.keyboard('122{Enter}');
     expect(screen.getByTestId('sim-entry-verdict')).toHaveTextContent('正解');
-    expect(screen.getByTestId('sim-entry-detail')).toHaveTextContent('CALCULATION MISS 2 回');
+    expect(screen.getByTestId('sim-entry-detail')).toHaveTextContent('計算ミス 2 回');
     await user.click(screen.getByTestId('sim-next-round'));
     expectLeft(379);
   });
@@ -504,12 +504,12 @@ describe('SIMULATION のプレイ', () => {
   });
 });
 
-describe('GAME REVIEW', () => {
+describe('ゲームの振り返り（GAME REVIEW）', () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
 
-  it('ダブルアウトで終わると GAME REVIEW を表示する', async () => {
+  it('ダブルアウトで終わると「ゲームの振り返り」を表示する', async () => {
     const user = userEvent.setup();
     render(<App />);
     await startPerfectGame(user, 170);
@@ -533,11 +533,38 @@ describe('GAME REVIEW', () => {
     expect(screen.getByTestId('sim-summary-checkout-score')).toHaveTextContent('170');
 
     // 1 投ごとの判断が、狙いに対する評価として出る。
-    expect(screen.getByTestId('sim-verdict-1')).toHaveTextContent('GOOD DECISION');
+    expect(screen.getByTestId('sim-verdict-1')).toHaveTextContent('良い判断');
     expect(screen.getByTestId('sim-throw-1')).toHaveTextContent('狙い T20');
   });
 
-  it('レビューには CALCULATION MISS も残る', async () => {
+  it('振り返りの見出し・判断・記録名は日本語で出し、用語の意味を折りたたみで読める', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 40);
+    await user.click(screen.getByTestId('segment-d20'));
+    await user.keyboard('40{Enter}');
+    await user.click(screen.getByTestId('sim-next-round'));
+
+    const review = screen.getByTestId('sim-review');
+    expect(within(review).getByRole('heading', { level: 2 })).toHaveTextContent('ゲームの振り返り');
+    expect(screen.getByTestId('sim-summary-status')).toHaveTextContent('上がりました');
+    expect(screen.getByTestId('sim-verdict-1')).toHaveTextContent('良い判断');
+    expect(screen.getByTestId('sim-round-1')).toHaveTextContent('1 ビジット目');
+    expect(screen.getByTestId('sim-round-1')).toHaveTextContent('開始 40 点');
+    for (const english of ['GAME REVIEW', 'GOOD DECISION', 'CALCULATION MISS', 'CHECKOUT DARTS', 'CHECKOUT SCORE', 'FIRST 9 PPR']) {
+      expect(review).not.toHaveTextContent(english);
+    }
+
+    const glossary = screen.getByTestId('sim-review-glossary');
+    expect(glossary).not.toHaveAttribute('open');
+    for (const label of ['良い判断', 'もっと良い狙いあり', '上がり方を見直す', '残し方を見直す', 'ボギーを残した', '得点を伸ばす場面', '判定対象外']) {
+      expect(glossary).toHaveTextContent(label);
+    }
+    expect(glossary).toHaveTextContent('BUST');
+    expect(glossary).toHaveTextContent('3 投あたりの平均得点');
+  });
+
+  it('振り返りには計算ミスも残る', async () => {
     const user = userEvent.setup();
     render(<App />);
     await startPerfectGame(user, 40);
@@ -545,7 +572,7 @@ describe('GAME REVIEW', () => {
     // 一度間違えてから正解する。
     await user.type(screen.getByTestId('sim-score-input'), '20');
     await user.click(screen.getByTestId('sim-score-submit'));
-    expect(screen.getByTestId('sim-entry-verdict')).toHaveTextContent('CALCULATION MISS');
+    expect(screen.getByTestId('sim-entry-verdict')).toHaveTextContent('計算ミス');
     await user.keyboard('40{Enter}');
     await user.click(screen.getByTestId('sim-next-round'));
 

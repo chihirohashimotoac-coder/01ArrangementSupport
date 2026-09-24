@@ -194,6 +194,21 @@
   color: var(--text-dim);
 }
 
+/* 用語が長いものは 1 列に積む（幅 320px でも用語と説明が潰れない）。 */
+.simulation__help-list--stacked {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.1rem;
+  padding-bottom: 0.7rem;
+}
+
+.simulation__help-list--stacked dt {
+  white-space: normal;
+}
+
+.simulation__help-list--stacked dd + dt {
+  margin-top: 0.45rem;
+}
+
 .simulation__help-criterion {
   margin: 0;
   padding: 0.6rem 0.7rem;
@@ -493,9 +508,21 @@
 
 .simulation__review-title {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1.1rem;
   font-weight: 820;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
+}
+
+.simulation__review-status {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  font-weight: 740;
+  line-height: 1.55;
+}
+
+.simulation__review-status[data-abandoned='true'] {
+  color: var(--warn-fg);
 }
 
 .simulation__summary {

@@ -14,7 +14,13 @@ import {
   type ThrowRecord,
 } from './game';
 import { analyzeLastDartSetup } from './lastDartSetup';
-import { buildGameReview, reviewThrow } from './review';
+import {
+  THROW_VERDICTS,
+  THROW_VERDICT_HINT_JA,
+  THROW_VERDICT_JA,
+  buildGameReview,
+  reviewThrow,
+} from './review';
 
 const PERFECT: SimulationSettings = {
   startScore: 501,
@@ -632,5 +638,20 @@ describe('GAME REVIEW の集計', () => {
     expect(review.summary.checkoutDarts).toBeNull();
     expect(review.summary.checkoutScore).toBeNull();
     expect(review.summary.totalDarts).toBe(3);
+  });
+});
+
+describe('判断の分類の画面表記', () => {
+  it('7 分類すべてに日本語の表記と補足がある（英語の見出しを残さない）', () => {
+    for (const verdict of THROW_VERDICTS) {
+      expect(THROW_VERDICT_JA[verdict]).not.toMatch(/[A-Z]{3,}/);
+      expect(THROW_VERDICT_JA[verdict].length).toBeGreaterThan(0);
+      expect(THROW_VERDICT_HINT_JA[verdict].length).toBeGreaterThan(0);
+    }
+    // 表記が重なると内訳の件数を取り違える。
+    expect(new Set(THROW_VERDICTS.map((verdict) => THROW_VERDICT_JA[verdict])).size).toBe(
+      THROW_VERDICTS.length,
+    );
+    expect(THROW_VERDICT_JA.NOT_EVALUATED).toBe('判定対象外');
   });
 });
