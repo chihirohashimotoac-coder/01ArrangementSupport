@@ -191,6 +191,21 @@ test('直前の 1 投だけ取り消せる', async ({ page }) => {
   await expect(page.getByTestId('sim-throw-row-2')).toContainText('狙い T18');
 });
 
+test('「1投戻す」は盤面のすぐ下にあり、直前の狙いと着弾が並ぶ', async ({ page }) => {
+  await startPerfectGame(page, 501);
+  await page.getByTestId('segment-t20').click();
+  await expect(page.getByTestId('sim-last-throw')).toContainText('狙い T20');
+  await expect(page.getByTestId('sim-last-throw')).toContainText('着弾 T20');
+
+  // 盤面の下端と「1投戻す」の上端が離れていない（投擲の一覧より前に置く）。
+  const board = await page.locator('.dartboard__svg').boundingBox();
+  const undo = await page.getByTestId('sim-undo').boundingBox();
+  if (board === null || undo === null) throw new Error('位置が取れません。');
+  expect(undo.y).toBeGreaterThanOrEqual(board.y + board.height - 1);
+  expect(undo.y - (board.y + board.height)).toBeLessThan(40);
+  await expect(page.getByTestId('sim-undo')).toBeInViewport();
+});
+
 test('暗算を間違えると CALCULATION MISS が出て、正解するまで次へ進めない', async ({ page }) => {
   await startPerfectGame(page, 501);
   for (let dart = 0; dart < 3; dart += 1) await page.getByTestId('segment-t20').click();

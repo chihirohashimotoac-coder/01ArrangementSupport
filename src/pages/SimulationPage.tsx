@@ -115,6 +115,8 @@ export function SimulationPage() {
    * Double Out・履歴・GAME REVIEW はすべてそちらを見ている。
    */
   const displayLeft = game === null ? form.startScore : (round?.leftBefore ?? game.left);
+  /** このビジットの直前の 1 投（盤面の直後に狙いと着弾を出す）。 */
+  const lastThrow = round === null ? null : (round.throws[round.throws.length - 1] ?? null);
 
   const markers = useMemo<readonly BoardMarker[]>(() => {
     if (round === null || round.throws.length === 0) return [];
@@ -443,37 +445,59 @@ export function SimulationPage() {
             {totalDarts(game)} 投
           </p>
 
-          <Dartboard
-            onSelect={(segment) => {
-              if (game.phase !== 'aiming') return;
-              setGame(throwAt(game, segment.id));
-            }}
-            markers={markers}
-            disabled={game.phase !== 'aiming'}
-            disabledReason={
-              awaitingEntry ? '3 投の合計を入力してください。' : 'このラウンドは終わりました。'
-            }
-            ariaLabel="ダーツボード。狙う場所をタップすると、その狙いに対する着弾が決まります。"
-          />
+          {/*
+            盤面と「直前の 1 投」「1投戻す」を 1 つの塊にする。
+            押し間違えたとき、スマホ縦画面でも視線と指を大きく動かさずに直せるよう、
+            取り消しは盤面の直後の決まった位置へ置く（投擲の一覧より前）。
+          */}
+          <div className="simulation__board-area">
+            <Dartboard
+              onSelect={(segment) => {
+                if (game.phase !== 'aiming') return;
+                setGame(throwAt(game, segment.id));
+              }}
+              markers={markers}
+              disabled={game.phase !== 'aiming'}
+              disabledReason={
+                awaitingEntry ? '3 投の合計を入力してください。' : 'このラウンドは終わりました。'
+              }
+              ariaLabel="ダーツボード。狙う場所をタップすると、その狙いに対する着弾が決まります。"
+            />
+
+            <div className="simulation__last" data-testid="sim-last-bar">
+              <p className="simulation__last-throw" data-testid="sim-last-throw" aria-live="polite">
+                {lastThrow === null ? (
+                  <span className="simulation__last-empty">
+                    盤面をタップして {round.throws.length + 1} 投目の狙いを決めます。外周の MISS 部分は狙えません。
+                  </span>
+                ) : (
+                  <>
+                    <span className="simulation__last-caption">直前 {lastThrow.dartNumber}投目</span>
+                    <span className="simulation__last-aim">狙い {describeThrow(lastThrow).intended}</span>
+                    <span className="simulation__last-hit">着弾 {describeThrow(lastThrow).actual}</span>
+                  </>
+                )}
+              </p>
+              <button
+                type="button"
+                className="simulation__undo"
+                data-testid="sim-undo"
+                aria-label="直前の 1 投を取り消す"
+                disabled={!canUndo(game)}
+                onClick={() => setGame(undoLastThrow(game))}
+              >
+                1投戻す
+              </button>
+            </div>
+          </div>
 
           <ol className="simulation__throws" aria-label="このラウンドの投擲">
             {round.throws.map((record) => (
               <ThrowRow key={record.dartIndex} record={record} />
             ))}
-            {round.throws.length === 0 && (
-              <li className="simulation__throws-empty">盤面をタップして 1 投目の狙いを決めます。</li>
-            )}
           </ol>
 
           <div className="simulation__actions">
-            <button
-              type="button"
-              data-testid="sim-undo"
-              disabled={!canUndo(game)}
-              onClick={() => setGame(undoLastThrow(game))}
-            >
-              1投戻す
-            </button>
             <button
               type="button"
               className="simulation__quit"
@@ -500,6 +524,9 @@ export function SimulationPage() {
                   <p className="simulation__entry-note">
                     {bustNoteJa(round.bustReason)}
                     このラウンドは 0 点です。残り {round.leftBefore} へ戻ります。
+                  </p>
+                  <p className="simulation__entry-undo" data-testid="sim-entry-undo-hint">
+                    狙いを押し間違えていたら、次へ進む前に盤面の下の「1投戻す」で直せます。
                   </p>
                   <button
                     ref={nextButtonRef}
@@ -564,6 +591,10 @@ export function SimulationPage() {
                       確定
                     </button>
                   </div>
+                  <p className="simulation__entry-undo" data-testid="sim-entry-undo-hint">
+                    狙いを押し間違えていたら、確定する前に盤面の下の「1投戻す」で直せます。
+                    合計を確定したあとは戻せません。
+                  </p>
                 </>
               ) : (
                 <>

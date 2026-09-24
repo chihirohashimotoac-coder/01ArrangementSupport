@@ -434,6 +434,55 @@ describe('SIMULATION のプレイ', () => {
     expect(screen.getByTestId('sim-score-input')).toHaveFocus();
   });
 
+  it('「1投戻す」は盤面の直後にあり、直前の狙いと着弾をその横に出す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+
+    const board = screen.getByTestId('dartboard');
+    const undo = screen.getByTestId('sim-undo');
+    const quit = screen.getByTestId('sim-quit');
+    // 盤面 → 1投戻す → 中断する の順（取り消しは盤面から離さない）。
+    expect(board.compareDocumentPosition(undo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(undo.compareDocumentPosition(quit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(undo).toHaveAccessibleName('直前の 1 投を取り消す');
+
+    const last = screen.getByTestId('sim-last-throw');
+    expect(last).toHaveTextContent('1 投目の狙いを決めます');
+    expect(last).toHaveTextContent('MISS 部分は狙えません');
+
+    await user.click(screen.getByTestId('segment-t20'));
+    expect(last).toHaveTextContent('直前 1投目');
+    expect(last).toHaveTextContent('狙い T20');
+    expect(last).toHaveTextContent('着弾 T20');
+    // 得点は出さない（暗算のため）。
+    expect(last).not.toHaveTextContent('60');
+
+    await user.click(screen.getByTestId('segment-t19'));
+    expect(last).toHaveTextContent('直前 2投目');
+    expect(last).toHaveTextContent('狙い T19');
+
+    await user.click(undo);
+    expect(last).toHaveTextContent('直前 1投目');
+    expect(last).toHaveTextContent('狙い T20');
+  });
+
+  it('得点の入力中は、確定前なら「1投戻す」で直せることを案内する', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await startPerfectGame(user, 501);
+    for (let index = 0; index < 3; index += 1) {
+      await user.click(screen.getByTestId('segment-t20'));
+    }
+    expect(screen.getByTestId('sim-entry-undo-hint')).toHaveTextContent('確定する前');
+    expect(screen.getByTestId('sim-entry-undo-hint')).toHaveTextContent('確定したあとは戻せません');
+
+    // 確定したあとは案内も取り消しも出さない。
+    await user.keyboard('180{Enter}');
+    expect(screen.queryByTestId('sim-entry-undo-hint')).toBeNull();
+    expect(screen.getByTestId('sim-undo')).toBeDisabled();
+  });
+
   it('直前の 1 投だけ取り消せる', async () => {
     const user = userEvent.setup();
     render(<App />);

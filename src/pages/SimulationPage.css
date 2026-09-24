@@ -251,6 +251,87 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * 盤面の直後に「直前の 1 投」と「1投戻す」を置く。
+ * 押し間違えに気づいたとき、盤面から指を大きく動かさずに取り消せる位置。
+ */
+.simulation__board-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.simulation__last {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 30rem;
+  margin: 0 auto;
+}
+
+.simulation__last-throw {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 2.75rem;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.55rem;
+  row-gap: 0.1rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface);
+  font-variant-numeric: tabular-nums;
+}
+
+.simulation__last-empty {
+  color: var(--text-dim);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.simulation__last-caption {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  font-weight: 740;
+}
+
+.simulation__last-aim {
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 820;
+}
+
+.simulation__last-hit {
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  font-weight: 720;
+}
+
+/* タップ領域は 44px 以上（docs/SPEC.md §7）。 */
+.simulation__undo {
+  flex: 0 0 auto;
+  min-height: 2.75rem;
+  min-width: 5.5rem;
+  padding: 0 0.8rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.6rem;
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 780;
+  cursor: pointer;
+}
+
+.simulation__undo:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .simulation__throws {
   list-style: none;
   margin: 0;
@@ -272,9 +353,9 @@
   font-size: 0.82rem;
 }
 
-.simulation__throws-empty {
-  color: var(--text-dim);
-  justify-content: center;
+/* 1 投目の前は空。案内は盤面直後の「直前の 1 投」欄に出す。 */
+.simulation__throws:empty {
+  display: none;
 }
 
 .simulation__throw-dart {
@@ -303,6 +384,7 @@
 
 .simulation__actions {
   display: flex;
+  justify-content: flex-end;
   gap: 0.5rem;
 }
 
@@ -324,7 +406,7 @@
 }
 
 /* 中断は誤操作しやすい場所に置かず、幅も控えめにする。 */
-.simulation__quit {
+.simulation__actions .simulation__quit {
   flex: 0 1 8rem;
   color: var(--text-dim);
 }
@@ -393,6 +475,13 @@
   font-size: 0.95rem;
   font-weight: 800;
   cursor: pointer;
+}
+
+.simulation__entry-undo {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  line-height: 1.55;
 }
 
 .simulation__entry button:disabled {
@@ -614,7 +703,7 @@
   .simulation__progress {
     grid-area: progress;
   }
-  .simulation__play .dartboard {
+  .simulation__board-area {
     grid-area: board;
     align-self: start;
   }
