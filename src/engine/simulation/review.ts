@@ -199,6 +199,20 @@ export type ThrowReviewReason =
       readonly code: 'LAST_DART_LEAVE_DOMINATED';
       readonly intended: ProfiledAlternative;
       readonly dominating: readonly ProfiledAlternative[];
+    }
+  /**
+   * 狙いが、その場面のアプリのおすすめルートの 1 投目そのもの（v1.4.4）。
+   * 推奨度が B / C でも、別のより良い 1 投目が示せないので否定的に判定しない。
+   */
+  | {
+      readonly code: 'RECOMMENDED_FIRST_DART';
+      /** 推奨度（エンジンが付けた値。事実として残す）。 */
+      readonly grade: RouteGrade;
+      /** おすすめルートの的（内部 ID）。先頭は狙いと同じ。 */
+      readonly routeDartIds: readonly string[];
+      readonly leaveOnHit: number;
+      /** おすすめルートを投げ切ったときの残り。上がるルートなら 0。 */
+      readonly routeLeave: number;
     };
 
 export interface RoundReview {
@@ -414,6 +428,39 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       recommendedRouteText: best?.routeText ?? null,
       recommendedDartId: best?.firstDartId ?? null,
       noteJa: `${context.label}として推奨できる狙いです（推奨度 ${grade}）。`,
+    };
+  }
+
+  /*
+   * 狙いがアプリのおすすめルートの 1 投目そのものなら、推奨度 B / C を理由に
+   * 「もっと良い狙いあり」「見直す」とは言わない（v1.4.4）。
+   *
+   * 推奨度はその場面の最高スコアとの差で付く相対評価で、NEXT VISIT の提案では
+   * **通常 SETUP ランキングの最高スコア**との差になる（`evaluateSetupRoute`）。
+   * 一方、NEXT VISIT の第 1 候補は承認済みのセレクタが「残しの質」で選ぶので、
+   * 第 1 候補そのものが B になりうる（129 / 残り 2 本の T20 → T15 など）。
+   * そのとき B を「別のより良い 1 投目がある」と読むと、
+   * 「T20 は劣る。おすすめは T20 → T15」という自己矛盾になる。
+   *
+   * 2 投目以降の選び方は、その投を投げるときに評価する（この投の判断に混ぜない）。
+   */
+  if ((grade === 'B' || grade === 'C') && best !== null && best.firstDartId === record.intendedDartId) {
+    const reason: ThrowReviewReason = {
+      code: 'RECOMMENDED_FIRST_DART',
+      grade,
+      routeDartIds: best.dartIds,
+      leaveOnHit: intendedLeave,
+      routeLeave: best.leave,
+    };
+    return {
+      record,
+      verdict: 'GOOD_DECISION',
+      grade,
+      intendedLeave,
+      recommendedRouteText: best.routeText,
+      recommendedDartId: best.firstDartId,
+      noteJa: recommendedFirstDartNoteJa(intendedLabel, best.routeText, reason),
+      reason,
     };
   }
 
@@ -998,6 +1045,25 @@ function setupRecoveryNoteJa(
   );
 }
 
+/** 構造化した理由（`RECOMMENDED_FIRST_DART`）から説明文を組み立てる。 */
+function recommendedFirstDartNoteJa(
+  intendedLabel: string,
+  routeText: string,
+  reason: Extract<ThrowReviewReason, { code: 'RECOMMENDED_FIRST_DART' }>,
+): string {
+  const rest = reason.routeDartIds.slice(1).map(displayTargetId);
+  const lead =
+    `${intendedLabel} は、この場面のおすすめ（${routeText}）の 1 投目です。` +
+    `狙い通りなら残り ${reason.leaveOnHit} です。`;
+  if (rest.length === 0) return lead;
+  const goal = reason.routeLeave === 0 ? '上がれます' : `残り ${reason.routeLeave} を作れます`;
+  return (
+    lead +
+    `続けて ${rest.join(' → ')} を狙えば${goal}` +
+    `（次の投の狙いは、その投で評価します）。`
+  );
+}
+
 /** 説明文へ出すターゲットの書き方。 */
 function describeLastDartOption(option: LastDartOption): string {
   const label = displayTargetId(option.dartId);
@@ -1011,6 +1077,10 @@ interface RouteSummary {
   readonly routeText: string;
   readonly firstDartId: string;
   readonly reasonJa: string | null;
+  /** ルートの的（内部 ID）。 */
+  readonly dartIds: readonly string[];
+  /** ルートを投げ切ったときの残り。上がるルートなら 0。 */
+  readonly leave: number;
 }
 
 function bestRouteOf(suggestion: Suggestion): RouteSummary | null {
@@ -1020,6 +1090,8 @@ function bestRouteOf(suggestion: Suggestion): RouteSummary | null {
       routeText: displayRouteText(checkout.routeText),
       firstDartId: checkout.darts[0].id,
       reasonJa: checkout.reasons[0]?.summary ?? null,
+      dartIds: checkout.darts.map((dart) => dart.id),
+      leave: 0,
     };
   }
   const nextVisit = suggestion.nextVisitProposals[0]?.route;
@@ -1028,6 +1100,8 @@ function bestRouteOf(suggestion: Suggestion): RouteSummary | null {
       routeText: displayRouteText(nextVisit.routeText),
       firstDartId: nextVisit.darts[0].id,
       reasonJa: `残り ${nextVisit.leave} を作る`,
+      dartIds: nextVisit.darts.map((dart) => dart.id),
+      leave: nextVisit.leave,
     };
   }
   const setup = suggestion.setupRoutes[0];
@@ -1036,6 +1110,8 @@ function bestRouteOf(suggestion: Suggestion): RouteSummary | null {
       routeText: displayRouteText(setup.routeText),
       firstDartId: setup.darts[0].id,
       reasonJa: `残り ${setup.leave} を作る`,
+      dartIds: setup.darts.map((dart) => dart.id),
+      leave: setup.leave,
     };
   }
   return null;
