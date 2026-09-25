@@ -24,6 +24,7 @@ import {
   THROW_VERDICT_JA,
   buildGameReview,
   compareProposalFacets,
+  isLastDartDoubleTradeOff,
   reviewThrow,
 } from './review';
 
@@ -778,15 +779,37 @@ describe('ビジット最後の 1 投: 次のビジットでダブルへ到達�
         hit: nextVisitLeaveProfileOf(option.leaveOnHit),
         miss: nextVisitLeaveProfileOf(option.leaveOnSingleMiss!),
       });
+      /*
+       * A-26（v1.4.7）の交換条件だけは上位互換から外す。その条件は、ここで独立に確かめる:
+       * 狙いがアプリの表示した NEXT VISIT の提案の 1 投目で、狙い・代案とも狙い通りなら
+       * 別々の外側ダブルを直接狙える残り（得意ダブルの設定なし）。
+       */
+      const proposalFirstDarts = suggestFor(left, 1).nextVisitProposals.map(
+        (proposal) => proposal.route.darts[0].id,
+      );
+      const outerDouble = (leave: number) => leave >= 2 && leave <= 40 && leave % 2 === 0;
+      const isTradeOff = (option: (typeof candidates)[number], other: (typeof candidates)[number]) =>
+        proposalFirstDarts.includes(option.dartId) &&
+        outerDouble(option.leaveOnHit) &&
+        outerDouble(other.leaveOnHit) &&
+        option.leaveOnHit !== other.leaveOnHit;
       let goods = 0;
       for (const option of candidates) {
-        const verdict = reviewThrow(record(left, option.dartId, 'MISS', 3)).verdict;
-        if (verdict !== 'GOOD_DECISION') continue;
+        const result = reviewThrow(record(left, option.dartId, 'MISS', 3));
+        if (result.verdict !== 'GOOD_DECISION') continue;
         goods += 1;
-        const by = candidates.find(
+        const dominators = candidates.filter(
           (other) => other !== option && dominatesLeavePair(pairOf(other), pairOf(option)),
         );
+        const by = dominators.find((other) => !isTradeOff(option, other));
         if (by !== undefined) wrong.push(`${left}: ${option.dartId} は ${by.dartId} に上位互換を取られている`);
+        if (
+          dominators.length > 0 &&
+          by === undefined &&
+          result.reason?.code !== 'LAST_DART_DOUBLE_TRADE_OFF'
+        ) {
+          wrong.push(`${left}: ${option.dartId} は交換条件なのに理由コードが無い`);
+        }
       }
       // 上位互換の比較だけで、その場面の GOOD を 0 件にしない。
       if (goods === 0 && suggestFor(left, 1).checkoutRoutes.length === 0) noGood.push(left);
@@ -1053,8 +1076,10 @@ describe('CHECKOUT: おすすめと戦術評価で同等以上の上がり方を
     expect(reviewThrow(record(122, 'T15', 'T15', 2)).reason?.code).not.toBe(
       'CHECKOUT_PEER_OF_RECOMMENDED',
     );
-    // ビジット最後の 1 投（77 の T15）もこの変更の対象外。
-    expect(reviewThrow(record(77, 'T15', 'T15', 3)).verdict).toBe('BETTER_OPTION_AVAILABLE');
+    // ビジット最後の 1 投（77 の T15）もこの変更（CHECKOUT）の対象外。
+    expect(reviewThrow(record(77, 'T15', 'T15', 3)).reason?.code).not.toBe(
+      'CHECKOUT_PEER_OF_RECOMMENDED',
+    );
   });
 
   it('得意ダブル（MY ROUTE）の保護が先に効く', () => {
@@ -1163,13 +1188,192 @@ describe('NEXT VISIT: 第 1 案以外の提案を、明確な劣位なしに否�
     ).toBe(false);
   });
 
-  it('ビジット最後の 1 投（得意ダブルとの競合）はこの比較の対象外（Update 3 の範囲）', () => {
+  it('ビジット最後の 1 投はこの比較の対象外（A-22 / A-26 が扱う）', () => {
     // 得意ダブル D16 / D20 / D8 のとき、73 / 残り 1 本の T11（40 残し）は得意ダブルを反映した案。
     const options = { preferredDoubles: ['D16', 'D20', 'D8'] };
     const result = reviewThrow(record(73, 'T11', 'T11', 3), options);
-    expect(result.reason?.code).toBe('LAST_DART_LEAVE_DOMINATED');
-    // 最後の 1 投の A-22 比較（77 の T15）も変わらない。
-    expect(reviewThrow(record(77, 'T15', 'T15', 3)).verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(result.reason?.code).not.toBe('NEXT_VISIT_PROPOSAL_NOT_DOMINATED');
+    expect(reviewThrow(record(77, 'T15', 'T15', 3)).reason?.code).not.toBe(
+      'NEXT_VISIT_PROPOSAL_NOT_DOMINATED',
+    );
+  });
+});
+
+describe('ビジット最後の 1 投: 命中時のダブルとシングル落ちの交換条件（v1.4.7 / A-26）', () => {
+  /*
+   * 監査報告（P1-2〜4）: 77 の T15・79 の T13・80 の T16 はアプリの NEXT VISIT 第 1 案。
+   * 代案（T19・T20）はシングル落ち後に有利だが、狙い通りのときに残るダブルが違う
+   * （D16 / D20 に対して D10 / D11）。シングル落ちの差だけで上位互換とは断定しない。
+   */
+  const lastDart = (left: number, dartId: string, preferredDoubles?: readonly string[]) =>
+    reviewThrow(record(left, dartId, dartId, 3), preferredDoubles ? { preferredDoubles } : {});
+
+  it('前提: 3 件とも NEXT VISIT の第 1 案で、代案は外側ダブルを直接残す', () => {
+    expect(suggestFor(77, 1).nextVisitProposals[0].route.darts[0].id).toBe('T15');
+    expect(suggestFor(79, 1).nextVisitProposals[0].route.darts[0].id).toBe('T13');
+    expect(suggestFor(80, 1).nextVisitProposals[0].route.darts[0].id).toBe('T16');
+  });
+
+  it('77 / 79 / 80 は、得意ダブル未設定・D20・D16・D8 で GOOD DECISION', () => {
+    const wrong: string[] = [];
+    for (const preferred of [undefined, ['D20'], ['D16'], ['D8']]) {
+      for (const [left, dartId] of [
+        [77, 'T15'],
+        [79, 'T13'],
+        [80, 'T16'],
+      ] as const) {
+        const result = lastDart(left, dartId, preferred);
+        if (result.verdict !== 'GOOD_DECISION' || result.reason?.code !== 'LAST_DART_DOUBLE_TRADE_OFF') {
+          wrong.push(`${preferred ?? 'なし'} ${left} ${dartId}: ${result.verdict} ${result.reason?.code}`);
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it('交換条件を構造化し、狙い通り・シングル落ちの残りを具体的に書く（77 の T15）', () => {
+    const result = lastDart(77, 'T15');
+    expect(result.reason).toMatchObject({
+      code: 'LAST_DART_DOUBLE_TRADE_OFF',
+      proposalKind: 'leave-quality',
+      intended: { dartId: 'T15', leaveOnHit: 32, missDartId: 'S15', leaveOnSingleMiss: 62 },
+      tradeOffs: [
+        { dartId: 'T19', leaveOnHit: 20, missDartId: 'S19', leaveOnSingleMiss: 58 },
+        { dartId: 'T17', leaveOnHit: 26, missDartId: 'S17', leaveOnSingleMiss: 60 },
+      ],
+      intendedPreferenceRank: null,
+    });
+    expect(result.noteJa).toContain('残り 32');
+    expect(result.noteJa).toContain('D16');
+    expect(result.noteJa).toContain('残り 62');
+    expect(result.noteJa).toContain('T19');
+    expect(result.noteJa).toContain('58');
+    expect(result.noteJa).toContain('20（D10）');
+    expect(result.noteJa).toContain('交換条件');
+    expect(result.noteJa).not.toContain('もっと実戦的な狙い');
+    expect(result.noteJa).not.toContain('上位互換');
+    // アプリのおすすめ（第 1 案）は狙いそのまま。
+    expect(result.recommendedDartId).toBe('T15');
+  });
+
+  it('79 の T13 は D20 と D11、80 の T16 は D16 と D10 の交換条件として書く', () => {
+    const t13 = lastDart(79, 'T13');
+    expect(t13.noteJa).toContain('残り 40');
+    expect(t13.noteJa).toContain('D20');
+    expect(t13.noteJa).toContain('残り 66');
+    expect(t13.noteJa).toContain('22（D11）');
+    const t16 = lastDart(80, 'T16');
+    expect(t16.noteJa).toContain('残り 32');
+    expect(t16.noteJa).toContain('残り 64');
+    expect(t16.noteJa).toContain('20（D10）');
+  });
+
+  it('着弾ではなく狙いだけで決まる', () => {
+    const hit = reviewThrow(record(77, 'T15', 'T15', 3));
+    const miss = reviewThrow(record(77, 'T15', 'S15', 3));
+    expect(miss.verdict).toBe(hit.verdict);
+    expect(miss.noteJa).toBe(hit.noteJa);
+  });
+
+  it('得意ダブルが代案側を優先するときは、従来どおり上位互換（BETTER）', () => {
+    // 代案のダブルだけが設定に含まれる。
+    expect(lastDart(77, 'T15', ['D10']).reason?.code).toBe('LAST_DART_LEAVE_DOMINATED');
+    expect(lastDart(80, 'T16', ['D10']).reason?.code).toBe('LAST_DART_LEAVE_DOMINATED');
+    expect(lastDart(79, 'T13', ['D11']).reason?.code).toBe('LAST_DART_LEAVE_DOMINATED');
+    // 両方が含まれ、代案のダブルの方が上位。
+    expect(lastDart(77, 'T15', ['D10', 'D16']).verdict).toBe('BETTER_OPTION_AVAILABLE');
+    // 両方が含まれ、狙いのダブルの方が上位。
+    const own = lastDart(77, 'T15', ['D16', 'D10']);
+    expect(own.reason).toMatchObject({ code: 'LAST_DART_DOUBLE_TRADE_OFF', intendedPreferenceRank: 0 });
+    expect(own.noteJa).toContain('得意ダブル第 1 位');
+    // 関係のない得意ダブル（D11 は 77 / 80 のどちらの命中ダブルでもない）。
+    expect(lastDart(77, 'T15', ['D11']).verdict).toBe('GOOD_DECISION');
+    expect(lastDart(80, 'T16', ['D11']).verdict).toBe('GOOD_DECISION');
+  });
+
+  it('73 / 76 は、アプリが提案している設定のときだけ交換条件になる', () => {
+    // 設定なし: T11 / T12 は提案に無い（第 1 案は T19 / T20）→ 従来どおり。
+    expect(lastDart(73, 'T11').reason?.code).toBe('LAST_DART_LEAVE_DOMINATED');
+    expect(lastDart(76, 'T12').reason?.code).toBe('LAST_DART_LEAVE_DOMINATED');
+    // D16 / D20 / D8: 得意ダブルを反映した案として表示される → 交換条件。
+    const multi = ['D16', 'D20', 'D8'];
+    for (const [left, dartId] of [
+      [73, 'T11'],
+      [76, 'T12'],
+    ] as const) {
+      const result = lastDart(left, dartId, multi);
+      expect(result.verdict).toBe('GOOD_DECISION');
+      expect(result.reason).toMatchObject({
+        code: 'LAST_DART_DOUBLE_TRADE_OFF',
+        proposalKind: 'preferred-double',
+        intendedPreferenceRank: 1,
+      });
+      expect(result.noteJa).toContain('得意ダブルを反映した案');
+    }
+    // D20 単独: 第 1 候補そのものが変わる（A-22 の MY ROUTE の保護が先に効く）。
+    expect(lastDart(73, 'T11', ['D20']).verdict).toBe('GOOD_DECISION');
+  });
+
+  it('条件を直接確かめる（isLastDartDoubleTradeOff）', () => {
+    const base = {
+      intendedDartId: 'T15',
+      intendedHitLeave: 32,
+      alternativeHitLeave: 20,
+      proposalFirstDartIds: ['T15'],
+      preferredDoubles: [] as string[],
+    };
+    expect(isLastDartDoubleTradeOff(base)).toBe(true);
+    // アプリの提案の 1 投目でない。
+    expect(isLastDartDoubleTradeOff({ ...base, proposalFirstDartIds: ['T19'] })).toBe(false);
+    // 同じダブルなら、シングル落ちの差はそのまま優劣になる。
+    expect(isLastDartDoubleTradeOff({ ...base, alternativeHitLeave: 32 })).toBe(false);
+    // 外側のダブルを直接狙えない残り（50 は BULL、56 はシングルが要る）。
+    expect(isLastDartDoubleTradeOff({ ...base, alternativeHitLeave: 50 })).toBe(false);
+    expect(isLastDartDoubleTradeOff({ ...base, intendedHitLeave: 56 })).toBe(false);
+    // 得意ダブルの優先順位。
+    expect(isLastDartDoubleTradeOff({ ...base, preferredDoubles: ['D10'] })).toBe(false);
+    expect(isLastDartDoubleTradeOff({ ...base, preferredDoubles: ['D16'] })).toBe(true);
+    expect(isLastDartDoubleTradeOff({ ...base, preferredDoubles: ['D16', 'D10'] })).toBe(true);
+    expect(isLastDartDoubleTradeOff({ ...base, preferredDoubles: ['D10', 'D16'] })).toBe(false);
+    expect(isLastDartDoubleTradeOff({ ...base, preferredDoubles: ['D20'] })).toBe(true);
+  });
+
+  it('代案側は GOOD のままで、例に交換条件の狙いも並ぶ', () => {
+    const t19 = lastDart(77, 'T19');
+    expect(t19.verdict).toBe('GOOD_DECISION');
+    expect(t19.noteJa).toContain('T15（狙い通り 32');
+    expect(lastDart(79, 'T19').verdict).toBe('GOOD_DECISION');
+    expect(lastDart(80, 'T20').verdict).toBe('GOOD_DECISION');
+  });
+
+  it('固定回帰: 116 の S16・99〜120 の 20 件・A-21 の 20 件・178・243 は変わらない', () => {
+    expect(lastDart(116, 'S16').reason?.code).toBe('LAST_DART_LEAVE_DOMINATED');
+    const a22: readonly (readonly [number, string])[] = [
+      [99, 'S19'], [101, 'S19'], [102, 'S20'], [103, 'S19'], [104, 'S20'],
+      [105, 'S19'], [106, 'S20'], [107, 'S19'], [108, 'S20'], [109, 'S19'],
+      [110, 'S20'], [111, 'S19'], [112, 'S20'], [113, 'S19'], [114, 'S20'],
+      [115, 'S19'], [116, 'S20'], [117, 'S19'], [118, 'S20'], [120, 'S20'],
+    ];
+    const a21: readonly (readonly [number, string])[] = [
+      [171, 'S11'], [172, 'S12'], [173, 'S13'], [174, 'S14'], [175, 'S15'],
+      [176, 'S16'], [177, 'S17'], [178, 'S18'], [179, 'S19'], [180, 'S20'],
+      [181, 'S20'], [182, 'S18'], [183, 'S19'], [184, 'S20'], [185, 'S18'],
+      [186, 'S19'], [187, 'S20'], [188, 'S18'], [189, 'S19'], [190, 'T10'],
+    ];
+    const wrong: string[] = [];
+    for (const preferred of [undefined, ['D20'], ['D16'], ['D8'], ['D10'], ['D11']]) {
+      for (const [left, dartId] of [...a22, ...a21]) {
+        const result = lastDart(left, dartId, preferred);
+        if (result.verdict !== 'BETTER_OPTION_AVAILABLE') {
+          wrong.push(`${preferred ?? 'なし'} ${left} ${dartId}: ${result.verdict}`);
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+    expect(lastDart(178, 'T19').verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(lastDart(178, 'T20').verdict).toBe('GOOD_DECISION');
+    expect(reviewThrow(record(243, 'T20', 'S20', 2)).verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(reviewThrow(record(243, 'T19', 'S19', 2)).verdict).toBe('GOOD_DECISION');
   });
 });
 

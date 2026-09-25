@@ -451,6 +451,33 @@ test('残り 122 / 残り 2 本で別案 T15 → T15 を投げると、明確に
   await expect(round1).not.toContainText('明確に劣ります');
 });
 
+test('残り 77 / 最後の 1 投で T15 を狙うと、交換条件として良い判断になる', async ({ page }) => {
+  /*
+   * 監査報告（P1-2）の回帰。117 → S20 → S20 で 77、最後の 1 投で T15 → 32。
+   * T15 は NEXT VISIT の第 1 案。T19 はシングル落ち後に有利だが、狙い通りだと D10 が残る。
+   */
+  await startPerfectGame(page, 117);
+  await page.getByTestId('segment-s20-outer').click();
+  await page.getByTestId('segment-s20-outer').click();
+  await page.getByTestId('segment-t15').click();
+  await page.getByTestId('sim-score-input').fill('85');
+  await page.getByTestId('sim-score-submit').click();
+  await page.getByTestId('sim-next-round').click();
+
+  await page.getByTestId('segment-d16').click();
+  await page.getByTestId('sim-score-input').fill('32');
+  await page.getByTestId('sim-score-submit').click();
+  await page.getByTestId('sim-next-round').click();
+
+  await expect(page.getByTestId('sim-review')).toBeVisible();
+  await page.getByTestId('sim-all-throws').locator('summary').click();
+  await expect(page.getByTestId('sim-verdict-3')).toContainText('良い判断');
+  const round1 = page.getByTestId('sim-round-1');
+  await expect(round1).toContainText('交換条件');
+  await expect(round1).toContainText('20（D10）');
+  await expect(round1).not.toContainText('もっと実戦的な狙い');
+});
+
 test('設定は端末に残り、次に開いたときも引き継ぐ', async ({ page }) => {
   await page.getByTestId('nav-simulation').click();
   await page.getByTestId('sim-start-301').click();
