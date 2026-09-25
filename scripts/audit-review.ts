@@ -14,7 +14,17 @@
  *   D. トリプル等が先に要る残しと、シングル → ダブルの残しが同列 GOOD
  *      （上位互換が成り立つ組だけを数える。トレードオフの組は数えない）
  *
- * A〜D（ただし B は残り 1 本のみ）に 1 件でも該当すると終了コード 1 を返す。
+ * あわせて、振り返りの**自己矛盾**を数える（v1.4.4）。
+ *
+ *   矛盾 1. 「もっと良い狙いあり」なのに、説明文で同じ 1 投目を「おすすめ」している
+ *   矛盾 2. 否定的な判定（見直す / ボギー）なのに、おすすめの 1 投目が狙いと同じ
+ *   矛盾 3. 否定的な判定の説明文が、狙いと同じ 1 投目から始まるルートを勧めている
+ *   矛盾 4. 推奨度 B / C で否定的に判定したが、別の 1 投目を 1 つも示せない
+ *
+ * おすすめの 1 投目が狙いと同じでも、振り返り独自の比較（A-21 / A-22 の上位互換など）で
+ * 説明文が**別の 1 投目**を示している判定は、分類して件数だけ出す（矛盾には数えない）。
+ *
+ * A〜D（ただし B は残り 1 本のみ）と矛盾 1〜4 に 1 件でも該当すると終了コード 1 を返す。
  * 残り 2 本以上で推奨度 S / A が付いた狙いは、承認済みの SETUP ランキングの判断なので
  * 参考値として件数だけ出す（レビュー層では上書きしない）。
  */
@@ -30,6 +40,8 @@ import {
   type ThrowVerdict,
 } from '../src/engine/simulation/review';
 import { analyzeSetupRecovery } from '../src/engine/simulation/setupRecovery';
+import { displayTargetId } from '../src/engine/simulation/notation';
+import type { RouteGrade } from '../src/data/rankingRules';
 
 function record(leftBefore: number, dart: Dart, dartsLeft: number): ThrowRecord {
   const dartNumber = 4 - dartsLeft;
@@ -59,6 +71,21 @@ function pairOf(option: LastDartOption) {
   };
 }
 
+const NEGATIVE: ReadonlySet<ThrowVerdict> = new Set([
+  'BETTER_OPTION_AVAILABLE',
+  'ARRANGEMENT_MISTAKE',
+  'SETUP_MISTAKE',
+  'BOGEY_CREATED',
+]);
+const GRADE_ORDER: Readonly<Record<RouteGrade, number>> = { S: 3, A: 2, B: 1, C: 0 };
+
+type Contradiction = '1' | '2' | '3' | '4';
+const contradictions: Record<Contradiction, string[]> = { '1': [], '2': [], '3': [], '4': [] };
+/** おすすめの 1 投目は狙いと同じだが、説明文は別の 1 投目を示している判定（分類のみ）。 */
+const classifiedSameFirstDart = new Map<string, string[]>();
+/** 推奨度では上位が無く、承認済みの提案順だけが別の 1 投目を示す判定（分類のみ）。 */
+const orderOnlyAlternatives: string[] = [];
+
 const counts = new Map<number, Record<ThrowVerdict, number>>();
 const findings: Record<'A' | 'B' | 'C' | 'D', string[]> = { A: [], B: [], C: [], D: [] };
 const engineGradedUnsafe: string[] = [];
@@ -72,11 +99,50 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
     counts.set(dartsLeft, perDarts);
 
     const verdicts = new Map<string, ThrowVerdict>();
+    // 振り返りが推奨度を読む候補一覧（review.ts の contextOf と同じ選び方）。
+    const suggestion = suggestFor(left, dartsLeft, { maxRoutes: 1000 });
+    const candidateRoutes: ReadonlyArray<{ darts: readonly Dart[]; grade: RouteGrade }> =
+      suggestion.checkoutRoutes.length > 0
+        ? suggestion.checkoutRoutes
+        : suggestion.nextVisitProposals.length > 0
+          ? suggestion.nextVisitProposals.map((proposal) => proposal.route)
+          : suggestion.setupRoutes;
     for (const dart of THROWABLE_DARTS) {
       states += 1;
       const review = reviewThrow(record(left, dart, dartsLeft));
       perDarts[review.verdict] += 1;
       verdicts.set(dart.id, review.verdict);
+
+      // 矛盾 1〜4: 振り返りの自己矛盾。
+      if (NEGATIVE.has(review.verdict)) {
+        const tag = `${left}/${dartsLeft} ${dart.id} ${review.verdict}（おすすめ ${review.recommendedRouteText}）`;
+        const sameFirstDart = review.recommendedDartId === dart.id;
+        const recommendsInNote =
+          review.recommendedRouteText !== null &&
+          review.noteJa.includes(`おすすめは ${review.recommendedRouteText}`);
+        if (sameFirstDart) {
+          if (review.verdict !== 'BETTER_OPTION_AVAILABLE') contradictions['2'].push(tag);
+          else if (recommendsInNote) contradictions['1'].push(tag);
+          else {
+            const key = review.reason?.code ?? `推奨度 ${review.grade ?? '-'}（A-20 / A-21 の残り 1 投）`;
+            classifiedSameFirstDart.set(key, [...(classifiedSameFirstDart.get(key) ?? []), tag]);
+          }
+        }
+        const firstOfRecommended = review.recommendedRouteText?.split(' → ')[0] ?? null;
+        if (recommendsInNote && firstOfRecommended === displayTargetId(dart.id)) {
+          contradictions['3'].push(tag);
+        }
+        if (review.grade === 'B' || review.grade === 'C') {
+          const own = GRADE_ORDER[review.grade];
+          const higher = candidateRoutes.some(
+            (route) => route.darts[0].id !== dart.id && GRADE_ORDER[route.grade] > own,
+          );
+          if (!higher) {
+            if (sameFirstDart || review.recommendedDartId === null) contradictions['4'].push(tag);
+            else orderOnlyAlternatives.push(tag);
+          }
+        }
+      }
 
       // A / 参考: SETUP 帯で残り 2 本以上。
       if (left > MAX_CHECKOUT && dartsLeft >= 2 && dart.baseNumber !== null) {
@@ -158,5 +224,30 @@ console.log(
     `安全な的が他にある狙い: ${engineGradedUnsafe.length} 件（承認済みランキングの判断なので上書きしない）`,
 );
 for (const item of engineGradedUnsafe.slice(0, 10)) console.log(`         ${item}`);
+
+const contradictionLabels: Record<Contradiction, string> = {
+  '1': '「もっと良い狙いあり」なのに、説明文で同じ 1 投目をおすすめしている',
+  '2': '否定的な判定（見直す / ボギー）なのに、おすすめの 1 投目が狙いと同じ',
+  '3': '否定的な判定の説明文が、狙いと同じ 1 投目から始まるルートを勧めている',
+  '4': '推奨度 B / C で否定的に判定したが、別の 1 投目を示せない',
+};
+for (const key of ['1', '2', '3', '4'] as const) {
+  const list = contradictions[key];
+  failures += list.length;
+  console.log(`${list.length === 0 ? '  ok  ' : '  NG  '} 矛盾 ${key}. ${contradictionLabels[key]}: ${list.length} 件`);
+  for (const item of list.slice(0, 10)) console.log(`         ${item}`);
+}
+const classifiedTotal = [...classifiedSameFirstDart.values()].reduce((sum, list) => sum + list.length, 0);
+console.log(
+  `  分類 「もっと良い狙いあり」でおすすめの 1 投目が狙いと同じだが、説明文は別の 1 投目を示す: ` +
+    `${classifiedTotal} 件（アプリの第 1 候補と振り返り独自の比較の食い違い。画面では代案に出さない）`,
+);
+for (const [key, list] of classifiedSameFirstDart) {
+  console.log(`         ${key}: ${list.length} 件（例: ${list.slice(0, 3).join(' / ')}）`);
+}
+console.log(
+  `  分類 推奨度では上位が無く、承認済みの提案順だけが別の 1 投目を示す: ${orderOnlyAlternatives.length} 件`,
+);
+for (const item of orderOnlyAlternatives.slice(0, 10)) console.log(`         ${item}`);
 
 if (failures > 0) process.exitCode = 1;
