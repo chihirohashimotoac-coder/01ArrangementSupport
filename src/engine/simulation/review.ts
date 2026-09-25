@@ -27,6 +27,17 @@
  * 160・170 のような特定の残り点を特別扱いはせず、条件を満たすターゲットは
  * どれも GOOD DECISION として扱う。
  *
+ * ## シングル落ち回復と、次のビジットでダブルへ到達するまで（v1.4.3 / A-22）
+ *
+ * - SETUP 帯でまだ 2 本以上残っている場面は、候補一覧に無い狙いでも
+ *   「狙い通り / 同ナンバーのシングル落ちのあとにテンパイを作れるか」
+ *   （`setupRecovery.ts`、既存の `canReachTenpai` / `isSingleMissTenpaiSafe` を再利用）で
+ *   言い切れるときだけ判定する。
+ * - ビジット最後の 1 投は、残した数字が次のビジットで何を要求するか
+ *   （`leaveProfile.ts`）を比べ、明確な上位互換がある狙いを GOOD にしない。
+ *
+ * どちらもレビュー層の分類方針で、エンジンの順位・重みは変えていない。
+ *
  * ## 表現の強さ
  *
  * 学習用途のモードなので、悪い選択は悪いと分かる言い方にする。
@@ -51,6 +62,12 @@ import {
   type LastDartOption,
   type LastDartSetupAnalysis,
 } from './lastDartSetup';
+import {
+  dominatesLeavePair,
+  nextVisitLeaveProfileOf,
+  type LeaveProfile,
+} from './leaveProfile';
+import { analyzeSetupRecovery, lastDartTenpaiExamples } from './setupRecovery';
 import {
   allThrows,
   roundScoreOf,
@@ -285,7 +302,8 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
    * null が返り、従来どおり推奨度で判定する。
    */
   if (context.kind === 'setup' && dartsLeft === 1) {
-    const lastDart = lastDartSetupReview(record, left, intendedLabel, grade, best);
+    const protectedDartId = preferenceDrivenFirstDartOf(suggestion, left, options);
+    const lastDart = lastDartSetupReview(record, left, intendedLabel, grade, best, protectedDartId);
     if (lastDart !== null) return lastDart;
   }
 
@@ -404,6 +422,17 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
    * エンジンが評価していない狙いまで不正解にしてしまう。
    * 断定はせず、アプリならどう組み立てたかだけを示す。
    */
+  /*
+   * SETUP 帯（171〜350）でまだ 2 本以上残っている場面は、候補一覧に無くても
+   * 「狙い通り / 同ナンバーのシングル落ち」のあとにテンパイを作れるかは計算できる
+   * （`setupRecovery.ts`）。その事実から言い切れるときだけ判定し、
+   * 言い切れないときは従来どおり断定しない。
+   */
+  if (context.kind === 'setup' && left > MAX_CHECKOUT && dartsLeft >= 2) {
+    const recovery = setupRecoveryReview(record, left, dartsLeft, intendedLabel, intendedLeave, best);
+    if (recovery !== null) return recovery;
+  }
+
   if (!context.isExhaustive) {
     return {
       record,
@@ -450,6 +479,7 @@ function lastDartSetupReview(
   intendedLabel: string,
   grade: RouteGrade | null,
   best: RouteSummary | null,
+  protectedDartId: string | null,
 ): ThrowReview | null {
   const analysis = analyzeLastDartSetup(left);
   if (!analysis.hasTenpaiTargets) return null;
@@ -466,7 +496,13 @@ function lastDartSetupReview(
     recommendedRouteText: best?.routeText ?? null,
     recommendedDartId: best?.firstDartId ?? null,
   };
-  const alternatives = recommendedLastDartTargets(analysis, 2, option.dartId);
+  /*
+   * 例に出す的は、Next Visit Leave Profile で別の的に上位互換を取られていないものだけ
+   * （116 で「T18（狙い通り 62）も同じ条件を満たす」と勧めない）。
+   */
+  const alternatives = recommendedLastDartTargets(analysis, Number.POSITIVE_INFINITY, option.dartId)
+    .filter((item) => dominatingLastDartOptionsOf(analysis, item).length === 0)
+    .slice(0, 2);
   const alternativesText = alternatives.map(describeLastDartOption).join('または ');
 
   /* 1. 狙い通りでもテンパイにならない — 残り 1 投で作れるはずの機会を捨てている。 */
@@ -514,6 +550,32 @@ function lastDartSetupReview(
         `${tripleUpgrade.leaveOnHit} まで進められます。` +
         `同じナンバーのトリプルを狙う方が実戦的です。`,
     };
+  }
+
+  /*
+   * 2-c. 「次のビジットでダブルへ到達するまでに何が要るか」（Next Visit Leave
+   *      Profile）で、別の的が**明確な上位互換**になっている（v1.4.3）。
+   *
+   * 狙い通り・同ナンバーのシングル落ちの両方で悪化せず、どちらかで改善する的が
+   * あれば GOOD にしない。116 の S16 → 100（先に T20 が要る）に対して、
+   * T20 → 56（S16 1 本で D20 が残る）/ S20 でも 96（2 本で上がれる）がこれにあたる。
+   * 「残りが小さいほど良い」とはしない（`leaveProfile.ts`）。
+   *
+   * 得意ダブルの設定で NEXT VISIT の第 1 候補が変わった狙い（MY ROUTE）は、
+   * この比較で下げない。
+   */
+  if (
+    (option.singleMissTenpai || analysis.safeTargets.length === 0) &&
+    option.dartId !== protectedDartId
+  ) {
+    const dominating = dominatingLastDartOptionsOf(analysis, option);
+    if (dominating.length > 0) {
+      return {
+        ...base,
+        verdict: 'BETTER_OPTION_AVAILABLE',
+        noteJa: dominatedLeaveNoteJa(intendedLabel, option, dominating),
+      };
+    }
   }
 
   /* 2-b. 狙い通りならテンパイで、同ナンバーのシングルへ落ちてもテンパイ。 */
@@ -603,6 +665,221 @@ function sameNumberTripleUpgradeOf(
   if (triple.leaveOnSingleMiss !== option.leaveOnHit) return null;
 
   return triple;
+}
+
+interface LeavePair {
+  readonly hit: LeaveProfile;
+  readonly miss: LeaveProfile;
+}
+
+function leavePairOf(option: LastDartOption): LeavePair | null {
+  if (option.leaveOnSingleMiss === null) return null;
+  return {
+    hit: nextVisitLeaveProfileOf(option.leaveOnHit),
+    miss: nextVisitLeaveProfileOf(option.leaveOnSingleMiss),
+  };
+}
+
+/**
+ * 残り 1 投で、`option` の明確な上位互換になっている的（良い順）。
+ *
+ * 比べるのはテンパイを作れる的のうち、落ち先を決められる（BULL 以外）
+ * ダブル以外の的だけ。ダブルは SETUP の得点手段として勧めない。
+ */
+function dominatingLastDartOptionsOf(
+  analysis: LastDartSetupAnalysis,
+  option: LastDartOption,
+): readonly LastDartOption[] {
+  const own = leavePairOf(option);
+  if (own === null) return [];
+  const pairs = new Map<string, LeavePair>();
+  for (const candidate of analysis.tenpaiTargets) {
+    if (candidate.dartId === option.dartId || candidate.dart.kind === 'double') continue;
+    const pair = leavePairOf(candidate);
+    if (pair !== null && dominatesLeavePair(pair, own)) pairs.set(candidate.dartId, pair);
+  }
+  const kindOrder = (item: LastDartOption) => (item.dart.kind === 'triple' ? 0 : 1);
+  return analysis.tenpaiTargets
+    .filter((candidate) => pairs.has(candidate.dartId))
+    .sort((a, b) => {
+      const pa = pairs.get(a.dartId)!;
+      const pb = pairs.get(b.dartId)!;
+      return (
+        pa.hit.rank - pb.hit.rank ||
+        pa.miss.rank - pb.miss.rank ||
+        kindOrder(a) - kindOrder(b) ||
+        b.dart.score - a.dart.score ||
+        a.dartId.localeCompare(b.dartId)
+      );
+    });
+}
+
+function routeLabelOf(dartIds: readonly string[]): string {
+  return dartIds.map(displayTargetId).join(' → ');
+}
+
+/** 残り点が次のビジットで何を要求するかの短い言い方。 */
+function leaveProfilePhraseJa(profile: LeaveProfile): string {
+  const example = profile.exampleDartIds;
+  switch (profile.kind) {
+    case 'DIRECT_DOUBLE':
+      return `1 投目から ${routeLabelOf(example ?? [])} を狙える`;
+    case 'AIM_AREA':
+      return '広いシングルのエリアからダブルを残せる';
+    case 'SINGLE_TO_DOUBLE':
+      return example === null
+        ? 'シングル 1 本でダブルが残る'
+        : `${routeLabelOf(example)} とシングル 1 本でダブルが残る`;
+    case 'TWO_DART_OTHER':
+      return example === null
+        ? '2 本で上がれるが、先にトリプルや BULL を決める必要がある'
+        : `${routeLabelOf(example)} と、先にトリプルなどを決めてからダブルへ進む`;
+    case 'THREE_DART':
+      return '上がりに 3 本を使う';
+    case 'NO_CHECKOUT':
+      return '3 本でも上がれない';
+  }
+}
+
+function dominatedLeaveNoteJa(
+  intendedLabel: string,
+  option: LastDartOption,
+  dominating: readonly LastDartOption[],
+): string {
+  const own = leavePairOf(option)!;
+  const [first, ...rest] = dominating;
+  const firstPair = leavePairOf(first)!;
+  const firstMissLabel = displayTargetId(`S${first.dart.baseNumber}`);
+
+  const ownMiss =
+    option.leaveOnSingleMiss === option.leaveOnHit
+      ? ''
+      : `同じナンバーのシングルに落ちると残り ${option.leaveOnSingleMiss}（${leaveProfilePhraseJa(own.miss)}）です。`;
+  const others = rest
+    .slice(0, 1)
+    .map(
+      (item) =>
+        `${displayTargetId(item.dartId)}（狙い通り ${item.leaveOnHit}・` +
+        `${displayTargetId(`S${item.dart.baseNumber}`)} でも ${item.leaveOnSingleMiss}）も同じく上位互換です。`,
+    )
+    .join('');
+
+  return (
+    `成立はしますが、もっと実戦的な狙いがあります。${intendedLabel} は狙い通りなら残り ` +
+    `${option.leaveOnHit}（${leaveProfilePhraseJa(own.hit)}）で、次のラウンドに 3 本で Checkout はできます。` +
+    ownMiss +
+    `${displayTargetId(first.dartId)} なら狙い通り ${first.leaveOnHit}` +
+    `（${leaveProfilePhraseJa(firstPair.hit)}）、` +
+    (first.leaveOnSingleMiss === first.leaveOnHit
+      ? ''
+      : `${firstMissLabel} に落ちても ${first.leaveOnSingleMiss}（${leaveProfilePhraseJa(firstPair.miss)}）`) +
+    `で、次のビジットでダブルへ近づけます。` +
+    others
+  );
+}
+
+/**
+ * 得意ダブルの設定で NEXT VISIT の第 1 候補が変わったときの、その 1 投目。
+ * 設定が無い・設定しても第 1 候補が変わらないときは null。
+ */
+function preferenceDrivenFirstDartOf(
+  suggestion: Suggestion,
+  left: number,
+  options: ReviewOptions,
+): string | null {
+  if ((options.preferredDoubles ?? []).length === 0) return null;
+  const withPreference = suggestion.nextVisitProposals[0]?.route.darts[0]?.id ?? null;
+  const withoutPreference =
+    suggestFor(left, 1, suggestOptionsOf({ ...options, preferredDoubles: undefined }))
+      .nextVisitProposals[0]?.route.darts[0]?.id ?? null;
+  return withPreference !== withoutPreference ? withPreference : null;
+}
+
+/**
+ * SETUP 帯（171〜350）でまだ 2 本以上残っている場面の、候補一覧に無い狙いの判定。
+ *
+ *   A. 狙い通りに入ったあと、残りのダーツでテンパイを作れるか
+ *   B. 同ナンバーのシングルへ落ちたあとでも、残りのダーツでテンパイを作れるか
+ *
+ * - A を満たさず、A を満たす的が他にある → `SETUP_MISTAKE`
+ * - A を満たし B を満たさず、A・B を両方満たす的が他にある → `BETTER_OPTION_AVAILABLE`
+ * - それ以外 → null（従来どおり断定しない）
+ *
+ * 「同じトリプルを続けて狙うこと」は条件にしない。見るのは
+ * シングルへ落ちてもテンパイを作る道が残るかだけ。
+ */
+function setupRecoveryReview(
+  record: ThrowRecord,
+  left: number,
+  dartsLeft: number,
+  intendedLabel: string,
+  intendedLeave: number,
+  best: RouteSummary | null,
+): ThrowReview | null {
+  const intended = requireDart(record.intendedDartId);
+  const analysis = analyzeSetupRecovery(left, intended, dartsLeft);
+  const facts = analysis.intended;
+  const restDarts = dartsLeft - 1;
+  const restText = restDarts === 1 ? '最後の 1 本' : `残り ${restDarts} 本`;
+  const base = {
+    record,
+    grade: null,
+    intendedLeave,
+    recommendedRouteText: best?.routeText ?? null,
+    recommendedDartId: best?.firstDartId ?? null,
+  };
+
+  if (!facts.hitCanReachTenpai) {
+    if (analysis.hitAlternatives.length === 0) return null;
+    const examples = (
+      analysis.safeAlternatives.length > 0 ? analysis.safeAlternatives : analysis.hitAlternatives
+    )
+      .slice(0, 2)
+      .map((item) => `${displayTargetId(item.dart.id)}（狙い通り ${item.leaveOnHit}）`)
+      .join('や ');
+    return {
+      ...base,
+      verdict: 'SETUP_MISTAKE',
+      noteJa:
+        `この選択は不適切です。${intendedLabel} は狙い通りに入っても残り ${intendedLeave} で、` +
+        `${restText}では次のビジットに 3 本で Checkout できる数字（テンパイ）を作れません。` +
+        `${examples}なら、狙い通りに入れば${restText}でテンパイを作れます。`,
+    };
+  }
+
+  if (facts.singleMissCanReachTenpai || facts.leaveOnSingleMiss === null) return null;
+  const [alternative, second] = analysis.safeAlternatives;
+  if (alternative === undefined) return null;
+
+  const missLabel = displayTargetId(`S${intended.baseNumber}`);
+  const altLabel = displayTargetId(alternative.dart.id);
+  const altMissLabel = displayTargetId(`S${alternative.dart.baseNumber}`);
+  const examples =
+    restDarts === 1 && alternative.leaveOnSingleMiss !== null
+      ? lastDartTenpaiExamples(alternative.leaveOnSingleMiss)
+          .map((item) => `${displayTargetId(item.dartId)} → ${item.leave}`)
+          .join('、')
+      : '';
+  const altRecovery =
+    alternative.dart.kind === 'single'
+      ? `${altLabel} なら残り ${alternative.leaveOnHit} で、${restText}でテンパイを作れます。`
+      : `${altLabel} なら ${altMissLabel} に落ちても残り ${alternative.leaveOnSingleMiss} で、` +
+        `${restText}で${examples === '' ? '' : `${examples} など`}テンパイを作れます。`;
+  const secondNote =
+    second === undefined
+      ? ''
+      : `${displayTargetId(second.dart.id)} も同じ条件を満たします。`;
+
+  return {
+    ...base,
+    verdict: 'BETTER_OPTION_AVAILABLE',
+    noteJa:
+      `成立はしますが、もっと良い狙いがあります。${intendedLabel} は狙い通りなら残り ${intendedLeave} で、` +
+      `${restText}でテンパイを作れます。ただし ${missLabel} に落ちると残り ${facts.leaveOnSingleMiss} となり、` +
+      `${restText}では次のビジットに 3 本で Checkout できる数字を作れません。` +
+      altRecovery +
+      secondNote,
+  };
 }
 
 /** 説明文へ出すターゲットの書き方。 */
