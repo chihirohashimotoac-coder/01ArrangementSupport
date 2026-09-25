@@ -17,6 +17,10 @@
  *      （基準ルート加点を除く戦術スコアがおすすめ以上・おすすめに無い非推奨理由なし）
  *      なのに否定的に判定している。逆に、その条件を満たさないのに
  *      `CHECKOUT_PEER_OF_RECOMMENDED` で GOOD にしている（v1.4.5。合法なだけで GOOD にしない）
+ *   F. NEXT VISIT の**全提案**を走査し（得意ダブル設定なし・D20・D16・D18・D16/D20/D8）、
+ *      第 1 案以外の提案の 1 投目が、第 1 案に明確な上位互換を取られていないのに否定されている。
+ *      逆に、上位互換を取られているのに `NEXT_VISIT_PROPOSAL_NOT_DOMINATED` で GOOD にしている
+ *      （v1.4.6。提案だから GOOD、にはしない）。ビジット最後の 1 投は件数だけ出す（範囲外）。
  *
  * あわせて、振り返りの**自己矛盾**を数える（v1.4.4）。
  *
@@ -28,12 +32,19 @@
  * おすすめの 1 投目が狙いと同じでも、振り返り独自の比較（A-21 / A-22 の上位互換など）で
  * 説明文が**別の 1 投目**を示している判定は、分類して件数だけ出す（矛盾には数えない）。
  *
- * A〜E（ただし B は残り 1 本のみ）と矛盾 1〜4 に 1 件でも該当すると終了コード 1 を返す。
+ * A〜F（ただし B は残り 1 本のみ）と矛盾 1〜4 に 1 件でも該当すると終了コード 1 を返す。
  * 残り 2 本以上で推奨度 S / A が付いた狙いは、承認済みの SETUP ランキングの判断なので
  * 参考値として件数だけ出す（レビュー層では上書きしない）。
  */
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING, isBogey } from '../src/domain/checkoutRules';
-import { THROWABLE_DARTS, type Dart } from '../src/domain/dart';
+import { THROWABLE_DARTS, findDart, type Dart } from '../src/domain/dart';
+import {
+  buildNextVisitCandidates,
+  nextVisitTierOf,
+  type NextVisitProposal,
+} from '../src/engine/recovery/nextVisitSelection';
+import { evaluateLeave } from '../src/engine/setup/leaveQuality';
+import { difficultyOf, targetKeyOf } from '../src/engine/setup/sequences';
 import { suggestFor } from '../src/engine/recovery/suggest';
 import type { ThrowRecord } from '../src/engine/simulation/game';
 import { analyzeLastDartSetup, type LastDartOption } from '../src/engine/simulation/lastDartSetup';
@@ -114,7 +125,14 @@ const classifiedSameFirstDart = new Map<string, string[]>();
 const orderOnlyAlternatives: string[] = [];
 
 const counts = new Map<number, Record<ThrowVerdict, number>>();
-const findings: Record<'A' | 'B' | 'C' | 'D' | 'E', string[]> = { A: [], B: [], C: [], D: [], E: [] };
+const findings: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F', string[]> = {
+  A: [],
+  B: [],
+  C: [],
+  D: [],
+  E: [],
+  F: [],
+};
 /** `CHECKOUT_PEER_OF_RECOMMENDED` で GOOD になった狙い（参考。件数と例だけ出す）。 */
 const checkoutPeers: string[] = [];
 const engineGradedUnsafe: string[] = [];
@@ -248,15 +266,90 @@ for (const [dartsLeft, perDarts] of [...counts.entries()].sort((a, b) => a[0] - 
   console.log(`  残り ${dartsLeft} 本: ${THROW_VERDICTS.map((verdict) => `${verdict}=${perDarts[verdict]}`).join(' ')}`);
 }
 
+// F: NEXT VISIT の全提案（v1.4.6）。review.ts とは独立に 6 観点を計算し直す。
+const TIERS = ['A', 'B', 'C', 'D', 'E'];
+const tierRank = (leave: number) => {
+  const tier = nextVisitTierOf(leave);
+  return tier === null ? TIERS.length : TIERS.indexOf(tier);
+};
+function facetsOf(proposal: NextVisitProposal, left: number, dartsLeft: number, preferred: readonly string[]) {
+  const darts = proposal.route.darts;
+  const leave = proposal.route.leave;
+  const first = darts[0];
+  let miss = -1;
+  if (first.kind !== 'single' && first.baseNumber !== null) {
+    const after = left - findDart(`S${first.baseNumber}`)!.score;
+    if (after < 2) miss = TIERS.length;
+    else if (dartsLeft === 1) miss = tierRank(after);
+    else {
+      const next = buildNextVisitCandidates(after, dartsLeft - 1);
+      miss = next.length === 0 ? TIERS.length : Math.min(...next.map((item) => TIERS.indexOf(item.tier)));
+    }
+  }
+  const finish = leave % 2 === 0 && leave >= 2 && leave <= 40 ? `D${leave / 2}` : null;
+  const preference = finish === null ? -1 : preferred.indexOf(finish);
+  return [
+    tierRank(leave),
+    -evaluateLeave(leave).score,
+    darts.reduce((sum, dart) => sum + difficultyOf(dart), 0),
+    miss,
+    darts.slice(1).filter((dart, index) => targetKeyOf(dart) !== targetKeyOf(darts[index])).length,
+    preference < 0 ? Number.MAX_SAFE_INTEGER : preference,
+  ];
+}
+const proposalScan = new Map<string, number>();
+const lastDartProposals: string[] = [];
+for (const preferred of [[], ['D20'], ['D16'], ['D18'], ['D16', 'D20', 'D8']]) {
+  const tag = preferred.length === 0 ? '設定なし' : preferred.join('/');
+  for (let left = 2; left <= MAX_CHECKOUT; left += 1) {
+    for (let dartsLeft = 1; dartsLeft <= 3; dartsLeft += 1) {
+      const suggestion = suggestFor(left, dartsLeft, { fallbackPreferredDoubles: preferred, maxRoutes: 1000 });
+      if (suggestion.checkoutRoutes.length > 0) continue;
+      const primary = suggestion.nextVisitProposals[0];
+      if (primary === undefined) continue;
+      const own = facetsOf(primary, left, dartsLeft, preferred);
+      for (const proposal of suggestion.nextVisitProposals) {
+        const dart = proposal.route.darts[0];
+        const review = reviewThrow(record(left, dart, dartsLeft), { preferredDoubles: preferred });
+        const key = `${proposal === primary ? '第 1 案' : proposal.kind} ${review.verdict}`;
+        proposalScan.set(key, (proposalScan.get(key) ?? 0) + 1);
+        if (proposal === primary || dart.id === primary.route.darts[0].id) continue;
+        const item = `${tag} ${left}/${dartsLeft} ${dart.id}（${proposal.kind}: ${proposal.route.routeText}）${review.verdict}`;
+        if (dartsLeft === 1) {
+          if (NEGATIVE.has(review.verdict)) lastDartProposals.push(item);
+          continue;
+        }
+        const facets = facetsOf(proposal, left, dartsLeft, preferred);
+        const better = facets.some((value, index) => value < own[index]);
+        const worse = facets.some((value, index) => value > own[index]);
+        const dominated = !better && worse;
+        const marked = review.reason?.code === 'NEXT_VISIT_PROPOSAL_NOT_DOMINATED';
+        if (!dominated && NEGATIVE.has(review.verdict)) findings.F.push(`${item}（上位互換なしなのに否定）`);
+        if (dominated && marked) findings.F.push(`${item}（上位互換ありなのに同等扱い）`);
+      }
+    }
+  }
+}
+console.log(
+  `  参考 NEXT VISIT の全提案の 1 投目の判定（5 通りの得意ダブル設定の合計）: ` +
+    [...proposalScan.entries()].map(([key, count]) => `${key}=${count}`).join(' / '),
+);
+console.log(
+  `  参考 ビジット最後の 1 投で、第 1 案以外の提案の 1 投目が否定される: ${lastDartProposals.length} 件` +
+    `（最後の 1 投と得意ダブルの競合。この監査の範囲外）`,
+);
+for (const item of lastDartProposals.slice(0, 10)) console.log(`         ${item}`);
+
 const labels: Record<keyof typeof findings, string> = {
   A: '計算で言い切れるのに NOT_EVALUATED',
   B: 'GOOD なのに上位互換の的がある（残り 1 本）',
   C: 'Bogey / テンパイ喪失を避けられるのに GOOD（残り 1 本）',
   D: '先にトリプル等が要る残しが、シングル → ダブルの残しと同列 GOOD（残り 1 本）',
   E: 'CHECKOUT で、おすすめと戦術評価で同等以上の上がり方がある 1 投目の判定が条件と食い違う',
+  F: 'NEXT VISIT の第 1 案以外の提案の 1 投目の判定が、第 1 案との上位互換の有無と食い違う',
 };
 let failures = 0;
-for (const key of ['A', 'B', 'C', 'D', 'E'] as const) {
+for (const key of ['A', 'B', 'C', 'D', 'E', 'F'] as const) {
   const list = findings[key];
   failures += list.length;
   console.log(`${list.length === 0 ? '  ok  ' : '  NG  '} ${key}. ${labels[key]}: ${list.length} 件`);

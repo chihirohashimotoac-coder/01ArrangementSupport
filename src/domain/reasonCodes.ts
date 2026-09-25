@@ -88,5 +88,26 @@ export type SetupReasonCode = (typeof SETUP_REASON_CODES)[number];
 
 export type ReasonCode = CheckoutReasonCode | SetupReasonCode;
 
+/**
+ * SIMULATION の振り返りで、NEXT VISIT の第 1 案と別の提案を比べる観点（v1.4.6）。
+ *
+ * - `LEAVE_TIER`: 残しが次ラウンド何本で上がれるか（`nextVisitTierOf`）
+ * - `LEAVE_QUALITY`: 残しの質（`evaluateLeave`）
+ * - `DIFFICULTY`: いま投げるルートの難易度（`SEGMENT_DIFFICULTY` の合計）
+ * - `SINGLE_MISS`: 1 投目が同じナンバーのシングルへ落ちたあと、残りのダーツで作れる残しの Tier
+ * - `SAME_TARGET`: 的の切り替え回数
+ * - `PREFERRED_DOUBLE`: 残しを上がるダブルの、得意ダブル設定での順位
+ */
+export const NEXT_VISIT_PROPOSAL_FACETS = [
+  'LEAVE_TIER',
+  'LEAVE_QUALITY',
+  'DIFFICULTY',
+  'SINGLE_MISS',
+  'SAME_TARGET',
+  'PREFERRED_DOUBLE',
+] as const;
+
+export type NextVisitProposalFacet = (typeof NEXT_VISIT_PROPOSAL_FACETS)[number];
+
 /** 理由の極性（表示の色分けに使う）。 */
 export type ReasonPolarity = 'positive' | 'negative' | 'neutral';

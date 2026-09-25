@@ -11,6 +11,7 @@
  */
 import type {
   CheckoutReasonCode,
+  NextVisitProposalFacet,
   ReasonPolarity,
   SetupReasonCode,
 } from '../domain/reasonCodes';
@@ -450,4 +451,85 @@ export function nextVisitProposalNoteJa(
   }
   if (kind === 'alternative') return '同じナンバーを続ける';
   return finishDoubleId === null ? '残しの質' : `残しの質（${finishDoubleId}）`;
+}
+
+/** NEXT VISIT の提案の種類の、振り返りの説明文での呼び方（v1.4.6）。 */
+const NEXT_VISIT_PROPOSAL_KIND_JA: Readonly<
+  Record<'leave-quality' | 'preferred-double' | 'alternative', string>
+> = {
+  'leave-quality': '第 1 案',
+  'preferred-double': '得意ダブルを反映した案',
+  alternative: '同じナンバーを続ける案',
+};
+
+/** 第 1 案と比べた観点ごとの言い方（良いとき / 劣るとき）。 */
+const NEXT_VISIT_PROPOSAL_FACET_JA: Readonly<
+  Record<NextVisitProposalFacet, { readonly better: string; readonly worse: string }>
+> = {
+  LEAVE_TIER: {
+    better: '次ラウンドで上がりに使う本数が少ない残しを作れます',
+    worse: '次ラウンドで上がりに使う本数は第 1 案の方が少なくて済みます',
+  },
+  LEAVE_QUALITY: {
+    better: '残しの質が第 1 案より高いです',
+    worse: '残しの質は第 1 案の方が高いです',
+  },
+  DIFFICULTY: {
+    better: 'いま投げる難易度が第 1 案より低いです',
+    worse: 'いま投げる難易度は第 1 案の方が低いです',
+  },
+  SINGLE_MISS: {
+    better: '同じナンバーのシングルに落ちたときの立て直しが第 1 案より良いです',
+    worse: '同じナンバーのシングルに落ちたときの立て直しは第 1 案の方が良いです',
+  },
+  SAME_TARGET: {
+    better: '的を切り替えずに投げられます',
+    worse: '的の切り替えは第 1 案の方が少ないです',
+  },
+  PREFERRED_DOUBLE: {
+    better: '得意ダブルで上がれる残しです',
+    worse: '得意ダブルの設定には第 1 案の方が合っています',
+  },
+};
+
+/** 振り返りの `NEXT_VISIT_PROPOSAL_NOT_DOMINATED` の説明文へ渡す値（表記は変換済み）。 */
+export interface NextVisitProposalPeerContext {
+  readonly intendedLabel: string;
+  readonly proposalKind: 'leave-quality' | 'preferred-double' | 'alternative';
+  readonly routeText: string;
+  readonly routeLeave: number;
+  readonly primaryRouteText: string;
+  readonly primaryLeave: number;
+  readonly grade: string;
+  readonly leaveOnHit: number;
+  /** 2 投目以降の的（表記済み）。1 投だけの提案なら空。 */
+  readonly restLabels: readonly string[];
+  readonly advantages: readonly NextVisitProposalFacet[];
+  readonly disadvantages: readonly NextVisitProposalFacet[];
+}
+
+/** 振り返りの `NEXT_VISIT_PROPOSAL_NOT_DOMINATED` の説明文（v1.4.6）。 */
+export function renderNextVisitProposalPeerJa(ctx: NextVisitProposalPeerContext): string {
+  const leave =
+    ctx.routeLeave === ctx.primaryLeave
+      ? `第 1 案の ${ctx.primaryRouteText} と同じ残り ${ctx.routeLeave} を作れます。`
+      : `残り ${ctx.routeLeave} を作れます（第 1 案の ${ctx.primaryRouteText} は残り ${ctx.primaryLeave}）。`;
+  const good = ctx.advantages.map((facet) => NEXT_VISIT_PROPOSAL_FACET_JA[facet].better).join('。');
+  const bad = ctx.disadvantages.map((facet) => NEXT_VISIT_PROPOSAL_FACET_JA[facet].worse).join('。');
+  const merits =
+    ctx.advantages.length === 0
+      ? '第 1 案と比べて、劣る点はありません。'
+      : ctx.disadvantages.length === 0
+        ? `第 1 案と比べて劣る点は無く、${good}。`
+        : `第 1 案とは一長一短です。${good}。一方で、${bad}。`;
+  return (
+    `${ctx.intendedLabel} は、この場面の${NEXT_VISIT_PROPOSAL_KIND_JA[ctx.proposalKind]}` +
+    `（${ctx.routeText}）の 1 投目です。` +
+    leave +
+    merits +
+    `推奨度 ${ctx.grade} は候補の並びの中での相対評価です。` +
+    `${ctx.intendedLabel} が狙い通りなら残り ${ctx.leaveOnHit} で、` +
+    (ctx.restLabels.length === 0 ? '' : `続けて ${ctx.restLabels.join(' → ')} を狙います`) +
+    `（次の投の狙いは、その投で評価します）。`
+  );
 }
