@@ -604,3 +604,108 @@ export function renderLastDartDoubleTradeOffJa(ctx: LastDartTradeOffContext): st
     `どちらを選んでも良い判断です。`
   );
 }
+
+// ---------------------------------------------------------------------------
+// SIMULATION の振り返り: 「振り返りが比べた代案」と「アプリの第 1 案」（v1.4.8）
+// ---------------------------------------------------------------------------
+
+/**
+ * 「もっと良い狙いあり」（`BETTER_OPTION_AVAILABLE`）の説明文の書き出し。
+ * 判定の分類（上がり方を見直す・ボギー）より弱い言い方にそろえる。
+ */
+export const BETTER_OPTION_LEAD_JA = '成立はしますが、もっと良い狙いがあります。';
+
+/** 振り返りが比べた代案（1 投）の値（表記は変換済み）。 */
+export interface ReviewComparisonTargetJa {
+  /** 代案の的（例: T11）。 */
+  readonly label: string;
+  readonly leaveOnHit: number;
+  /** 同じナンバーのシングル（例: S11）。無ければ null。 */
+  readonly missLabel: string | null;
+  readonly leaveOnSingleMiss: number | null;
+}
+
+/** 代案（1 投）の言い方。例: T11（狙い通りなら残り 138・S11 に落ちても残り 160） */
+export function describeReviewComparisonTargetJa(target: ReviewComparisonTargetJa): string {
+  const miss =
+    target.missLabel === null ||
+    target.leaveOnSingleMiss === null ||
+    target.leaveOnSingleMiss === target.leaveOnHit
+      ? ''
+      : `・${target.missLabel} に落ちても残り ${target.leaveOnSingleMiss}`;
+  return `${target.label}（狙い通りなら残り ${target.leaveOnHit}${miss}）`;
+}
+
+/** 説明文の末尾に置く、アプリのおすすめ（エンジンの第 1 案）への言及。 */
+export function appRouteSuggestionJa(routeText: string, reasonJa: string | null): string {
+  return `おすすめは ${routeText}（${reasonJa ?? '推奨度 S'}）。`;
+}
+
+/** 説明文の末尾に置く、振り返り自身の代案への言及（アプリの第 1 案を振り返りが下げる場面）。 */
+export function reviewComparisonSuggestionJa(target: ReviewComparisonTargetJa): string {
+  return `振り返りの代案は ${describeReviewComparisonTargetJa(target)}です。`;
+}
+
+/** 推奨度 B による「もっと良い狙いあり」の説明文。 */
+export function renderGradeBetterJa(ctx: {
+  readonly intendedLabel: string;
+  /** 例: 次の 3 投へ向けて整える形 */
+  readonly contextLabel: string;
+  readonly intendedLeave: number;
+  /** `appRouteSuggestionJa` / `reviewComparisonSuggestionJa` の結果。無ければ空文字。 */
+  readonly suggestionJa: string;
+}): string {
+  return (
+    BETTER_OPTION_LEAD_JA +
+    `${ctx.intendedLabel} は${ctx.contextLabel}として推奨度 B です（狙い通りだと残り ${ctx.intendedLeave}）。` +
+    ctx.suggestionJa
+  );
+}
+
+/** 画面の見出し: 振り返りが今回の判断と比べた代案。 */
+export const REVIEW_COMPARISON_LABEL_JA = '振り返りが比べた代案';
+
+/** 画面の見出し: その場面でアプリ（CHECKOUT / NEXT VISIT）が示した第 1 案。 */
+export const APP_FIRST_PROPOSAL_LABEL_JA = 'この場面のアプリの第 1 案';
+
+/** アプリの第 1 案と、今回の狙い・振り返りの代案との関係。 */
+export type AppFirstProposalRelation = 'SAME_AS_INTENDED' | 'SAME_AS_COMPARISON' | 'DIFFERENT';
+
+/** 「振り返りが比べた代案」の行。代案が無ければ、その旨を書く。 */
+export function renderReviewComparisonLineJa(ctx: {
+  /** 代案の言い方（ルート表記、または `describeReviewComparisonTargetJa`）。無ければ null。 */
+  readonly text: string | null;
+  /** 代案がアプリの第 1 案と同じ 1 投目か。 */
+  readonly sameAsAppFirst: boolean;
+}): string {
+  if (ctx.text === null) return `${REVIEW_COMPARISON_LABEL_JA}: ありません。`;
+  return ctx.sameAsAppFirst
+    ? `${REVIEW_COMPARISON_LABEL_JA}: ${ctx.text}（アプリの第 1 案と同じ）`
+    : `${REVIEW_COMPARISON_LABEL_JA}: ${ctx.text}`;
+}
+
+/**
+ * 「この場面のアプリの第 1 案」の行。代案と同じなら出さない（null）。
+ *
+ * 今回の狙いと同じ 1 投目のときは、改善案と読まれないよう、その旨と
+ * 振り返りが別の代案と比べていることを添える。
+ */
+export function renderAppFirstProposalLineJa(ctx: {
+  readonly routeText: string;
+  readonly relation: AppFirstProposalRelation;
+}): string | null {
+  switch (ctx.relation) {
+    case 'SAME_AS_COMPARISON':
+      return null;
+    case 'SAME_AS_INTENDED':
+      return (
+        `${APP_FIRST_PROPOSAL_LABEL_JA}: ${ctx.routeText}` +
+        '（今回の狙いと同じ 1 投目です。改善案ではありません。振り返りは上の代案と比べて判定しています）'
+      );
+    case 'DIFFERENT':
+      return (
+        `${APP_FIRST_PROPOSAL_LABEL_JA}: ${ctx.routeText}` +
+        '（参考。振り返りの代案とは選び方の基準が違います）'
+      );
+  }
+}
