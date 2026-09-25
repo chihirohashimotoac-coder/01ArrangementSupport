@@ -21,6 +21,16 @@
  *      第 1 案以外の提案の 1 投目が、第 1 案に明確な上位互換を取られていないのに否定されている。
  *      逆に、上位互換を取られているのに `NEXT_VISIT_PROPOSAL_NOT_DOMINATED` で GOOD にしている
  *      （v1.4.6。提案だから GOOD、にはしない）。ビジット最後の 1 投は件数だけ出す（範囲外）。
+ *   G. ビジット最後の 1 投の交換条件（v1.4.7 / A-26）。得意ダブル設定なし・D20・D16・D8・
+ *      D10・D11・D16/D20/D8 の 7 通りで、狙い通りなら外側ダブルを直接残す狙いについて、
+ *      A-22 の上位互換を条件どおりに「交換条件」と「明確な上位互換」へ分けられているかを数える。
+ *        G1. `LAST_DART_DOUBLE_TRADE_OFF` なのに、交換条件を満たさない上位互換の的がある
+ *        G2. 上位互換の的がすべて交換条件を満たすのに、GOOD（交換条件）になっていない
+ *        G3. 交換条件を満たさない上位互換の的があるのに、BETTER（上位互換）になっていない
+ *      交換条件は review.ts とは独立に計算する（提案の 1 投目・外側ダブル・違うダブル・得意ダブルの順位）。
+ *
+ * B は A-26 の例外を一律に外さない。GOOD の狙いに上位互換の的があれば、その的ごとに
+ * 交換条件をここで確かめ、満たさない的が 1 つでもあるか、理由コードが交換条件でなければ数える。
  *
  * あわせて、振り返りの**自己矛盾**を数える（v1.4.4）。
  *
@@ -32,7 +42,7 @@
  * おすすめの 1 投目が狙いと同じでも、振り返り独自の比較（A-21 / A-22 の上位互換など）で
  * 説明文が**別の 1 投目**を示している判定は、分類して件数だけ出す（矛盾には数えない）。
  *
- * A〜F（ただし B は残り 1 本のみ）と矛盾 1〜4 に 1 件でも該当すると終了コード 1 を返す。
+ * A〜G（ただし B は残り 1 本のみ）と矛盾 1〜4 に 1 件でも該当すると終了コード 1 を返す。
  * 残り 2 本以上で推奨度 S / A が付いた狙いは、承認済みの SETUP ランキングの判断なので
  * 参考値として件数だけ出す（レビュー層では上書きしない）。
  */
@@ -125,14 +135,39 @@ const classifiedSameFirstDart = new Map<string, string[]>();
 const orderOnlyAlternatives: string[] = [];
 
 const counts = new Map<number, Record<ThrowVerdict, number>>();
-const findings: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F', string[]> = {
+const findings: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G', string[]> = {
   A: [],
   B: [],
   C: [],
   D: [],
   E: [],
   F: [],
+  G: [],
 };
+
+/**
+ * A-26 の交換条件（review.ts とは独立に計算する）。狙い `option` に対する上位互換の的 `other` が、
+ *   1. 狙いがアプリの表示した NEXT VISIT の提案の 1 投目
+ *   2. 狙い・代案とも狙い通りなら外側のダブル（2〜40 の偶数）を直接残す
+ *   3. その 2 つのダブルが違う
+ *   4. 得意ダブルの設定が代案のダブルを優先していない（両方あれば順位が上の方）
+ * をすべて満たすか。
+ */
+function isDoubleTradeOff(
+  option: LastDartOption,
+  other: LastDartOption,
+  proposalFirstDarts: readonly string[],
+  preferred: readonly string[],
+): boolean {
+  const outer = (leave: number) => leave >= 2 && leave <= 40 && leave % 2 === 0;
+  if (!proposalFirstDarts.includes(option.dartId)) return false;
+  if (!outer(option.leaveOnHit) || !outer(other.leaveOnHit)) return false;
+  if (option.leaveOnHit === other.leaveOnHit) return false;
+  const own = preferred.indexOf(`D${option.leaveOnHit / 2}`);
+  const alt = preferred.indexOf(`D${other.leaveOnHit / 2}`);
+  if (alt < 0) return true;
+  return own >= 0 && own < alt;
+}
 /** `CHECKOUT_PEER_OF_RECOMMENDED` で GOOD になった狙い（参考。件数と例だけ出す）。 */
 const checkoutPeers: string[] = [];
 const engineGradedUnsafe: string[] = [];
@@ -146,6 +181,7 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
     counts.set(dartsLeft, perDarts);
 
     const verdicts = new Map<string, ThrowVerdict>();
+    const reasonCodes = new Map<string, string | null>();
     // 振り返りが推奨度を読む候補一覧（review.ts の contextOf と同じ選び方）。
     const suggestion = suggestFor(left, dartsLeft, { maxRoutes: 1000 });
     const candidateRoutes: ReadonlyArray<{ darts: readonly Dart[]; grade: RouteGrade }> =
@@ -159,6 +195,7 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
       const review = reviewThrow(record(left, dart, dartsLeft));
       perDarts[review.verdict] += 1;
       verdicts.set(dart.id, review.verdict);
+      reasonCodes.set(dart.id, review.reason?.code ?? null);
 
       // 矛盾 1〜4: 振り返りの自己矛盾。
       if (NEGATIVE.has(review.verdict)) {
@@ -234,13 +271,27 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
     const candidates = analysis.tenpaiTargets.filter(
       (option) => option.leaveOnSingleMiss !== null && option.dart.kind !== 'double',
     );
+    const proposalFirstDarts = suggestFor(left, 1).nextVisitProposals.map(
+      (proposal) => proposal.route.darts[0].id,
+    );
     for (const option of candidates) {
       if (verdicts.get(option.dartId) !== 'GOOD_DECISION') continue;
       const own = pairOf(option);
-      const by = candidates.find(
+      const dominators = candidates.filter(
         (other) => other !== option && dominatesLeavePair(pairOf(other), own),
       );
+      // A-26 の交換条件を満たす的だけを外す（例外を一律には外さない）。
+      const by = dominators.find(
+        (other) => !isDoubleTradeOff(option, other, proposalFirstDarts, []),
+      );
       if (by !== undefined) findings.B.push(`${left}/1 ${option.dartId} ← ${by.dartId}`);
+      if (
+        by === undefined &&
+        dominators.length > 0 &&
+        reasonCodes.get(option.dartId) !== 'LAST_DART_DOUBLE_TRADE_OFF'
+      ) {
+        findings.B.push(`${left}/1 ${option.dartId}（交換条件なのに理由コードが ${reasonCodes.get(option.dartId)}）`);
+      }
       if (
         !option.singleMissTenpai &&
         candidates.some((other) => other.singleMissTenpai)
@@ -340,6 +391,50 @@ console.log(
 );
 for (const item of lastDartProposals.slice(0, 10)) console.log(`         ${item}`);
 
+// G: ビジット最後の 1 投の交換条件（v1.4.7 / A-26）。
+let tradeOffGood = 0;
+for (const preferred of [[], ['D20'], ['D16'], ['D8'], ['D10'], ['D11'], ['D16', 'D20', 'D8']]) {
+  const tag = preferred.length === 0 ? '設定なし' : preferred.join('/');
+  for (let left = 2; left <= MAX_CHECKOUT; left += 1) {
+    const suggestion = suggestFor(left, 1, { fallbackPreferredDoubles: preferred, maxRoutes: 1000 });
+    if (suggestion.checkoutRoutes.length > 0) continue;
+    const firstDarts = suggestion.nextVisitProposals.map((proposal) => proposal.route.darts[0].id);
+    // 得意ダブルで第 1 候補が変わった狙い（A-22 の MY ROUTE の保護）は、先に GOOD が決まる。
+    const withoutPreference = suggestFor(left, 1).nextVisitProposals[0]?.route.darts[0].id ?? null;
+    const protectedDart =
+      preferred.length > 0 && firstDarts[0] !== withoutPreference ? (firstDarts[0] ?? null) : null;
+    const analysis = analyzeLastDartSetup(left);
+    const candidates = analysis.tenpaiTargets.filter(
+      (option) => option.leaveOnSingleMiss !== null && option.dart.kind !== 'double',
+    );
+    for (const option of candidates) {
+      if (!(option.leaveOnHit <= 40 && option.leaveOnHit % 2 === 0)) continue;
+      const dominators = candidates.filter(
+        (other) => other !== option && dominatesLeavePair(pairOf(other), pairOf(option)),
+      );
+      if (dominators.length === 0) continue;
+      const strict = dominators.filter(
+        (other) => !isDoubleTradeOff(option, other, firstDarts, preferred),
+      );
+      const review = reviewThrow(record(left, option.dart, 1), { preferredDoubles: preferred });
+      const code = review.reason?.code ?? null;
+      const item = `${tag} ${left}/1 ${option.dartId} ${review.verdict} ${code}`;
+      if (code === 'LAST_DART_DOUBLE_TRADE_OFF') tradeOffGood += 1;
+      if (code === 'LAST_DART_DOUBLE_TRADE_OFF' && strict.length > 0) {
+        findings.G.push(`G1 ${item}（${strict[0].dartId} は交換条件を満たさない）`);
+      }
+      if (!option.singleMissTenpai || option.dartId === protectedDart) continue;
+      if (strict.length === 0 && code !== 'LAST_DART_DOUBLE_TRADE_OFF') {
+        findings.G.push(`G2 ${item}（上位互換はすべて交換条件）`);
+      }
+      if (strict.length > 0 && code !== 'LAST_DART_LEAVE_DOMINATED') {
+        findings.G.push(`G3 ${item}（${strict[0].dartId} が明確な上位互換）`);
+      }
+    }
+  }
+}
+console.log(`  参考 ビジット最後の 1 投で交換条件（A-26）により GOOD にした狙い: 7 通りの設定の合計 ${tradeOffGood} 件`);
+
 const labels: Record<keyof typeof findings, string> = {
   A: '計算で言い切れるのに NOT_EVALUATED',
   B: 'GOOD なのに上位互換の的がある（残り 1 本）',
@@ -347,9 +442,10 @@ const labels: Record<keyof typeof findings, string> = {
   D: '先にトリプル等が要る残しが、シングル → ダブルの残しと同列 GOOD（残り 1 本）',
   E: 'CHECKOUT で、おすすめと戦術評価で同等以上の上がり方がある 1 投目の判定が条件と食い違う',
   F: 'NEXT VISIT の第 1 案以外の提案の 1 投目の判定が、第 1 案との上位互換の有無と食い違う',
+  G: 'ビジット最後の 1 投で、交換条件（A-26）と判定が食い違う',
 };
 let failures = 0;
-for (const key of ['A', 'B', 'C', 'D', 'E', 'F'] as const) {
+for (const key of ['A', 'B', 'C', 'D', 'E', 'F', 'G'] as const) {
   const list = findings[key];
   failures += list.length;
   console.log(`${list.length === 0 ? '  ok  ' : '  NG  '} ${key}. ${labels[key]}: ${list.length} 件`);
