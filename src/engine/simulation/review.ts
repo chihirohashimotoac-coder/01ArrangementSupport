@@ -53,6 +53,11 @@ import {
 } from '../../domain/checkoutRules';
 import { findDart, requireDart, type Dart } from '../../domain/dart';
 import { DISCOURAGING_REASON_CODES, type RouteGrade } from '../../data/rankingRules';
+import { renderNextVisitProposalPeerJa } from '../../data/explanations';
+import {
+  NEXT_VISIT_PROPOSAL_FACETS,
+  type NextVisitProposalFacet,
+} from '../../domain/reasonCodes';
 import { suggestFor, type Suggestion } from '../recovery/suggest';
 import { rankCheckoutRoutes, type RankedCheckoutRoute } from '../ranking/checkoutRanking';
 import {
@@ -264,23 +269,8 @@ export type ThrowReviewReason =
       readonly disadvantages: readonly ProposalFacet[];
     };
 
-/**
- * NEXT VISIT の提案どうしを比べる観点。
- *
- * - `LEAVE_TIER`: 残しが次ラウンド何本で上がれるか（`nextVisitTierOf`）
- * - `LEAVE_QUALITY`: 残しの質（`evaluateLeave`）
- * - `DIFFICULTY`: いま投げるルートの難易度（`SEGMENT_DIFFICULTY` の合計）
- * - `SINGLE_MISS`: 1 投目が同じナンバーのシングルへ落ちたあと、残りのダーツで作れる残しの Tier
- * - `SAME_TARGET`: 的の切り替え回数
- * - `PREFERRED_DOUBLE`: 残しを上がるダブルの、得意ダブル設定での順位
- */
-export type ProposalFacet =
-  | 'LEAVE_TIER'
-  | 'LEAVE_QUALITY'
-  | 'DIFFICULTY'
-  | 'SINGLE_MISS'
-  | 'SAME_TARGET'
-  | 'PREFERRED_DOUBLE';
+/** NEXT VISIT の提案どうしを比べる観点（定義と意味は `domain/reasonCodes.ts`）。 */
+export type ProposalFacet = NextVisitProposalFacet;
 
 export interface RoundReview {
   readonly round: number;
@@ -1238,59 +1228,27 @@ function checkoutPeerNoteJa(
   );
 }
 
-const PROPOSAL_KIND_JA: Readonly<Record<NextVisitProposalKind, string>> = {
-  'leave-quality': '第 1 案',
-  'preferred-double': '得意ダブルを反映した案',
-  alternative: '同じナンバーを続ける案',
-};
-
-const PROPOSAL_FACET_WORSE_JA: Readonly<Record<ProposalFacet, string>> = {
-  LEAVE_TIER: '次ラウンドで上がりに使う本数は第 1 案の方が少なくて済みます',
-  LEAVE_QUALITY: '残しの質は第 1 案の方が高いです',
-  DIFFICULTY: 'いま投げる難易度は第 1 案の方が低いです',
-  SINGLE_MISS: '同じナンバーのシングルに落ちたときの立て直しは第 1 案の方が良いです',
-  SAME_TARGET: '的の切り替えは第 1 案の方が少ないです',
-  PREFERRED_DOUBLE: '得意ダブルの設定には第 1 案の方が合っています',
-};
-
-const PROPOSAL_FACET_JA: Readonly<Record<ProposalFacet, string>> = {
-  LEAVE_TIER: '次ラウンドで上がりに使う本数が少ない残しを作れます',
-  LEAVE_QUALITY: '残しの質が第 1 案より高いです',
-  DIFFICULTY: 'いま投げる難易度が第 1 案より低いです',
-  SINGLE_MISS: '同じナンバーのシングルに落ちたときの立て直しが第 1 案より良いです',
-  SAME_TARGET: '的を切り替えずに投げられます',
-  PREFERRED_DOUBLE: '得意ダブルで上がれる残しです',
-};
-
-/** 構造化した理由（`NEXT_VISIT_PROPOSAL_NOT_DOMINATED`）から説明文を組み立てる。 */
+/**
+ * 構造化した理由（`NEXT_VISIT_PROPOSAL_NOT_DOMINATED`）から説明文を組み立てる。
+ * 日本語は `data/explanations.ts` で解決し、ここでは表記の変換だけをする。
+ */
 function nextVisitProposalNoteJa(
   intendedLabel: string,
   reason: Extract<ThrowReviewReason, { code: 'NEXT_VISIT_PROPOSAL_NOT_DOMINATED' }>,
 ): string {
-  const route = routeLabelOf(reason.routeDartIds);
-  const primary = routeLabelOf(reason.primaryDartIds);
-  const leave =
-    reason.routeLeave === reason.primaryLeave
-      ? `第 1 案の ${primary} と同じ残り ${reason.routeLeave} を作れます。`
-      : `残り ${reason.routeLeave} を作れます（第 1 案の ${primary} は残り ${reason.primaryLeave}）。`;
-  const good = reason.advantages.map((facet) => PROPOSAL_FACET_JA[facet]).join('。');
-  const bad = reason.disadvantages.map((facet) => PROPOSAL_FACET_WORSE_JA[facet]).join('。');
-  const merits =
-    reason.advantages.length === 0
-      ? '第 1 案と比べて、劣る点はありません。'
-      : reason.disadvantages.length === 0
-        ? `第 1 案と比べて劣る点は無く、${good}。`
-        : `第 1 案とは一長一短です。${good}。一方で、${bad}。`;
-  const rest = reason.routeDartIds.slice(1).map(displayTargetId);
-  return (
-    `${intendedLabel} は、この場面の${PROPOSAL_KIND_JA[reason.proposalKind]}（${route}）の 1 投目です。` +
-    leave +
-    merits +
-    `推奨度 ${reason.grade} は候補の並びの中での相対評価です。` +
-    `${intendedLabel} が狙い通りなら残り ${reason.leaveOnHit} で、` +
-    (rest.length === 0 ? '' : `続けて ${rest.join(' → ')} を狙います`) +
-    `（次の投の狙いは、その投で評価します）。`
-  );
+  return renderNextVisitProposalPeerJa({
+    intendedLabel,
+    proposalKind: reason.proposalKind,
+    routeText: routeLabelOf(reason.routeDartIds),
+    routeLeave: reason.routeLeave,
+    primaryRouteText: routeLabelOf(reason.primaryDartIds),
+    primaryLeave: reason.primaryLeave,
+    grade: reason.grade,
+    leaveOnHit: reason.leaveOnHit,
+    restLabels: reason.routeDartIds.slice(1).map(displayTargetId),
+    advantages: reason.advantages,
+    disadvantages: reason.disadvantages,
+  });
 }
 
 /** 説明文へ出すターゲットの書き方。 */
@@ -1557,14 +1515,7 @@ function proposalFacetsOf(
   };
 }
 
-const PROPOSAL_FACETS: readonly ProposalFacet[] = [
-  'LEAVE_TIER',
-  'LEAVE_QUALITY',
-  'DIFFICULTY',
-  'SINGLE_MISS',
-  'SAME_TARGET',
-  'PREFERRED_DOUBLE',
-];
+const PROPOSAL_FACETS: readonly ProposalFacet[] = NEXT_VISIT_PROPOSAL_FACETS;
 
 /**
  * 第 1 案（`primary`）と別の提案（`other`）を 6 観点で比べる。値は小さいほど良い。
