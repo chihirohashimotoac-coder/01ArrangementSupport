@@ -52,9 +52,9 @@ import {
   isBogey,
 } from '../../domain/checkoutRules';
 import { requireDart } from '../../domain/dart';
-import type { RouteGrade } from '../../data/rankingRules';
+import { DISCOURAGING_REASON_CODES, type RouteGrade } from '../../data/rankingRules';
 import { suggestFor, type Suggestion } from '../recovery/suggest';
-import { rankCheckoutRoutes } from '../ranking/checkoutRanking';
+import { rankCheckoutRoutes, type RankedCheckoutRoute } from '../ranking/checkoutRanking';
 import { displayRouteText, displayTargetId } from './notation';
 import {
   analyzeLastDartSetup,
@@ -213,6 +213,25 @@ export type ThrowReviewReason =
       readonly leaveOnHit: number;
       /** おすすめルートを投げ切ったときの残り。上がるルートなら 0。 */
       readonly routeLeave: number;
+    }
+  /**
+   * CHECKOUT。狙いから始まる上がり方が、おすすめルートと戦術評価で同等以上（v1.4.5）。
+   * 推奨度が B / C でも、おすすめより劣ると示せないので否定的に判定しない。
+   */
+  | {
+      readonly code: 'CHECKOUT_PEER_OF_RECOMMENDED';
+      /** 推奨度（エンジンが付けた値。事実として残す）。 */
+      readonly grade: RouteGrade;
+      /** 狙いから始まる、同等以上の上がり方（内部 ID）。先頭は狙いと同じ。 */
+      readonly routeDartIds: readonly string[];
+      /** おすすめルートの的（内部 ID）。 */
+      readonly recommendedDartIds: readonly string[];
+      readonly leaveOnHit: number;
+      /** 基準ルート加点を除いた戦術スコア（`tacticalScore`）。 */
+      readonly tacticalScore: number;
+      readonly recommendedTacticalScore: number;
+      /** おすすめルートと共通の注意点（非推奨の理由の表示名）。 */
+      readonly sharedCautionLabels: readonly string[];
     };
 
 export interface RoundReview {
@@ -462,6 +481,47 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       noteJa: recommendedFirstDartNoteJa(intendedLabel, best.routeText, reason),
       reason,
     };
+  }
+
+  /*
+   * CHECKOUT で、狙いから始まる上がり方が**おすすめルートと戦術評価で同等以上**なら、
+   * 推奨度 B / C を理由に「もっと良い狙いあり」「見直す」とは言わない（v1.4.5）。
+   *
+   * CHECKOUT の推奨度は、基準ルート加点を除いた戦術スコアの最高値との差と、
+   * 非推奨の理由の有無で付く相対評価で、基準ルートだけは定義上 S になる。
+   * そのため、基準ルート（＝おすすめ）と戦術スコアも注意点も同じ上がり方が C になりうる
+   * （残り 41 / 残り 2 本の S1 → D20 と、おすすめの S9 → D16。どちらも横ズレに弱い）。
+   * そこで C を「不適切」と読むと、同じ欠点を持つルートを勧めながら狙いを否定することになる。
+   *
+   * 合法な上がり方があるだけでは GOOD にしない。次の両方を満たすときだけ。
+   *   1. 戦術スコア（ダブルの質・シングル落ち・横ズレ・本数などの合計）がおすすめ以上
+   *   2. おすすめに無い非推奨の理由を持たない
+   * 満たさなければ従来どおり推奨度で判定する。
+   */
+  if ((grade === 'B' || grade === 'C') && best !== null) {
+    const peer = context.peerOfRecommendedCheckout(record.intendedDartId);
+    if (peer !== null) {
+      const reason: ThrowReviewReason = {
+        code: 'CHECKOUT_PEER_OF_RECOMMENDED',
+        grade,
+        routeDartIds: peer.route.darts.map((dart) => dart.id),
+        recommendedDartIds: best.dartIds,
+        leaveOnHit: intendedLeave,
+        tacticalScore: peer.route.tacticalScore,
+        recommendedTacticalScore: peer.recommended.tacticalScore,
+        sharedCautionLabels: peer.sharedCautionLabels,
+      };
+      return {
+        record,
+        verdict: 'GOOD_DECISION',
+        grade,
+        intendedLeave,
+        recommendedRouteText: best.routeText,
+        recommendedDartId: best.firstDartId,
+        noteJa: checkoutPeerNoteJa(intendedLabel, best.routeText, reason),
+        reason,
+      };
+    }
   }
 
   if (grade === 'B') {
@@ -1064,6 +1124,31 @@ function recommendedFirstDartNoteJa(
   );
 }
 
+/** 構造化した理由（`CHECKOUT_PEER_OF_RECOMMENDED`）から説明文を組み立てる。 */
+function checkoutPeerNoteJa(
+  intendedLabel: string,
+  recommendedText: string,
+  reason: Extract<ThrowReviewReason, { code: 'CHECKOUT_PEER_OF_RECOMMENDED' }>,
+): string {
+  const rest = reason.routeDartIds.slice(1).map(displayTargetId);
+  const follow =
+    rest.length === 0
+      ? `${intendedLabel} が狙い通りに入れば、この 1 投で上がれます。`
+      : `${intendedLabel} が狙い通りなら残り ${reason.leaveOnHit} で、` +
+        `続けて ${rest.join(' → ')} を狙えば上がれます。`;
+  const caution =
+    reason.sharedCautionLabels.length === 0
+      ? ''
+      : `注意点（${reason.sharedCautionLabels.join('・')}）はおすすめと共通です。`;
+  return (
+    `${routeLabelOf(reason.routeDartIds)} で上がる形は、この場面のおすすめ（${recommendedText}）と比べて、` +
+    `アプリの戦術評価（基準ルートの加点を除く）で劣りません。` +
+    `推奨度 ${reason.grade} は候補の並びの中での相対評価です。` +
+    follow +
+    caution
+  );
+}
+
 /** 説明文へ出すターゲットの書き方。 */
 function describeLastDartOption(option: LastDartOption): string {
   const label = displayTargetId(option.dartId);
@@ -1135,6 +1220,17 @@ interface VerdictContext {
   readonly hasBogeyFreeAlternative: boolean;
   /** MY ROUTE の 1 投目（CHECKOUT で得意ダブルを設定しているときだけ）。 */
   readonly myRouteFirstDartId: string | null;
+  /**
+   * 狙いから始まる上がり方のうち、おすすめルート（CHECKOUT の先頭）と
+   * 戦術評価で同等以上のもの。CHECKOUT 以外・該当なしは null。
+   */
+  peerOfRecommendedCheckout(dartId: string): CheckoutPeer | null;
+}
+
+interface CheckoutPeer {
+  readonly route: RankedCheckoutRoute;
+  readonly recommended: RankedCheckoutRoute;
+  readonly sharedCautionLabels: readonly string[];
 }
 
 function contextOf(
@@ -1154,6 +1250,7 @@ function contextOf(
       gradeOfFirstDart: (dartId) => bestGrade(checkoutRoutes, dartId),
       hasBogeyFreeAlternative: true,
       myRouteFirstDartId: myRouteFirstDartOf(remaining, dartsLeft, options),
+      peerOfRecommendedCheckout: (dartId) => peerOfRecommendedCheckout(checkoutRoutes, dartId),
     };
   }
 
@@ -1167,6 +1264,7 @@ function contextOf(
       gradeOfFirstDart: (dartId) => bestGrade(routes, dartId),
       hasBogeyFreeAlternative: routes.some((route) => !isBogey(route.leave)),
       myRouteFirstDartId: null,
+      peerOfRecommendedCheckout: () => null,
     };
   }
 
@@ -1179,6 +1277,7 @@ function contextOf(
       gradeOfFirstDart: (dartId) => bestGrade(setupRoutes, dartId),
       hasBogeyFreeAlternative: setupRoutes.some((route) => !isBogey(route.leave)),
       myRouteFirstDartId: null,
+      peerOfRecommendedCheckout: () => null,
     };
   }
 
@@ -1190,6 +1289,7 @@ function contextOf(
     gradeOfFirstDart: () => null,
     hasBogeyFreeAlternative: false,
     myRouteFirstDartId: null,
+    peerOfRecommendedCheckout: () => null,
   };
 }
 
@@ -1209,6 +1309,42 @@ function myRouteFirstDartOf(
     applyStandardBonus: false,
   });
   return ranked[0]?.darts[0]?.id ?? null;
+}
+
+function discouragingCodesOf(route: RankedCheckoutRoute): readonly string[] {
+  return route.reasons
+    .map((reason) => reason.code as string)
+    .filter((code) => (DISCOURAGING_REASON_CODES as readonly string[]).includes(code));
+}
+
+/**
+ * 狙い `dartId` から始まる上がり方のうち、おすすめルート（一覧の先頭）と比べて
+ *
+ *   1. 戦術スコア（`tacticalScore`。基準ルート加点を除く）が同じか上
+ *   2. おすすめに無い非推奨の理由（`DISCOURAGING_REASON_CODES`）を持たない
+ *
+ * を満たすもの。複数あれば戦術スコアが高いもの、同点なら一覧の順で先のもの。
+ * 狙いがおすすめの 1 投目そのもののときは使わない（`RECOMMENDED_FIRST_DART` が扱う）。
+ */
+function peerOfRecommendedCheckout(
+  routes: readonly RankedCheckoutRoute[],
+  dartId: string,
+): CheckoutPeer | null {
+  const recommended = routes[0];
+  if (recommended === undefined || recommended.darts[0].id === dartId) return null;
+  const allowed = new Set(discouragingCodesOf(recommended));
+  let peer: RankedCheckoutRoute | null = null;
+  for (const route of routes) {
+    if (route.darts[0].id !== dartId) continue;
+    if (route.tacticalScore < recommended.tacticalScore) continue;
+    if (!discouragingCodesOf(route).every((code) => allowed.has(code))) continue;
+    if (peer === null || route.tacticalScore > peer.tacticalScore) peer = route;
+  }
+  if (peer === null) return null;
+  const sharedCautionLabels = peer.reasons
+    .filter((reason) => allowed.has(reason.code))
+    .map((reason) => reason.label);
+  return { route: peer, recommended, sharedCautionLabels };
 }
 
 const GRADE_ORDER: Readonly<Record<RouteGrade, number>> = { S: 3, A: 2, B: 1, C: 0 };

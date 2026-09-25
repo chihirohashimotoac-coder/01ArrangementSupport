@@ -400,6 +400,30 @@ test('残り 178 / 最後の 1 投で S18 を狙うと、T18 を勧められる'
   await expect(round1).toContainText('124');
 });
 
+test('残り 41 / 残り 2 本で S1 を狙い S1 → D20 で上がると、見直すと言われない', async ({ page }) => {
+  /*
+   * 監査報告（P0-1）の実画面の回帰。42 → S1 → S1 → D20 で上がる。
+   * 2 投目の S1 → D20 は、おすすめ S9 → D16 と戦術評価も弱点（横ズレに弱い）も同じ。
+   */
+  await startPerfectGame(page, 42);
+  await page.getByTestId('segment-s1-outer').click();
+  await page.getByTestId('segment-s1-outer').click();
+  await page.getByTestId('segment-d20').click();
+  await page.getByTestId('sim-score-input').fill('42');
+  await page.getByTestId('sim-score-submit').click();
+  await page.getByTestId('sim-next-round').click();
+
+  await expect(page.getByTestId('sim-review')).toBeVisible();
+  await page.getByTestId('sim-all-throws').locator('summary').click();
+  await expect(page.getByTestId('sim-verdict-2')).toContainText('良い判断');
+  await expect(page.getByTestId('sim-verdict-2')).not.toContainText('上がり方を見直す');
+  const round1 = page.getByTestId('sim-round-1');
+  await expect(round1).toContainText('S1 → D20 で上がる形は');
+  await expect(round1).toContainText('S9 → D16');
+  await expect(round1).toContainText('横ズレに弱い');
+  await expect(round1).not.toContainText('この選択は不適切です');
+});
+
 test('設定は端末に残り、次に開いたときも引き継ぐ', async ({ page }) => {
   await page.getByTestId('nav-simulation').click();
   await page.getByTestId('sim-start-301').click();
