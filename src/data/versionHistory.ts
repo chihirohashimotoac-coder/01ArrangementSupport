@@ -24,6 +24,20 @@ export interface VersionHistoryEntry {
 /** 新しい順。先頭が現在の版。 */
 export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
   {
+    label: 'v1.4.4 SIMULATION の振り返りが、おすすめの 1 投目そのものを下げない',
+    date: '2026-09-25',
+    summary:
+      'SIMULATION の振り返りで、アプリのおすすめルートの 1 投目を狙ったのに「もっと良い狙いあり」と判定し、同じ 1 投目をおすすめとして示してしまう矛盾を直しました。CHECKOUT / SETUP / NEXT VISIT / TRAINING の推奨・採点と、SIMULATION の着弾モデルは変更していません。',
+    changes: [
+      '例: 残り 129・残り 2 本で T20 を狙ったとき、「T20 は明確に劣ります。おすすめは T20 → T15」と表示していました。T20 はおすすめの 1 投目なので「良い判断」とし、「狙い通りなら残り 69、続けて T15 を狙えば残り 24」と次の投の続け方を添えます。',
+      '2 投目以降の選び方は、その投を投げたときに評価します。今の 1 投の判断に混ぜません。',
+      '「もっと良い狙いあり」は、別の 1 投目を示せるときだけ使います。',
+      '同じ形の場面は、残り 2 本で T20 を狙った 27 の場面でした（99 / 121〜169 のうち、おすすめが T20 から始まる場面）。それ以外の判定は変わりません。',
+      '得意ダブル（MY ROUTE）を設定している場合は、その設定で表示されるおすすめに沿って説明します。',
+    ],
+    current: true,
+  },
+  {
     label: 'v1.4.3 SIMULATION の振り返りが、シングル落ちと「次のビジットでダブルへ届くまで」を見る',
     date: '2026-09-25',
     summary:
@@ -36,7 +50,6 @@ export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
       '得意ダブル（MY ROUTE）の設定で変わった狙いは、この比較で下げません。',
       '練習画面の NEXT VISIT が勧める狙いでも、振り返りでは「もっと良い狙いあり」になる場面があります（例: 残り 116 の S20 → 96）。NEXT VISIT の提案そのものは変えていません。',
     ],
-    current: true,
   },
   {
     label: 'SIMULATION の振り返りと入力の見直し',
