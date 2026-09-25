@@ -678,6 +678,57 @@ describe('ビジット最後の 1 投: 次のビジットでダブルへ到達�
     expect(result.verdict).not.toBe('SETUP_MISTAKE');
   });
 
+  it('判定の決め手を構造化して返す（日本語を解析しなくてよい）', () => {
+    const last = reviewThrow(record(116, 'S16', 'S16', 3)).reason;
+    expect(last?.code).toBe('LAST_DART_LEAVE_DOMINATED');
+    if (last?.code === 'LAST_DART_LEAVE_DOMINATED') {
+      expect(last.intended).toMatchObject({ leaveOnHit: 100, hitProfile: 'TWO_DART_OTHER' });
+      expect(last.dominating[0]).toMatchObject({
+        dartId: 'T20',
+        leaveOnHit: 56,
+        hitProfile: 'SINGLE_TO_DOUBLE',
+        missDartId: 'S20',
+        leaveOnSingleMiss: 96,
+        missProfile: 'TWO_DART_OTHER',
+      });
+    }
+
+    const setup = reviewThrow(record(243, 'T20', 'S20', 2)).reason;
+    expect(setup?.code).toBe('SETUP_SINGLE_MISS_LOSES_TENPAI');
+    if (setup?.code === 'SETUP_SINGLE_MISS_LOSES_TENPAI') {
+      expect(setup).toMatchObject({ leaveOnHit: 183, dartsAfter: 1, missDartId: 'S20', leaveOnSingleMiss: 223 });
+      expect(setup.alternatives[0]).toMatchObject({ dartId: 'T19', leaveOnSingleMiss: 224 });
+      expect(setup.recoveryExamples.map((item) => item.leave)).toEqual([164, 167, 170]);
+    }
+
+    const mistake = reviewThrow(record(301, 'S1', 'S1')).reason;
+    expect(mistake?.code).toBe('SETUP_HIT_CANNOT_REACH_TENPAI');
+
+    // 従来の経路は理由コードを持たない（説明文だけ）。
+    expect(reviewThrow(record(178, 'T19', 'S19', 3)).reason).toBeUndefined();
+  });
+
+  it('代案がシングル狙いでも、説明文に読点だけが残らない（60 / 残り 1 本の S1）', () => {
+    // 回帰テスト（Codex レビュー P2）: 「S20 なら狙い通り 40（…）、で、」になっていた。
+    const result = reviewThrow(record(60, 'S1', 'S1', 3));
+    expect(result.verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(result.noteJa).toContain('S20 なら狙い通り 40');
+    expect(result.noteJa).not.toContain('）、で');
+    expect(result.noteJa).not.toContain('、で、');
+  });
+
+  it('上位互換の説明文は、2〜170 のどれでも読点の重なりを作らない', () => {
+    const broken: string[] = [];
+    for (let left = 2; left <= 170; left += 1) {
+      for (const option of analyzeLastDartSetup(left).tenpaiTargets) {
+        const result = reviewThrow(record(left, option.dartId, 'MISS', 3));
+        if (result.reason?.code !== 'LAST_DART_LEAVE_DOMINATED') continue;
+        if (/、で|、、|（）/.test(result.noteJa)) broken.push(`${left}: ${option.dartId}`);
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
   it('116 / 残り 1 本の T20・T19 は GOOD DECISION', () => {
     for (const id of ['T20', 'T19']) {
       expect(reviewThrow(record(116, id, 'MISS', 3)).verdict).toBe('GOOD_DECISION');

@@ -66,8 +66,13 @@ import {
   dominatesLeavePair,
   nextVisitLeaveProfileOf,
   type LeaveProfile,
+  type LeaveProfileKind,
 } from './leaveProfile';
-import { analyzeSetupRecovery, lastDartTenpaiExamples } from './setupRecovery';
+import {
+  analyzeSetupRecovery,
+  lastDartTenpaiExamples,
+  type SetupRecoveryFacts,
+} from './setupRecovery';
 import {
   allThrows,
   roundScoreOf,
@@ -147,7 +152,54 @@ export interface ThrowReview {
   readonly recommendedDartId: string | null;
   /** なぜそう判断したかの説明。 */
   readonly noteJa: string;
+  /**
+   * 判定の決め手を構造化したもの（v1.4.3 の経路だけ）。
+   * 集計・テストで日本語を解析しなくて済むよう、数値と的の ID で持つ。
+   * `noteJa` はこの値から組み立てる。
+   */
+  readonly reason?: ThrowReviewReason;
 }
+
+/** 代わりに示す的と、その狙い通り / シングル落ちの残り。 */
+export interface ReviewAlternative {
+  readonly dartId: string;
+  readonly leaveOnHit: number;
+  /** 同ナンバーのシングル（内部 ID）。BULL エリアは null。 */
+  readonly missDartId: string | null;
+  readonly leaveOnSingleMiss: number | null;
+}
+
+/** 残し 1 つぶんの Next Visit Leave Profile 付きの見立て。 */
+export interface ProfiledAlternative extends ReviewAlternative {
+  readonly hitProfile: LeaveProfileKind;
+  readonly missProfile: LeaveProfileKind;
+}
+
+export type ThrowReviewReason =
+  /** SETUP・残り 2 本以上。狙い通りでも残りのダーツでテンパイを作れない。 */
+  | {
+      readonly code: 'SETUP_HIT_CANNOT_REACH_TENPAI';
+      readonly leaveOnHit: number;
+      readonly dartsAfter: number;
+      readonly alternatives: readonly ReviewAlternative[];
+    }
+  /** SETUP・残り 2 本以上。同ナンバーのシングルへ落ちるとテンパイを作れない。 */
+  | {
+      readonly code: 'SETUP_SINGLE_MISS_LOSES_TENPAI';
+      readonly leaveOnHit: number;
+      readonly dartsAfter: number;
+      readonly missDartId: string;
+      readonly leaveOnSingleMiss: number;
+      readonly alternatives: readonly ReviewAlternative[];
+      /** 先頭の代案がシングルへ落ちたあと、残り 1 本で作れるテンパイの例。 */
+      readonly recoveryExamples: readonly { readonly dartId: string; readonly leave: number }[];
+    }
+  /** ビジット最後の 1 投。Next Visit Leave Profile で明確な上位互換の的がある。 */
+  | {
+      readonly code: 'LAST_DART_LEAVE_DOMINATED';
+      readonly intended: ProfiledAlternative;
+      readonly dominating: readonly ProfiledAlternative[];
+    };
 
 export interface RoundReview {
   readonly round: number;
@@ -570,10 +622,16 @@ function lastDartSetupReview(
   ) {
     const dominating = dominatingLastDartOptionsOf(analysis, option);
     if (dominating.length > 0) {
+      const reason: ThrowReviewReason = {
+        code: 'LAST_DART_LEAVE_DOMINATED',
+        intended: profiledAlternativeOf(option),
+        dominating: dominating.map(profiledAlternativeOf),
+      };
       return {
         ...base,
         verdict: 'BETTER_OPTION_AVAILABLE',
-        noteJa: dominatedLeaveNoteJa(intendedLabel, option, dominating),
+        noteJa: dominatedLeaveNoteJa(intendedLabel, reason),
+        reason,
       };
     }
   }
@@ -741,38 +799,58 @@ function leaveProfilePhraseJa(profile: LeaveProfile): string {
   }
 }
 
+function profiledAlternativeOf(option: LastDartOption): ProfiledAlternative {
+  const pair = leavePairOf(option)!;
+  return {
+    dartId: option.dartId,
+    leaveOnHit: option.leaveOnHit,
+    missDartId: option.dart.baseNumber === null ? null : `S${option.dart.baseNumber}`,
+    leaveOnSingleMiss: option.leaveOnSingleMiss,
+    hitProfile: pair.hit.kind,
+    missProfile: pair.miss.kind,
+  };
+}
+
+/** 構造化した理由（`LAST_DART_LEAVE_DOMINATED`）から説明文を組み立てる。 */
 function dominatedLeaveNoteJa(
   intendedLabel: string,
-  option: LastDartOption,
-  dominating: readonly LastDartOption[],
+  reason: Extract<ThrowReviewReason, { code: 'LAST_DART_LEAVE_DOMINATED' }>,
 ): string {
-  const own = leavePairOf(option)!;
-  const [first, ...rest] = dominating;
-  const firstPair = leavePairOf(first)!;
-  const firstMissLabel = displayTargetId(`S${first.dart.baseNumber}`);
+  const phrase = (leave: number) => leaveProfilePhraseJa(nextVisitLeaveProfileOf(leave));
+  const own = reason.intended;
+  const [first, ...rest] = reason.dominating;
 
   const ownMiss =
-    option.leaveOnSingleMiss === option.leaveOnHit
+    own.leaveOnSingleMiss === own.leaveOnHit || own.leaveOnSingleMiss === null
       ? ''
-      : `同じナンバーのシングルに落ちると残り ${option.leaveOnSingleMiss}（${leaveProfilePhraseJa(own.miss)}）です。`;
+      : `同じナンバーのシングルに落ちると残り ${own.leaveOnSingleMiss}（${phrase(own.leaveOnSingleMiss)}）です。`;
+  /*
+   * シングル狙いの代案は、狙い通りとシングル落ちが同じ残りになる。
+   * 落ちた場合の句を出さないときに、読点だけが残らないようにする。
+   */
+  const firstMiss =
+    first.leaveOnSingleMiss === first.leaveOnHit ||
+    first.leaveOnSingleMiss === null ||
+    first.missDartId === null
+      ? ''
+      : `、${displayTargetId(first.missDartId)} に落ちても ${first.leaveOnSingleMiss}` +
+        `（${phrase(first.leaveOnSingleMiss)}）`;
   const others = rest
     .slice(0, 1)
-    .map(
-      (item) =>
-        `${displayTargetId(item.dartId)}（狙い通り ${item.leaveOnHit}・` +
-        `${displayTargetId(`S${item.dart.baseNumber}`)} でも ${item.leaveOnSingleMiss}）も同じく上位互換です。`,
+    .map((item) =>
+      item.leaveOnSingleMiss === item.leaveOnHit || item.missDartId === null
+        ? `${displayTargetId(item.dartId)}（狙い通り ${item.leaveOnHit}）も同じく上位互換です。`
+        : `${displayTargetId(item.dartId)}（狙い通り ${item.leaveOnHit}・` +
+          `${displayTargetId(item.missDartId)} でも ${item.leaveOnSingleMiss}）も同じく上位互換です。`,
     )
     .join('');
 
   return (
     `成立はしますが、もっと実戦的な狙いがあります。${intendedLabel} は狙い通りなら残り ` +
-    `${option.leaveOnHit}（${leaveProfilePhraseJa(own.hit)}）で、次のラウンドに 3 本で Checkout はできます。` +
+    `${own.leaveOnHit}（${phrase(own.leaveOnHit)}）で、次のラウンドに 3 本で Checkout はできます。` +
     ownMiss +
-    `${displayTargetId(first.dartId)} なら狙い通り ${first.leaveOnHit}` +
-    `（${leaveProfilePhraseJa(firstPair.hit)}）、` +
-    (first.leaveOnSingleMiss === first.leaveOnHit
-      ? ''
-      : `${firstMissLabel} に落ちても ${first.leaveOnSingleMiss}（${leaveProfilePhraseJa(firstPair.miss)}）`) +
+    `${displayTargetId(first.dartId)} なら狙い通り ${first.leaveOnHit}（${phrase(first.leaveOnHit)}）` +
+    firstMiss +
     `で、次のビジットでダブルへ近づけます。` +
     others
   );
@@ -820,7 +898,6 @@ function setupRecoveryReview(
   const analysis = analyzeSetupRecovery(left, intended, dartsLeft);
   const facts = analysis.intended;
   const restDarts = dartsLeft - 1;
-  const restText = restDarts === 1 ? '最後の 1 本' : `残り ${restDarts} 本`;
   const base = {
     record,
     grade: null,
@@ -829,57 +906,96 @@ function setupRecoveryReview(
     recommendedDartId: best?.firstDartId ?? null,
   };
 
+  const toAlternative = (item: SetupRecoveryFacts): ReviewAlternative => ({
+    dartId: item.dart.id,
+    leaveOnHit: item.leaveOnHit ?? 0,
+    missDartId: item.dart.baseNumber === null ? null : `S${item.dart.baseNumber}`,
+    leaveOnSingleMiss: item.leaveOnSingleMiss,
+  });
+
   if (!facts.hitCanReachTenpai) {
     if (analysis.hitAlternatives.length === 0) return null;
-    const examples = (
-      analysis.safeAlternatives.length > 0 ? analysis.safeAlternatives : analysis.hitAlternatives
-    )
-      .slice(0, 2)
-      .map((item) => `${displayTargetId(item.dart.id)}（狙い通り ${item.leaveOnHit}）`)
-      .join('や ');
-    return {
-      ...base,
-      verdict: 'SETUP_MISTAKE',
-      noteJa:
-        `この選択は不適切です。${intendedLabel} は狙い通りに入っても残り ${intendedLeave} で、` +
-        `${restText}では次のビジットに 3 本で Checkout できる数字（テンパイ）を作れません。` +
-        `${examples}なら、狙い通りに入れば${restText}でテンパイを作れます。`,
+    const reason: ThrowReviewReason = {
+      code: 'SETUP_HIT_CANNOT_REACH_TENPAI',
+      leaveOnHit: intendedLeave,
+      dartsAfter: restDarts,
+      alternatives: (analysis.safeAlternatives.length > 0
+        ? analysis.safeAlternatives
+        : analysis.hitAlternatives
+      )
+        .slice(0, 2)
+        .map(toAlternative),
     };
+    return { ...base, verdict: 'SETUP_MISTAKE', noteJa: setupRecoveryNoteJa(intendedLabel, reason), reason };
   }
 
   if (facts.singleMissCanReachTenpai || facts.leaveOnSingleMiss === null) return null;
-  const [alternative, second] = analysis.safeAlternatives;
+  const [alternative] = analysis.safeAlternatives;
   if (alternative === undefined) return null;
 
-  const missLabel = displayTargetId(`S${intended.baseNumber}`);
-  const altLabel = displayTargetId(alternative.dart.id);
-  const altMissLabel = displayTargetId(`S${alternative.dart.baseNumber}`);
-  const examples =
-    restDarts === 1 && alternative.leaveOnSingleMiss !== null
-      ? lastDartTenpaiExamples(alternative.leaveOnSingleMiss)
-          .map((item) => `${displayTargetId(item.dartId)} → ${item.leave}`)
-          .join('、')
-      : '';
-  const altRecovery =
-    alternative.dart.kind === 'single'
-      ? `${altLabel} なら残り ${alternative.leaveOnHit} で、${restText}でテンパイを作れます。`
-      : `${altLabel} なら ${altMissLabel} に落ちても残り ${alternative.leaveOnSingleMiss} で、` +
-        `${restText}で${examples === '' ? '' : `${examples} など`}テンパイを作れます。`;
-  const secondNote =
-    second === undefined
-      ? ''
-      : `${displayTargetId(second.dart.id)} も同じ条件を満たします。`;
-
+  const reason: ThrowReviewReason = {
+    code: 'SETUP_SINGLE_MISS_LOSES_TENPAI',
+    leaveOnHit: intendedLeave,
+    dartsAfter: restDarts,
+    missDartId: `S${intended.baseNumber}`,
+    leaveOnSingleMiss: facts.leaveOnSingleMiss,
+    alternatives: analysis.safeAlternatives.slice(0, 2).map(toAlternative),
+    recoveryExamples:
+      restDarts === 1 && alternative.leaveOnSingleMiss !== null
+        ? lastDartTenpaiExamples(alternative.leaveOnSingleMiss)
+        : [],
+  };
   return {
     ...base,
     verdict: 'BETTER_OPTION_AVAILABLE',
-    noteJa:
-      `成立はしますが、もっと良い狙いがあります。${intendedLabel} は狙い通りなら残り ${intendedLeave} で、` +
-      `${restText}でテンパイを作れます。ただし ${missLabel} に落ちると残り ${facts.leaveOnSingleMiss} となり、` +
-      `${restText}では次のビジットに 3 本で Checkout できる数字を作れません。` +
-      altRecovery +
-      secondNote,
+    noteJa: setupRecoveryNoteJa(intendedLabel, reason),
+    reason,
   };
+}
+
+/** 構造化した理由（SETUP・残り 2 本以上）から説明文を組み立てる。 */
+function setupRecoveryNoteJa(
+  intendedLabel: string,
+  reason: Extract<
+    ThrowReviewReason,
+    { code: 'SETUP_HIT_CANNOT_REACH_TENPAI' | 'SETUP_SINGLE_MISS_LOSES_TENPAI' }
+  >,
+): string {
+  const restText = reason.dartsAfter === 1 ? '最後の 1 本' : `残り ${reason.dartsAfter} 本`;
+
+  if (reason.code === 'SETUP_HIT_CANNOT_REACH_TENPAI') {
+    const examples = reason.alternatives
+      .map((item) => `${displayTargetId(item.dartId)}（狙い通り ${item.leaveOnHit}）`)
+      .join('や ');
+    return (
+      `この選択は不適切です。${intendedLabel} は狙い通りに入っても残り ${reason.leaveOnHit} で、` +
+      `${restText}では次のビジットに 3 本で Checkout できる数字（テンパイ）を作れません。` +
+      `${examples}なら、狙い通りに入れば${restText}でテンパイを作れます。`
+    );
+  }
+
+  const [alternative, second] = reason.alternatives;
+  const altLabel = displayTargetId(alternative.dartId);
+  const examples = reason.recoveryExamples
+    .map((item) => `${displayTargetId(item.dartId)} → ${item.leave}`)
+    .join('、');
+  const altRecovery =
+    alternative.missDartId === null || alternative.leaveOnSingleMiss === alternative.leaveOnHit
+      ? `${altLabel} なら残り ${alternative.leaveOnHit} で、${restText}でテンパイを作れます。`
+      : `${altLabel} なら ${displayTargetId(alternative.missDartId)} に落ちても残り ` +
+        `${alternative.leaveOnSingleMiss} で、${restText}で${examples === '' ? '' : `${examples} など`}` +
+        `テンパイを作れます。`;
+  const secondNote =
+    second === undefined ? '' : `${displayTargetId(second.dartId)} も同じ条件を満たします。`;
+
+  return (
+    `成立はしますが、もっと良い狙いがあります。${intendedLabel} は狙い通りなら残り ${reason.leaveOnHit} で、` +
+    `${restText}でテンパイを作れます。ただし ${displayTargetId(reason.missDartId)} に落ちると残り ` +
+    `${reason.leaveOnSingleMiss} となり、` +
+    `${restText}では次のビジットに 3 本で Checkout できる数字を作れません。` +
+    altRecovery +
+    secondNote
+  );
 }
 
 /** 説明文へ出すターゲットの書き方。 */
