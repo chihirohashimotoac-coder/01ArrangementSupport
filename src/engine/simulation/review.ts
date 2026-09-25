@@ -51,10 +51,18 @@ import {
   applyDart,
   isBogey,
 } from '../../domain/checkoutRules';
-import { requireDart } from '../../domain/dart';
+import { findDart, requireDart, type Dart } from '../../domain/dart';
 import { DISCOURAGING_REASON_CODES, type RouteGrade } from '../../data/rankingRules';
 import { suggestFor, type Suggestion } from '../recovery/suggest';
 import { rankCheckoutRoutes, type RankedCheckoutRoute } from '../ranking/checkoutRanking';
+import {
+  buildNextVisitCandidates,
+  nextVisitTierOf,
+  type NextVisitProposal,
+  type NextVisitProposalKind,
+} from '../recovery/nextVisitSelection';
+import { evaluateLeave } from '../setup/leaveQuality';
+import { difficultyOf, targetKeyOf } from '../setup/sequences';
 import { displayRouteText, displayTargetId } from './notation';
 import {
   analyzeLastDartSetup,
@@ -232,7 +240,47 @@ export type ThrowReviewReason =
       readonly recommendedTacticalScore: number;
       /** おすすめルートと共通の注意点（非推奨の理由の表示名）。 */
       readonly sharedCautionLabels: readonly string[];
+    }
+  /**
+   * NEXT VISIT。狙いが第 1 案以外の提案の 1 投目で、第 1 案がその提案の
+   * 明確な上位互換になっていない（v1.4.6）。
+   */
+  | {
+      readonly code: 'NEXT_VISIT_PROPOSAL_NOT_DOMINATED';
+      /** 推奨度（エンジンが付けた値。事実として残す）。 */
+      readonly grade: RouteGrade;
+      /** その提案の種類（承認済みセレクタが付けたもの）。 */
+      readonly proposalKind: NextVisitProposalKind;
+      /** その提案の的（内部 ID）。先頭は狙いと同じ。 */
+      readonly routeDartIds: readonly string[];
+      readonly routeLeave: number;
+      /** 第 1 案の的（内部 ID）。 */
+      readonly primaryDartIds: readonly string[];
+      readonly primaryLeave: number;
+      readonly leaveOnHit: number;
+      /** 第 1 案より良い観点（第 1 案と同等なら空）。 */
+      readonly advantages: readonly ProposalFacet[];
+      /** 第 1 案より劣る観点（一長一短のときだけ。良い観点が 1 つも無ければ否定判定のまま）。 */
+      readonly disadvantages: readonly ProposalFacet[];
     };
+
+/**
+ * NEXT VISIT の提案どうしを比べる観点。
+ *
+ * - `LEAVE_TIER`: 残しが次ラウンド何本で上がれるか（`nextVisitTierOf`）
+ * - `LEAVE_QUALITY`: 残しの質（`evaluateLeave`）
+ * - `DIFFICULTY`: いま投げるルートの難易度（`SEGMENT_DIFFICULTY` の合計）
+ * - `SINGLE_MISS`: 1 投目が同じナンバーのシングルへ落ちたあと、残りのダーツで作れる残しの Tier
+ * - `SAME_TARGET`: 的の切り替え回数
+ * - `PREFERRED_DOUBLE`: 残しを上がるダブルの、得意ダブル設定での順位
+ */
+export type ProposalFacet =
+  | 'LEAVE_TIER'
+  | 'LEAVE_QUALITY'
+  | 'DIFFICULTY'
+  | 'SINGLE_MISS'
+  | 'SAME_TARGET'
+  | 'PREFERRED_DOUBLE';
 
 export interface RoundReview {
   readonly round: number;
@@ -519,6 +567,47 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
         recommendedRouteText: best.routeText,
         recommendedDartId: best.firstDartId,
         noteJa: checkoutPeerNoteJa(intendedLabel, best.routeText, reason),
+        reason,
+      };
+    }
+  }
+
+  /*
+   * NEXT VISIT（上がれない場面）で、狙いが**第 1 案以外の提案**の 1 投目なら、
+   * 第 1 案がその提案の明確な上位互換になっていない限り否定しない（v1.4.6）。
+   *
+   * 提案の推奨度は通常 SETUP ランキングの最高スコアとの差で付く（A-23 と同じ事情）。
+   * 残り 122 / 残り 2 本の第 2 案 `T15 → T15` は、第 1 案 `T20 → T10` と同じ 32 を残し、
+   * 的を切り替えずに投げられるのに、推奨度 B を理由に「明確に劣ります」と判定していた。
+   *
+   * 提案だから GOOD、にはしない。第 1 案が「残しの Tier・残しの質・難易度・
+   * シングル落ち後・的の切り替え・得意ダブル」のすべてで同じか上で、どれかで上なら
+   * 従来どおり推奨度で判定する（`nextVisitProposalPeerOf`）。
+   * ビジット最後の 1 投（得意ダブルとの競合を含む）はこの比較の対象外。
+   */
+  if ((grade === 'B' || grade === 'C') && best !== null && dartsLeft >= 2) {
+    const peer = context.nextVisitProposalPeerOf(record.intendedDartId);
+    if (peer !== null) {
+      const reason: ThrowReviewReason = {
+        code: 'NEXT_VISIT_PROPOSAL_NOT_DOMINATED',
+        grade,
+        proposalKind: peer.proposal.kind,
+        routeDartIds: peer.proposal.route.darts.map((dart) => dart.id),
+        routeLeave: peer.proposal.route.leave,
+        primaryDartIds: peer.primary.route.darts.map((dart) => dart.id),
+        primaryLeave: peer.primary.route.leave,
+        leaveOnHit: intendedLeave,
+        advantages: peer.advantages,
+        disadvantages: peer.disadvantages,
+      };
+      return {
+        record,
+        verdict: 'GOOD_DECISION',
+        grade,
+        intendedLeave,
+        recommendedRouteText: best.routeText,
+        recommendedDartId: best.firstDartId,
+        noteJa: nextVisitProposalNoteJa(intendedLabel, reason),
         reason,
       };
     }
@@ -1149,6 +1238,61 @@ function checkoutPeerNoteJa(
   );
 }
 
+const PROPOSAL_KIND_JA: Readonly<Record<NextVisitProposalKind, string>> = {
+  'leave-quality': '第 1 案',
+  'preferred-double': '得意ダブルを反映した案',
+  alternative: '同じナンバーを続ける案',
+};
+
+const PROPOSAL_FACET_WORSE_JA: Readonly<Record<ProposalFacet, string>> = {
+  LEAVE_TIER: '次ラウンドで上がりに使う本数は第 1 案の方が少なくて済みます',
+  LEAVE_QUALITY: '残しの質は第 1 案の方が高いです',
+  DIFFICULTY: 'いま投げる難易度は第 1 案の方が低いです',
+  SINGLE_MISS: '同じナンバーのシングルに落ちたときの立て直しは第 1 案の方が良いです',
+  SAME_TARGET: '的の切り替えは第 1 案の方が少ないです',
+  PREFERRED_DOUBLE: '得意ダブルの設定には第 1 案の方が合っています',
+};
+
+const PROPOSAL_FACET_JA: Readonly<Record<ProposalFacet, string>> = {
+  LEAVE_TIER: '次ラウンドで上がりに使う本数が少ない残しを作れます',
+  LEAVE_QUALITY: '残しの質が第 1 案より高いです',
+  DIFFICULTY: 'いま投げる難易度が第 1 案より低いです',
+  SINGLE_MISS: '同じナンバーのシングルに落ちたときの立て直しが第 1 案より良いです',
+  SAME_TARGET: '的を切り替えずに投げられます',
+  PREFERRED_DOUBLE: '得意ダブルで上がれる残しです',
+};
+
+/** 構造化した理由（`NEXT_VISIT_PROPOSAL_NOT_DOMINATED`）から説明文を組み立てる。 */
+function nextVisitProposalNoteJa(
+  intendedLabel: string,
+  reason: Extract<ThrowReviewReason, { code: 'NEXT_VISIT_PROPOSAL_NOT_DOMINATED' }>,
+): string {
+  const route = routeLabelOf(reason.routeDartIds);
+  const primary = routeLabelOf(reason.primaryDartIds);
+  const leave =
+    reason.routeLeave === reason.primaryLeave
+      ? `第 1 案の ${primary} と同じ残り ${reason.routeLeave} を作れます。`
+      : `残り ${reason.routeLeave} を作れます（第 1 案の ${primary} は残り ${reason.primaryLeave}）。`;
+  const good = reason.advantages.map((facet) => PROPOSAL_FACET_JA[facet]).join('。');
+  const bad = reason.disadvantages.map((facet) => PROPOSAL_FACET_WORSE_JA[facet]).join('。');
+  const merits =
+    reason.advantages.length === 0
+      ? '第 1 案と比べて、劣る点はありません。'
+      : reason.disadvantages.length === 0
+        ? `第 1 案と比べて劣る点は無く、${good}。`
+        : `第 1 案とは一長一短です。${good}。一方で、${bad}。`;
+  const rest = reason.routeDartIds.slice(1).map(displayTargetId);
+  return (
+    `${intendedLabel} は、この場面の${PROPOSAL_KIND_JA[reason.proposalKind]}（${route}）の 1 投目です。` +
+    leave +
+    merits +
+    `推奨度 ${reason.grade} は候補の並びの中での相対評価です。` +
+    `${intendedLabel} が狙い通りなら残り ${reason.leaveOnHit} で、` +
+    (rest.length === 0 ? '' : `続けて ${rest.join(' → ')} を狙います`) +
+    `（次の投の狙いは、その投で評価します）。`
+  );
+}
+
 /** 説明文へ出すターゲットの書き方。 */
 function describeLastDartOption(option: LastDartOption): string {
   const label = displayTargetId(option.dartId);
@@ -1225,6 +1369,18 @@ interface VerdictContext {
    * 戦術評価で同等以上のもの。CHECKOUT 以外・該当なしは null。
    */
   peerOfRecommendedCheckout(dartId: string): CheckoutPeer | null;
+  /**
+   * 狙いを 1 投目に持つ、第 1 案以外の NEXT VISIT 提案のうち、
+   * 第 1 案に明確な上位互換を取られていないもの。NEXT VISIT 以外・該当なしは null。
+   */
+  nextVisitProposalPeerOf(dartId: string): NextVisitProposalPeer | null;
+}
+
+interface NextVisitProposalPeer {
+  readonly proposal: NextVisitProposal;
+  readonly primary: NextVisitProposal;
+  readonly advantages: readonly ProposalFacet[];
+  readonly disadvantages: readonly ProposalFacet[];
 }
 
 interface CheckoutPeer {
@@ -1251,6 +1407,7 @@ function contextOf(
       hasBogeyFreeAlternative: true,
       myRouteFirstDartId: myRouteFirstDartOf(remaining, dartsLeft, options),
       peerOfRecommendedCheckout: (dartId) => peerOfRecommendedCheckout(checkoutRoutes, dartId),
+      nextVisitProposalPeerOf: () => null,
     };
   }
 
@@ -1265,6 +1422,8 @@ function contextOf(
       hasBogeyFreeAlternative: routes.some((route) => !isBogey(route.leave)),
       myRouteFirstDartId: null,
       peerOfRecommendedCheckout: () => null,
+      nextVisitProposalPeerOf: (dartId) =>
+        nextVisitProposalPeerOf(nextVisitProposals, dartId, remaining, dartsLeft, options),
     };
   }
 
@@ -1278,6 +1437,7 @@ function contextOf(
       hasBogeyFreeAlternative: setupRoutes.some((route) => !isBogey(route.leave)),
       myRouteFirstDartId: null,
       peerOfRecommendedCheckout: () => null,
+      nextVisitProposalPeerOf: () => null,
     };
   }
 
@@ -1290,6 +1450,7 @@ function contextOf(
     hasBogeyFreeAlternative: false,
     myRouteFirstDartId: null,
     peerOfRecommendedCheckout: () => null,
+    nextVisitProposalPeerOf: () => null,
   };
 }
 
@@ -1345,6 +1506,109 @@ function peerOfRecommendedCheckout(
     .filter((reason) => allowed.has(reason.code))
     .map((reason) => reason.label);
   return { route: peer, recommended, sharedCautionLabels };
+}
+
+const TIER_RANKS = ['A', 'B', 'C', 'D', 'E'] as const;
+
+/** Tier の順位（小さいほど良い）。上がれない残しは最下位。 */
+function tierRankOf(leave: number): number {
+  const tier = nextVisitTierOf(leave);
+  return tier === null ? TIER_RANKS.length : TIER_RANKS.indexOf(tier);
+}
+
+/**
+ * 1 投目が同じナンバーのシングルへ落ちたあと、残りのダーツで作れる最良の残しの Tier 順位。
+ * シングル・BULL を狙う 1 投目は「同じナンバーのシングルへ落ちる」外れ方が無いので -1（最良）。
+ */
+function singleMissTierRankOf(left: number, first: Dart, dartsLeft: number): number {
+  if (first.kind === 'single' || first.baseNumber === null) return -1;
+  const miss = findDart(`S${first.baseNumber}`);
+  if (miss === undefined) return -1;
+  const after = left - miss.score;
+  const rest = dartsLeft - 1;
+  if (after < 2) return TIER_RANKS.length;
+  if (rest === 0) return tierRankOf(after);
+  const candidates = buildNextVisitCandidates(after, rest);
+  if (candidates.length === 0) return TIER_RANKS.length;
+  return Math.min(...candidates.map((candidate) => TIER_RANKS.indexOf(candidate.tier)));
+}
+
+/** 観点ごとの値。どれも**小さいほど良い**向きにそろえる。 */
+function proposalFacetsOf(
+  proposal: NextVisitProposal,
+  left: number,
+  dartsLeft: number,
+  preferredDoubles: readonly string[],
+): Readonly<Record<ProposalFacet, number>> {
+  const { darts, leave } = proposal.route;
+  let switches = 0;
+  for (let i = 1; i < darts.length; i += 1) {
+    if (targetKeyOf(darts[i]) !== targetKeyOf(darts[i - 1])) switches += 1;
+  }
+  const finish = leave % 2 === 0 && leave >= 2 && leave <= 40 ? `D${leave / 2}` : null;
+  const preference = finish === null ? -1 : preferredDoubles.indexOf(finish);
+  return {
+    LEAVE_TIER: tierRankOf(leave),
+    LEAVE_QUALITY: -evaluateLeave(leave).score,
+    DIFFICULTY: darts.reduce((sum, dart) => sum + difficultyOf(dart), 0),
+    SINGLE_MISS: singleMissTierRankOf(left, darts[0], dartsLeft),
+    SAME_TARGET: switches,
+    PREFERRED_DOUBLE: preference < 0 ? Number.MAX_SAFE_INTEGER : preference,
+  };
+}
+
+const PROPOSAL_FACETS: readonly ProposalFacet[] = [
+  'LEAVE_TIER',
+  'LEAVE_QUALITY',
+  'DIFFICULTY',
+  'SINGLE_MISS',
+  'SAME_TARGET',
+  'PREFERRED_DOUBLE',
+];
+
+/**
+ * 第 1 案（`primary`）と別の提案（`other`）を 6 観点で比べる。値は小さいほど良い。
+ *
+ * `dominated` は「第 1 案が明確な上位互換」= 別の提案が良い観点が 1 つも無く、
+ * 劣る観点が 1 つ以上あること。すべて同じなら上位互換ではない。
+ */
+export function compareProposalFacets(
+  primary: Readonly<Record<ProposalFacet, number>>,
+  other: Readonly<Record<ProposalFacet, number>>,
+): { readonly better: ProposalFacet[]; readonly worse: ProposalFacet[]; readonly dominated: boolean } {
+  const better = PROPOSAL_FACETS.filter((facet) => other[facet] < primary[facet]);
+  const worse = PROPOSAL_FACETS.filter((facet) => other[facet] > primary[facet]);
+  return { better, worse, dominated: better.length === 0 && worse.length > 0 };
+}
+
+/**
+ * 狙い `dartId` を 1 投目に持つ、第 1 案以外の NEXT VISIT 提案のうち、
+ * 第 1 案に**明確な上位互換**を取られていないもの（v1.4.6）。
+ *
+ * 明確な上位互換 = 第 1 案が 6 観点（`ProposalFacet`）のすべてで同じか上で、
+ * どれか 1 つで上。1 つでも第 1 案より良い観点があるか、すべて同じなら否定しない。
+ * 提案の生成・順位（承認済みセレクタ）はここでは変えない。
+ */
+function nextVisitProposalPeerOf(
+  proposals: readonly NextVisitProposal[],
+  dartId: string,
+  left: number,
+  dartsLeft: number,
+  options: ReviewOptions,
+): NextVisitProposalPeer | null {
+  const primary = proposals[0];
+  if (primary === undefined || primary.route.darts[0]?.id === dartId) return null;
+  const preferred = options.preferredDoubles ?? [];
+  const own = proposalFacetsOf(primary, left, dartsLeft, preferred);
+  for (const proposal of proposals.slice(1)) {
+    if (proposal.route.darts[0]?.id !== dartId) continue;
+    const { better, worse, dominated } = compareProposalFacets(
+      own,
+      proposalFacetsOf(proposal, left, dartsLeft, preferred),
+    );
+    if (!dominated) return { proposal, primary, advantages: better, disadvantages: worse };
+  }
+  return null;
 }
 
 const GRADE_ORDER: Readonly<Record<RouteGrade, number>> = { S: 3, A: 2, B: 1, C: 0 };

@@ -23,6 +23,7 @@ import {
   THROW_VERDICT_HINT_JA,
   THROW_VERDICT_JA,
   buildGameReview,
+  compareProposalFacets,
   reviewThrow,
 } from './review';
 
@@ -896,9 +897,9 @@ describe('振り返りの自己矛盾を作らない: おすすめの 1 投目�
     expect(result.recommendedDartId).toBe(best);
     expect(result.recommendedDartId).not.toBe(dartId);
 
-    // NEXT VISIT でも、第 1 候補と別の 1 投目なら従来どおり（122 / 残り 2 本の T15）。
+    // NEXT VISIT の第 2 案（122 / 残り 2 本の T15）は v1.4.6 で扱う。おすすめ自体は T20 のまま。
     const other = reviewThrow(record(122, 'T15', 'T15', 2));
-    expect(other.verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(other.reason?.code).toBe('NEXT_VISIT_PROPOSAL_NOT_DOMINATED');
     expect(other.recommendedDartId).toBe('T20');
   });
 
@@ -1048,8 +1049,10 @@ describe('CHECKOUT: おすすめと戦術評価で同等以上の上がり方を
     const s9 = reviewThrow(record(41, 'S9', 'S9', 2));
     expect(s9.verdict).toBe('GOOD_DECISION');
     expect(s9.grade).toBe('S');
-    // NEXT VISIT の第 2 候補（122 / 残り 2 本の T15）はこの変更の対象外。
-    expect(reviewThrow(record(122, 'T15', 'T15', 2)).verdict).toBe('BETTER_OPTION_AVAILABLE');
+    // NEXT VISIT の第 2 候補（122 / 残り 2 本の T15）はこの変更（CHECKOUT）の対象外。
+    expect(reviewThrow(record(122, 'T15', 'T15', 2)).reason?.code).not.toBe(
+      'CHECKOUT_PEER_OF_RECOMMENDED',
+    );
     // ビジット最後の 1 投（77 の T15）もこの変更の対象外。
     expect(reviewThrow(record(77, 'T15', 'T15', 3)).verdict).toBe('BETTER_OPTION_AVAILABLE');
   });
@@ -1058,6 +1061,115 @@ describe('CHECKOUT: おすすめと戦術評価で同等以上の上がり方を
     const result = reviewThrow(record(41, 'S1', 'S1', 2), { preferredDoubles: ['D20'] });
     expect(result.verdict).toBe('GOOD_DECISION');
     expect(result.noteJa).toContain('MY ROUTE');
+  });
+});
+
+describe('NEXT VISIT: 第 1 案以外の提案を、明確な劣位なしに否定しない（v1.4.6）', () => {
+  /*
+   * 監査報告（P1-1）: 122 / 残り 2 本の T15 は、アプリの第 2 案 T15 → T15 の 1 投目。
+   * 第 1 案 T20 → T10 と同じ 32 を残し、的を切り替えずに投げられるのに、
+   * 推奨度 B を理由に「明確に劣ります」と判定していた。
+   */
+  it('前提: 122 / 残り 2 本の提案は T20 → T10 と T15 → T15（どちらも 32 残し・推奨度 B）', () => {
+    const proposals = suggestFor(122, 2).nextVisitProposals;
+    expect(proposals.map((proposal) => proposal.route.darts.map((dart) => dart.id))).toEqual([
+      ['T20', 'T10'],
+      ['T15', 'T15'],
+    ]);
+    expect(proposals.map((proposal) => proposal.route.leave)).toEqual([32, 32]);
+    expect(proposals.map((proposal) => proposal.route.grade)).toEqual(['B', 'B']);
+    expect(proposals[1].kind).toBe('alternative');
+  });
+
+  it('122 / 残り 2 本の T15 は GOOD DECISION（明確に劣るとは言わない）', () => {
+    const result = reviewThrow(record(122, 'T15', 'S15', 2));
+    expect(result.verdict).toBe('GOOD_DECISION');
+    expect(result.noteJa).not.toContain('明確に劣ります');
+    expect(result.noteJa).not.toContain('良い選択ではありません');
+    expect(result.noteJa).toContain('T15 → T15');
+    expect(result.noteJa).toContain('T20 → T10');
+    expect(result.noteJa).toContain('同じ残り 32');
+    expect(result.noteJa).toContain('的を切り替えずに投げられます');
+    expect(result.noteJa).toContain('残り 77');
+    // 推奨度とアプリのおすすめ（第 1 案）は事実として残す。
+    expect(result.grade).toBe('B');
+    expect(result.recommendedDartId).toBe('T20');
+    expect(result.reason).toMatchObject({
+      code: 'NEXT_VISIT_PROPOSAL_NOT_DOMINATED',
+      grade: 'B',
+      proposalKind: 'alternative',
+      routeDartIds: ['T15', 'T15'],
+      routeLeave: 32,
+      primaryDartIds: ['T20', 'T10'],
+      primaryLeave: 32,
+      leaveOnHit: 77,
+      advantages: ['SAME_TARGET'],
+      disadvantages: [],
+    });
+  });
+
+  it('着弾ではなく狙いだけで決まる', () => {
+    const hit = reviewThrow(record(122, 'T15', 'T15', 2));
+    const miss = reviewThrow(record(122, 'T15', 'S15', 2));
+    expect(miss.verdict).toBe(hit.verdict);
+    expect(miss.noteJa).toBe(hit.noteJa);
+  });
+
+  it('129 / 残り 2 本の T20 は、第 1 案の 1 投目として従来どおり（A-23）', () => {
+    const result = reviewThrow(record(129, 'T20', 'S20', 2));
+    expect(result.verdict).toBe('GOOD_DECISION');
+    expect(result.reason?.code).toBe('RECOMMENDED_FIRST_DART');
+  });
+
+  it('得意ダブルの設定で現れる同種の別案も同じ扱い（D20: 124 の T14・130 の T15）', () => {
+    const options = { preferredDoubles: ['D20'] };
+    for (const [left, dartId] of [
+      [122, 'T15'],
+      [124, 'T14'],
+      [130, 'T15'],
+    ] as const) {
+      const result = reviewThrow(record(left, dartId, dartId, 2), options);
+      expect(result.verdict).toBe('GOOD_DECISION');
+      expect(result.reason?.code).toBe('NEXT_VISIT_PROPOSAL_NOT_DOMINATED');
+    }
+  });
+
+  it('提案だから GOOD、にはしない: 第 1 案が明確な上位互換なら否定判定のまま', () => {
+    const primary = {
+      LEAVE_TIER: 0,
+      LEAVE_QUALITY: -136,
+      DIFFICULTY: 4,
+      SINGLE_MISS: 2,
+      SAME_TARGET: 1,
+      PREFERRED_DOUBLE: Number.MAX_SAFE_INTEGER,
+    };
+    // 122 の T15 → T15: 的の切り替えだけ良い → 上位互換ではない。
+    expect(compareProposalFacets(primary, { ...primary, SAME_TARGET: 0 })).toEqual({
+      better: ['SAME_TARGET'],
+      worse: [],
+      dominated: false,
+    });
+    // すべて同じ → 上位互換ではない。
+    expect(compareProposalFacets(primary, primary).dominated).toBe(false);
+    // 残しの質だけ劣る → 第 1 案が明確な上位互換。
+    expect(compareProposalFacets(primary, { ...primary, LEAVE_QUALITY: -120 })).toEqual({
+      better: [],
+      worse: ['LEAVE_QUALITY'],
+      dominated: true,
+    });
+    // 一長一短（難易度は低いが、残しの Tier が悪い）→ 上位互換ではない。
+    expect(
+      compareProposalFacets(primary, { ...primary, DIFFICULTY: 2, LEAVE_TIER: 2 }).dominated,
+    ).toBe(false);
+  });
+
+  it('ビジット最後の 1 投（得意ダブルとの競合）はこの比較の対象外（Update 3 の範囲）', () => {
+    // 得意ダブル D16 / D20 / D8 のとき、73 / 残り 1 本の T11（40 残し）は得意ダブルを反映した案。
+    const options = { preferredDoubles: ['D16', 'D20', 'D8'] };
+    const result = reviewThrow(record(73, 'T11', 'T11', 3), options);
+    expect(result.reason?.code).toBe('LAST_DART_LEAVE_DOMINATED');
+    // 最後の 1 投の A-22 比較（77 の T15）も変わらない。
+    expect(reviewThrow(record(77, 'T15', 'T15', 3)).verdict).toBe('BETTER_OPTION_AVAILABLE');
   });
 });
 
