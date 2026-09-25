@@ -17,6 +17,7 @@ import {
 } from './game';
 import { analyzeLastDartSetup } from './lastDartSetup';
 import { dominatesLeavePair, nextVisitLeaveProfileOf } from './leaveProfile';
+import { displayRouteText } from './notation';
 import {
   THROW_VERDICTS,
   THROW_VERDICT_HINT_JA,
@@ -791,6 +792,155 @@ describe('ビジット最後の 1 投: 次のビジットでダブルへ到達�
     }
     expect(wrong).toEqual([]);
     expect(noGood).toEqual([]);
+  });
+});
+
+describe('振り返りの自己矛盾を作らない: おすすめの 1 投目そのものを下げない（v1.4.4）', () => {
+  /*
+   * 実機の例: 149 → 1 投目 T20 狙いが S20 → 残り 129 / 残り 2 本で T20 を狙う。
+   * 「T20 は明確に劣ります。おすすめは T20 → T15」と、狙いを下げながら
+   * 同じ 1 投目を勧めていた。推奨度 B は「NEXT VISIT の第 1 候補そのもの」にも
+   * 付くため（通常 SETUP の最高スコアとの差で付く）、B だけでは
+   * 「別のより良い 1 投目がある」と言えない。
+   */
+  it('129 / 残り 2 本の T20 は、おすすめ T20 → T15 の 1 投目なので良い判断', () => {
+    const proposal = suggestFor(129, 2).nextVisitProposals[0].route;
+    expect(proposal.darts.map((dart) => dart.id)).toEqual(['T20', 'T15']);
+    // 前提: エンジンはこの第 1 候補そのものに推奨度 B を付けている。
+    expect(proposal.grade).toBe('B');
+
+    const result = reviewThrow(record(129, 'T20', 'S20', 2));
+    expect(result.verdict).toBe('GOOD_DECISION');
+    expect(result.verdict).not.toBe('BETTER_OPTION_AVAILABLE');
+    expect(result.verdict).not.toBe('SETUP_MISTAKE');
+    expect(result.recommendedDartId).toBe('T20');
+    expect(result.noteJa).not.toContain('劣');
+    expect(result.noteJa).not.toContain('良い選択ではありません');
+    // 現在の 1 投と次の 1 投を分けて説明する。
+    expect(result.noteJa).toContain('1 投目です');
+    expect(result.noteJa).toContain('残り 69');
+    expect(result.noteJa).toContain('T15');
+    expect(result.noteJa).toContain('残り 24');
+    // 推奨度そのものは事実として残す（エンジンの値を書き換えない）。
+    expect(result.grade).toBe('B');
+    expect(result.reason).toMatchObject({
+      code: 'RECOMMENDED_FIRST_DART',
+      grade: 'B',
+      routeDartIds: ['T20', 'T15'],
+      leaveOnHit: 69,
+      routeLeave: 24,
+    });
+  });
+
+  it('着弾（S20）ではなく狙い（T20）だけで決まる', () => {
+    const onTarget = reviewThrow(record(129, 'T20', 'T20', 2));
+    const miss = reviewThrow(record(129, 'T20', 'S20', 2));
+    expect(miss.verdict).toBe(onTarget.verdict);
+    expect(miss.noteJa).toBe(onTarget.noteJa);
+  });
+
+  it('同じ 1 投目で 2 投目以降だけが違う場合、後続の差で 1 投目を下げない（全件）', () => {
+    /*
+     * 2〜350 × 残り 1〜3 本で、アプリのおすすめの 1 投目を狙ったとき、
+     * 否定的に判定してよいのは振り返り独自の比較（A-20 / A-21 / A-22）で
+     * **別の 1 投目**を説明文に示せるときだけ。「おすすめは〈同じ 1 投目〉」は出さない。
+     */
+    const wrong: string[] = [];
+    for (let left = 2; left <= 350; left += 1) {
+      for (let dartsLeft = 1; dartsLeft <= 3; dartsLeft += 1) {
+        const suggestion = suggestFor(left, dartsLeft);
+        const top =
+          suggestion.checkoutRoutes[0] ??
+          suggestion.nextVisitProposals[0]?.route ??
+          suggestion.setupRoutes[0];
+        if (top === undefined) continue;
+        const intended = top.darts[0].id;
+        const result = reviewThrow(record(left, intended, 'MISS', 4 - dartsLeft));
+        if (result.verdict === 'GOOD_DECISION' || result.verdict === 'SCORING_PHASE') continue;
+        if (result.verdict !== 'BETTER_OPTION_AVAILABLE' || dartsLeft !== 1) {
+          wrong.push(`${left}/${dartsLeft} ${intended}: ${result.verdict}`);
+        } else if (result.noteJa.includes('おすすめは')) {
+          wrong.push(`${left}/${dartsLeft} ${intended}: 同じ 1 投目をおすすめしている`);
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it('本当に別の 1 投目が上位なら、BETTER OPTION AVAILABLE を保つ', () => {
+    // CHECKOUT で推奨度 B の 1 投目を探す（別の 1 投目に S がある場面）。
+    let found: { left: number; dartId: string; best: string } | null = null;
+    for (let left = 41; left <= 170 && found === null; left += 1) {
+      const ranked = rankCheckoutRoutes(left, 3);
+      if (ranked.length === 0) continue;
+      const best = ranked[0].darts[0].id;
+      // 推奨度の順は S > A > B > C（文字の大小とは違うので明示する）。
+      const order = { S: 3, A: 2, B: 1, C: 0 } as const;
+      const byFirst = new Map<string, 'S' | 'A' | 'B' | 'C'>();
+      for (const route of ranked) {
+        const first = route.darts[0].id;
+        const current = byFirst.get(first);
+        if (current === undefined || order[route.grade] > order[current]) byFirst.set(first, route.grade);
+      }
+      for (const [first, grade] of byFirst) {
+        if (grade === 'B' && first !== best) {
+          found = { left, dartId: first, best };
+          break;
+        }
+      }
+    }
+    expect(found).not.toBeNull();
+    const { left, dartId, best } = found!;
+    const result = reviewThrow(record(left, dartId, 'MISS'));
+    expect(result.verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(result.recommendedDartId).toBe(best);
+    expect(result.recommendedDartId).not.toBe(dartId);
+
+    // NEXT VISIT でも、第 1 候補と別の 1 投目なら従来どおり（122 / 残り 2 本の T15）。
+    const other = reviewThrow(record(122, 'T15', 'T15', 2));
+    expect(other.verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(other.recommendedDartId).toBe('T20');
+  });
+
+  it('A-22 の判定は変わらない（243 / 116）', () => {
+    expect(reviewThrow(record(243, 'T20', 'S20', 2)).verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(reviewThrow(record(243, 'T19', 'S19', 2)).verdict).toBe('GOOD_DECISION');
+    expect(reviewThrow(record(116, 'S16', 'S16', 3)).verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(reviewThrow(record(116, 'T20', 'T20', 3)).verdict).toBe('GOOD_DECISION');
+    expect(reviewThrow(record(116, 'T19', 'T19', 3)).verdict).toBe('GOOD_DECISION');
+    // 178 のシングル落ち耐性。
+    expect(reviewThrow(record(178, 'T19', 'S19', 3)).verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(reviewThrow(record(178, 'T20', 'S20', 3)).verdict).toBe('GOOD_DECISION');
+  });
+
+  it('得意ダブル（MY ROUTE）の有無で、おすすめの 1 投目の扱いが崩れない', () => {
+    // 設定なし: 129 / 残り 2 本は T20 → T15。
+    expect(reviewThrow(record(129, 'T20', 'T20', 2)).verdict).toBe('GOOD_DECISION');
+
+    // 設定しても第 1 候補が変わらない（24 は D12 なので D12 でも同じ）。
+    const unchanged = reviewThrow(record(129, 'T20', 'T20', 2), { preferredDoubles: ['D12'] });
+    expect(unchanged.verdict).toBe('GOOD_DECISION');
+    expect(unchanged.recommendedRouteText).toBe('T20 → T15');
+
+    // 設定で第 1 候補のルートが変わる（121 / 残り 2 本: T20 → T15 → T20 → T7 で 40 残し）。
+    const preferredDoubles = ['D20'];
+    const withPreference = suggestFor(121, 2, { fallbackPreferredDoubles: preferredDoubles })
+      .nextVisitProposals[0].route;
+    const withoutPreference = suggestFor(121, 2).nextVisitProposals[0].route;
+    expect(withPreference.key).not.toBe(withoutPreference.key);
+    expect(withPreference.darts[0].id).toBe('T20');
+
+    const result = reviewThrow(record(121, 'T20', 'T20', 2), { preferredDoubles });
+    expect(result.verdict).toBe('GOOD_DECISION');
+    // 説明は、ユーザーの設定で実際に表示されるおすすめに沿う。
+    expect(result.recommendedRouteText).toBe(displayRouteText(withPreference.routeText));
+    expect(result.noteJa).toContain(`残り ${withPreference.leave}`);
+    expect(reviewThrow(record(121, 'T20', 'T20', 2)).verdict).toBe('GOOD_DECISION');
+
+    // 残り 1 本で得意ダブルが第 1 候補の 1 投目を変える場面（73 の T11 → 40）の保護も維持。
+    expect(reviewThrow(record(73, 'T11', 'T11', 3), { preferredDoubles }).verdict).toBe(
+      'GOOD_DECISION',
+    );
   });
 });
 

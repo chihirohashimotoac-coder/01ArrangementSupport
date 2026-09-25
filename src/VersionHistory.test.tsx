@@ -49,14 +49,33 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴は v1.4.3（振り返りのシングル落ちと、次のビジットの上がりやすさ）', async () => {
+  it('最新の履歴は v1.4.4（振り返りが、おすすめの 1 投目そのものを下げない）', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('v1.4.3');
+    expect(latest).toHaveTextContent('v1.4.4');
     expect(latest).toHaveTextContent('現在');
+    // 既存モードの推奨・採点を変えていないことを、いちばん先に伝える。
+    expect(latest.textContent ?? '').toMatch(/CHECKOUT \/ SETUP \/ NEXT VISIT \/ TRAINING の推奨・採点/);
+    // 129 の T20 の実例と、次の投の続け方。
+    expect(latest.textContent ?? '').toMatch(/129/);
+    expect(latest.textContent ?? '').toMatch(/T20 → T15/);
+    expect(latest.textContent ?? '').toMatch(/別の 1 投目を示せるときだけ/);
+  });
+
+  it('v1.4.3 の履歴は残り、現在版ではなくなっている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const latest = screen
+      .getAllByTestId('version-history-item')
+      .find((item) => (item.textContent ?? '').includes('v1.4.3'));
+    expect(latest).toBeDefined();
+    if (!latest) return;
+    expect(latest.querySelector('.version-history__badge')).toBeNull();
     // 既存モードの推奨・採点を変えていないことを、いちばん先に伝える。
     expect(latest.textContent ?? '').toMatch(/CHECKOUT \/ SETUP \/ TRAINING の推奨・採点/);
     // 243 の T20（S20 → 223）と、116 の S16 → 100 の実例。
