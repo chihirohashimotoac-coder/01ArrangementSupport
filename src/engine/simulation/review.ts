@@ -977,12 +977,6 @@ function leavePairOf(option: LastDartOption): LeavePair | null {
   };
 }
 
-/**
- * 残り 1 投で、`option` の明確な上位互換になっている的（良い順）。
- *
- * 比べるのはテンパイを作れる的のうち、落ち先を決められる（BULL 以外）
- * ダブル以外の的だけ。ダブルは SETUP の得点手段として勧めない。
- */
 /** 最後の 1 投の交換条件（A-26）を判定するための、その場面の表示内容。 */
 interface LastDartTradeOffScope {
   /** アプリがその場面で表示した NEXT VISIT の提案（最大 3 件）。 */
@@ -1077,7 +1071,12 @@ function dominatingLastDartOptionsOf(
   return lastDartDominanceOf(analysis, option, tradeOff).dominating;
 }
 
-/** 残り 1 投で、Next Visit Leave Profile だけで見た `option` の上位互換（A-22・良い順）。 */
+/**
+ * 残り 1 投で、Next Visit Leave Profile だけで見た `option` の上位互換（A-22・良い順）。
+ *
+ * 比べるのはテンパイを作れる的のうち、落ち先を決められる（BULL 以外）
+ * ダブル以外の的だけ。ダブルは SETUP の得点手段として勧めない。
+ */
 function baseDominatingLastDartOptionsOf(
   analysis: LastDartSetupAnalysis,
   option: LastDartOption,
