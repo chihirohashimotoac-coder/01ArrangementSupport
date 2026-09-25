@@ -644,6 +644,17 @@
   line-height: 1.55;
 }
 
+.simulation__focus-alt p {
+  margin: 0;
+}
+
+/* アプリの第 1 案は参考情報。振り返りの代案（改善案）より控えめに見せる。 */
+.simulation__focus-app {
+  margin-top: 0.2rem;
+  color: var(--text-dim);
+  font-weight: 650;
+}
+
 .simulation__focus-list {
   list-style: none;
   margin: 0;

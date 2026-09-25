@@ -33,9 +33,12 @@ import {
 } from '../engine/simulation/game';
 import { REVIEW_GLOSSARY_JA } from '../engine/simulation/reviewGlossary';
 import {
+  IMPROVEMENT_PRIORITY,
   buildReviewHighlights,
   dartsLeftBefore,
   describeGameResultJa,
+  suggestionsOf,
+  type FocusSuggestions,
   type ThrowFocus,
 } from '../engine/simulation/reviewHighlights';
 import { createGameSeed } from '../engine/simulation/throwSimulator';
@@ -179,8 +182,8 @@ export function SimulationPage() {
   }, [game, reviewOptions]);
 
   const highlights = useMemo(
-    () => (review === null ? null : buildReviewHighlights(review, reviewOptions)),
-    [review, reviewOptions],
+    () => (review === null ? null : buildReviewHighlights(review)),
+    [review],
   );
 
   /*
@@ -873,6 +876,12 @@ export function SimulationPage() {
                             {throwReview.verdict !== 'SCORING_PHASE' && (
                               <p className="simulation__review-explain">{throwReview.noteJa}</p>
                             )}
+                            {IMPROVEMENT_PRIORITY[throwReview.verdict] !== undefined && (
+                              <ReviewSuggestions
+                                suggestions={suggestionsOf(throwReview)}
+                                testId={`sim-suggest-${throwReview.record.dartIndex}`}
+                              />
+                            )}
                           </li>
                         );
                       })}
@@ -945,13 +954,34 @@ function HighlightThrow({
         </span>
       </p>
       <p className="simulation__review-explain">{review.noteJa}</p>
-      {showAlternative && (
-        <p className="simulation__focus-alt" data-testid={`${testId}-alt`}>
-          {focus.alternative.kind === 'route'
-            ? `この時点でのアプリのおすすめ: ${focus.alternative.text}`
-            : focus.alternative.kind === 'in-note'
-              ? '代案は上の説明の例を参照してください。'
-              : '代案は提示できません。'}
+      {showAlternative && focus.suggestions !== null && (
+        <ReviewSuggestions suggestions={focus.suggestions} testId={`${testId}-alt`} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * 「振り返りが比べた代案」と「この場面のアプリの第 1 案」を分けて出す（v1.4.8）。
+ * 文言は `data/explanations.ts`、中身は判定の構造化データ（`reviewHighlights.ts`）。
+ */
+function ReviewSuggestions({
+  suggestions,
+  testId,
+}: {
+  suggestions: FocusSuggestions;
+  testId: string;
+}) {
+  return (
+    <div className="simulation__focus-alt" data-testid={testId}>
+      <p data-testid={`${testId}-compare`}>{suggestions.comparisonLineJa}</p>
+      {suggestions.appFirstLineJa !== null && (
+        <p
+          className="simulation__focus-app"
+          data-testid={`${testId}-app`}
+          data-relation={suggestions.appFirstRelation ?? undefined}
+        >
+          {suggestions.appFirstLineJa}
         </p>
       )}
     </div>

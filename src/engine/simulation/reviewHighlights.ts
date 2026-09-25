@@ -12,44 +12,54 @@
  *   良い判断どうしの優劣を決めるものではない）。
  * - `SCORING_PHASE`（得点を伸ばす場面）と `NOT_EVALUATED`（判定対象外）は、
  *   良い・改善のどちらの件数にも入れない。
- * - 代案は、その投を投げる直前の残りと残り本数で求めた既存の
- *   `recommendedRouteText` だけを使う。無ければ作らない。
- *   ただし、その 1 投目を**同じ場面で振り返りにかけても「良い判断」になる**ときだけ出す。
- *   ビジット最後の 1 投は、振り返りがエンジンの第 1 候補とは別の軸（シングル落ちでも
- *   テンパイを保てるか）で評価するため、第 1 候補がそのまま代案にならないことがある
- *   （例: 残り 178 の最後の 1 投。第 1 候補は S18 だが、振り返りは T18 を勧める）。
- *   食い違う代案を並べず、説明文の中の例に任せる。
+ * - 改善候補には、次の 2 つを**区別して**添える（v1.4.8）。
+ *   1. 振り返りが今回の判断と比べた代案（`ThrowReview.comparison`。判定の根拠から作った構造化データ）
+ *   2. その場面のアプリの第 1 案（CHECKOUT / NEXT VISIT が表示したルート。`recommendedRouteText`）
+ *   第 1 案が今回の狙いと同じ 1 投目のとき（例: 残り 178 の最後の 1 投の S18）は、
+ *   改善案ではないことを添える。説明文（`noteJa`）を解析して代案を取り出すことはしない。
  */
 import { DARTS_PER_VISIT } from '../../domain/checkoutRules';
-import { MAX_ROUNDS } from './game';
 import {
-  reviewThrow,
+  describeReviewComparisonTargetJa,
+  renderAppFirstProposalLineJa,
+  renderReviewComparisonLineJa,
+  type AppFirstProposalRelation,
+} from '../../data/explanations';
+import { MAX_ROUNDS } from './game';
+import { displayTargetId } from './notation';
+import {
   type GameReview,
   type GameSummary,
-  type ReviewOptions,
+  type ReviewComparison,
   type RoundReview,
   type ThrowReview,
   type ThrowVerdict,
 } from './review';
 
 /**
- * 代案の出し方。
+ * 改善候補に添える「振り返りが比べた代案」と「アプリの第 1 案」（v1.4.8）。
  *
- * - `route`: アプリのおすすめ（`text`）をそのまま出す。
- * - `in-note`: 第 1 候補が振り返りの評価と食い違うので出さない（説明文の例を見てもらう）。
- * - `none`: 代案が無い。作らない。
+ * 2 つは別物として並べる。代案は判定の根拠そのもので、狙いと同じ 1 投目にはならない。
+ * アプリの第 1 案は、その場面で CHECKOUT / NEXT VISIT が表示したルート（事実）で、
+ * 今回の狙いと同じ 1 投目のこともある。
  */
-export type Alternative =
-  | { readonly kind: 'route'; readonly text: string }
-  | { readonly kind: 'in-note' }
-  | { readonly kind: 'none' };
+export interface FocusSuggestions {
+  /** 振り返りが比べた代案（構造化データ）。無ければ null。 */
+  readonly comparison: ReviewComparison | null;
+  /** アプリの第 1 案と、今回の狙い・代案との関係。第 1 案が無ければ null。 */
+  readonly appFirstRelation: AppFirstProposalRelation | null;
+  /** 画面に出す「振り返りが比べた代案」の行。 */
+  readonly comparisonLineJa: string;
+  /** 画面に出す「この場面のアプリの第 1 案」の行。代案と同じ・第 1 案が無ければ null。 */
+  readonly appFirstLineJa: string | null;
+}
 
 /** 1 投と、それが属するビジット。 */
 export interface ThrowFocus {
   readonly round: RoundReview;
   readonly review: ThrowReview;
-  /** 改善候補のときだけ意味を持つ。 */
-  readonly alternative: Alternative;
+  /** 改善候補のときだけ意味を持つ（良かった判断では null）。 */
+  readonly suggestions: FocusSuggestions | null;
 }
 
 export interface ReviewHighlights {
@@ -100,17 +110,14 @@ const NEXT_FOCUS_JA: Readonly<Record<'BOGEY_CREATED' | 'ARRANGEMENT_MISTAKE' | '
     '成立する狙いでも、そこで決めずにほかの候補と比べてから選ぶ（今回の理由は改善ポイントの説明を参照）。',
 };
 
-export function buildReviewHighlights(
-  review: GameReview,
-  options: ReviewOptions = {},
-): ReviewHighlights {
+export function buildReviewHighlights(review: GameReview): ReviewHighlights {
   const all = review.rounds.flatMap((round) =>
     round.throws.map((item) => ({ round, review: item })),
   );
 
   const improvements: ThrowFocus[] = all
     .filter((focus) => IMPROVEMENT_PRIORITY[focus.review.verdict] !== undefined)
-    .map((focus) => ({ ...focus, alternative: alternativeOf(focus.review, options) }))
+    .map((focus) => ({ ...focus, suggestions: suggestionsOf(focus.review) }))
     .sort(
       (a, b) =>
         (IMPROVEMENT_PRIORITY[a.review.verdict] ?? 0) -
@@ -119,7 +126,7 @@ export function buildReviewHighlights(
     );
   const goods: ThrowFocus[] = all
     .filter((focus) => focus.review.verdict === 'GOOD_DECISION')
-    .map((focus) => ({ ...focus, alternative: { kind: 'none' } }));
+    .map((focus) => ({ ...focus, suggestions: null }));
 
   const count = (verdict: ThrowVerdict) => review.verdictCounts[verdict];
   const improvement = improvements[0] ?? null;
@@ -140,18 +147,49 @@ export function buildReviewHighlights(
 }
 
 /**
- * 代案を出してよいか。
+ * 改善候補に添える 2 行を、構造化データから組み立てる（判定は変えない）。
  *
- * 判定は変えない。アプリのおすすめの 1 投目を、同じ場面（残り・何投目）で
- * `reviewThrow` にかけて「良い判断」になるときだけ代案として出す。
+ * - 代案は `ThrowReview.comparison` をそのまま使う（エンジンの第 1 案なら、そのルート表記）。
+ * - アプリの第 1 案は `recommendedRouteText`。今回の狙いと同じ 1 投目なら、その旨を添える。
+ *   代案と同じ 1 投目なら、代案の行にまとめて 2 回は出さない。
  */
-function alternativeOf(item: ThrowReview, options: ReviewOptions): Alternative {
-  const text = item.recommendedRouteText;
-  const firstDartId = item.recommendedDartId;
-  if (text === null || firstDartId === null) return { kind: 'none' };
-  if (firstDartId === item.record.intendedDartId) return { kind: 'in-note' };
-  const asAlternative = reviewThrow({ ...item.record, intendedDartId: firstDartId }, options);
-  return asAlternative.verdict === 'GOOD_DECISION' ? { kind: 'route', text } : { kind: 'in-note' };
+export function suggestionsOf(review: ThrowReview): FocusSuggestions {
+  const comparison = review.comparison;
+  const routeText = review.recommendedRouteText;
+  const firstDartId = review.recommendedDartId;
+  const appFirstRelation: AppFirstProposalRelation | null =
+    routeText === null || firstDartId === null
+      ? null
+      : firstDartId === review.record.intendedDartId
+        ? 'SAME_AS_INTENDED'
+        : comparison !== null && comparison.dartIds[0] === firstDartId
+          ? 'SAME_AS_COMPARISON'
+          : 'DIFFERENT';
+  const comparisonText =
+    comparison === null
+      ? null
+      : comparison.basis === 'APP_ROUTE' && routeText !== null
+        ? routeText
+        : comparison.dartIds.length > 1
+          ? comparison.dartIds.map(displayTargetId).join(' → ')
+          : describeReviewComparisonTargetJa({
+              label: displayTargetId(comparison.dartIds[0]),
+              leaveOnHit: comparison.leaveOnHit,
+              missLabel: comparison.missDartId === null ? null : displayTargetId(comparison.missDartId),
+              leaveOnSingleMiss: comparison.leaveOnSingleMiss,
+            });
+  return {
+    comparison,
+    appFirstRelation,
+    comparisonLineJa: renderReviewComparisonLineJa({
+      text: comparisonText,
+      sameAsAppFirst: appFirstRelation === 'SAME_AS_COMPARISON',
+    }),
+    appFirstLineJa:
+      routeText === null || appFirstRelation === null
+        ? null
+        : renderAppFirstProposalLineJa({ routeText, relation: appFirstRelation }),
+  };
 }
 
 function nextFocusOf(improvement: ThrowFocus | null, evaluatedCount: number): string {

@@ -359,8 +359,13 @@ test('残り 178 / 最後の 1 投で T19 を狙うと、159 を理由に指摘�
   await expect(focus).toContainText('狙い通りなら残り 121');
   await expect(focus).toContainText('159');
   await expect(focus).toContainText('T18');
-  // エンジンの第 1 候補（S18）は、この場面の振り返りと食い違うので代案に出さない。
-  await expect(page.getByTestId('sim-focus-3-alt').last()).toContainText('上の説明の例');
+  // 振り返りが比べた代案（テンパイを保てる的）と、アプリの第 1 案（S18）を分けて出す。
+  const compare = page.getByTestId('sim-focus-3-alt-compare').last();
+  await expect(compare).toContainText('振り返りが比べた代案: T20');
+  await expect(compare).not.toContainText('T19');
+  const appFirst = page.getByTestId('sim-focus-3-alt-app').last();
+  await expect(appFirst).toContainText('この場面のアプリの第 1 案: S18');
+  await expect(appFirst).toContainText('参考');
 
   await page.getByTestId('sim-all-throws').locator('summary').click();
   await expect(page.getByTestId('sim-verdict-3')).toContainText('もっと良い狙いあり');
@@ -393,11 +398,66 @@ test('残り 178 / 最後の 1 投で S18 を狙うと、T18 を勧められる'
   await page.getByTestId('sim-next-round').click();
 
   await expect(page.getByTestId('sim-review')).toBeVisible();
+  await page.getByTestId('sim-all-throws').locator('summary').click();
   await expect(page.getByTestId('sim-verdict-3')).toContainText('もっと良い狙いあり');
   const round1 = page.getByTestId('sim-round-1');
   await expect(round1).toContainText('テンパイは作れますが');
   await expect(round1).toContainText('T18');
   await expect(round1).toContainText('124');
+
+  // 減点した狙い（S18）は、アプリの第 1 案と同じ 1 投目でも改善案として出さない（v1.4.8）。
+  const throw3 = page.getByTestId('sim-throw-3');
+  await expect(throw3).toContainText('狙い S18');
+  await expect(throw3).toContainText('着弾 S18');
+  await expect(page.getByTestId('sim-suggest-3-compare')).toHaveText(
+    '振り返りが比べた代案: T18（狙い通りなら残り 124・S18 に落ちても残り 160）',
+  );
+  const appFirst = page.getByTestId('sim-suggest-3-app');
+  await expect(appFirst).toHaveAttribute('data-relation', 'SAME_AS_INTENDED');
+  await expect(appFirst).toContainText('この場面のアプリの第 1 案: S18');
+  await expect(appFirst).toContainText('今回の狙いと同じ 1 投目です');
+  await expect(appFirst).toContainText('改善案ではありません');
+
+  // 改善ポイント（見出しのカード）でも同じ区別をする。
+  const highlight = page.getByTestId('sim-highlight-improve');
+  await expect(highlight).toContainText('もっと良い狙いあり');
+  await expect(highlight).toContainText('狙い S18（狙い通りなら残り 160）');
+  await expect(highlight).toContainText('実際の着弾 S18（判断の評価には使っていません）');
+  await expect(page.getByTestId('sim-focus-3-alt-compare').first()).toContainText('振り返りが比べた代案: T18');
+  await expect(page.getByTestId('sim-focus-3-alt-app').first()).toContainText('改善案ではありません');
+});
+
+test('残り 102 / 最後の 1 投で S20 を狙うと、アプリの第 1 案と振り返りの代案を分けて出す', async ({ page }) => {
+  /*
+   * 監査報告（P2-2）の回帰。142 → S20 → S20 で 102 を残し、最後の 1 投で S20（82 残し）を狙う。
+   * S20 はアプリの第 1 案だが、振り返りは T20（42・S20 でも 82）を上位互換として比べる（A-22）。
+   */
+  await startPerfectGame(page, 142);
+  await page.getByTestId('segment-s20-outer').click();
+  await page.getByTestId('segment-s20-outer').click();
+  await page.getByTestId('segment-s20-outer').click();
+  await page.getByTestId('sim-score-input').fill('60');
+  await page.getByTestId('sim-score-submit').click();
+  await page.getByTestId('sim-next-round').click();
+
+  // 82 = T14 → D20 で上がる。
+  await page.getByTestId('segment-t14').click();
+  await page.getByTestId('segment-d20').click();
+  await page.getByTestId('sim-score-input').fill('82');
+  await page.getByTestId('sim-score-submit').click();
+  await page.getByTestId('sim-next-round').click();
+
+  await expect(page.getByTestId('sim-review')).toBeVisible();
+  await page.getByTestId('sim-all-throws').locator('summary').click();
+  await expect(page.getByTestId('sim-verdict-3')).toContainText('もっと良い狙いあり');
+  await expect(page.getByTestId('sim-throw-3')).toContainText('残り 102');
+  await expect(page.getByTestId('sim-throw-3')).toContainText('狙い S20');
+  await expect(page.getByTestId('sim-suggest-3-compare')).toContainText(
+    '振り返りが比べた代案: T20（狙い通りなら残り 42',
+  );
+  const appFirst = page.getByTestId('sim-suggest-3-app');
+  await expect(appFirst).toContainText('この場面のアプリの第 1 案: S20');
+  await expect(appFirst).toContainText('改善案ではありません');
 });
 
 test('残り 41 / 残り 2 本で S1 を狙い S1 → D20 で上がると、見直すと言われない', async ({ page }) => {
@@ -449,6 +509,42 @@ test('残り 122 / 残り 2 本で別案 T15 → T15 を投げると、明確に
   await expect(round1).toContainText('T15 → T15');
   await expect(round1).toContainText('T20 → T10');
   await expect(round1).not.toContainText('明確に劣ります');
+});
+
+test('残り 171 / 最後の 1 投で D2 を狙うと、振り返り自身が下げる第 1 案を代案にしない', async ({ page }) => {
+  /*
+   * 291 → T20 → T20 で 171、最後の 1 投で D2（167 残し）。アプリの第 1 案は S11 だが、
+   * 振り返りは S11 を T11 に上位互換を取られる狙いとして下げる（A-21）。
+   * 代案には、同じ場面で良い判断になる的を出し、S11 は参考として分けて出す（v1.4.8）。
+   */
+  await startPerfectGame(page, 291);
+  await page.getByTestId('segment-t20').click();
+  await page.getByTestId('segment-t20').click();
+  await page.getByTestId('segment-d2').click();
+  await page.getByTestId('sim-score-input').fill('124');
+  await page.getByTestId('sim-score-submit').click();
+  await page.getByTestId('sim-next-round').click();
+
+  // 167 = T20 → T19 → BULL で上がる。
+  await page.getByTestId('segment-t20').click();
+  await page.getByTestId('segment-t19').click();
+  await page.getByTestId('segment-inner-bull').click();
+  await page.getByTestId('sim-score-input').fill('167');
+  await page.getByTestId('sim-score-submit').click();
+  await page.getByTestId('sim-next-round').click();
+
+  await expect(page.getByTestId('sim-review')).toBeVisible();
+  await page.getByTestId('sim-all-throws').locator('summary').click();
+  await expect(page.getByTestId('sim-verdict-3')).toContainText('もっと良い狙いあり');
+  await expect(page.getByTestId('sim-throw-3')).toContainText('狙い D2');
+  await expect(page.getByTestId('sim-throw-3')).toContainText('振り返りの代案は');
+  await expect(page.getByTestId('sim-throw-3')).not.toContainText('おすすめは S11');
+  const compare = page.getByTestId('sim-suggest-3-compare');
+  await expect(compare).toContainText('振り返りが比べた代案: ');
+  await expect(compare).not.toContainText('S11');
+  const appFirst = page.getByTestId('sim-suggest-3-app');
+  await expect(appFirst).toContainText('この場面のアプリの第 1 案: S11');
+  await expect(appFirst).toContainText('参考');
 });
 
 test('残り 77 / 最後の 1 投で T15 を狙うと、交換条件として良い判断になる', async ({ page }) => {
