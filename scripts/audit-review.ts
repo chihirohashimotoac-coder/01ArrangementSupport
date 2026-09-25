@@ -13,6 +13,10 @@
  *   C. Bogey を避けられる（テンパイを保てる）的があるのに GOOD
  *   D. トリプル等が先に要る残しと、シングル → ダブルの残しが同列 GOOD
  *      （上位互換が成り立つ組だけを数える。トレードオフの組は数えない）
+ *   E. CHECKOUT で、狙いから始まる上がり方がおすすめルートと戦術評価で同等以上
+ *      （基準ルート加点を除く戦術スコアがおすすめ以上・おすすめに無い非推奨理由なし）
+ *      なのに否定的に判定している。逆に、その条件を満たさないのに
+ *      `CHECKOUT_PEER_OF_RECOMMENDED` で GOOD にしている（v1.4.5。合法なだけで GOOD にしない）
  *
  * あわせて、振り返りの**自己矛盾**を数える（v1.4.4）。
  *
@@ -24,7 +28,7 @@
  * おすすめの 1 投目が狙いと同じでも、振り返り独自の比較（A-21 / A-22 の上位互換など）で
  * 説明文が**別の 1 投目**を示している判定は、分類して件数だけ出す（矛盾には数えない）。
  *
- * A〜D（ただし B は残り 1 本のみ）と矛盾 1〜4 に 1 件でも該当すると終了コード 1 を返す。
+ * A〜E（ただし B は残り 1 本のみ）と矛盾 1〜4 に 1 件でも該当すると終了コード 1 を返す。
  * 残り 2 本以上で推奨度 S / A が付いた狙いは、承認済みの SETUP ランキングの判断なので
  * 参考値として件数だけ出す（レビュー層では上書きしない）。
  */
@@ -41,7 +45,8 @@ import {
 } from '../src/engine/simulation/review';
 import { analyzeSetupRecovery } from '../src/engine/simulation/setupRecovery';
 import { displayTargetId } from '../src/engine/simulation/notation';
-import type { RouteGrade } from '../src/data/rankingRules';
+import { DISCOURAGING_REASON_CODES, type RouteGrade } from '../src/data/rankingRules';
+import type { RankedCheckoutRoute } from '../src/engine/ranking/checkoutRanking';
 
 function record(leftBefore: number, dart: Dart, dartsLeft: number): ThrowRecord {
   const dartNumber = 4 - dartsLeft;
@@ -79,6 +84,28 @@ const NEGATIVE: ReadonlySet<ThrowVerdict> = new Set([
 ]);
 const GRADE_ORDER: Readonly<Record<RouteGrade, number>> = { S: 3, A: 2, B: 1, C: 0 };
 
+/** 非推奨の理由コード（`DISCOURAGING_REASON_CODES`）だけを取り出す。 */
+function discouragingOf(route: RankedCheckoutRoute): Set<string> {
+  const codes = DISCOURAGING_REASON_CODES as readonly string[];
+  return new Set(route.reasons.map((reason) => reason.code as string).filter((code) => codes.includes(code)));
+}
+
+/**
+ * E の独立計算: 狙いから始まる上がり方に、おすすめ（一覧の先頭）と比べて
+ * 戦術スコアが同じか上で、おすすめに無い非推奨理由を持たないものがあるか。
+ */
+function hasCheckoutPeer(routes: readonly RankedCheckoutRoute[], dartId: string): boolean {
+  const top = routes[0];
+  if (top === undefined || top.darts[0].id === dartId) return false;
+  const allowed = discouragingOf(top);
+  return routes.some(
+    (route) =>
+      route.darts[0].id === dartId &&
+      route.tacticalScore >= top.tacticalScore &&
+      [...discouragingOf(route)].every((code) => allowed.has(code)),
+  );
+}
+
 type Contradiction = '1' | '2' | '3' | '4';
 const contradictions: Record<Contradiction, string[]> = { '1': [], '2': [], '3': [], '4': [] };
 /** おすすめの 1 投目は狙いと同じだが、説明文は別の 1 投目を示している判定（分類のみ）。 */
@@ -87,7 +114,9 @@ const classifiedSameFirstDart = new Map<string, string[]>();
 const orderOnlyAlternatives: string[] = [];
 
 const counts = new Map<number, Record<ThrowVerdict, number>>();
-const findings: Record<'A' | 'B' | 'C' | 'D', string[]> = { A: [], B: [], C: [], D: [] };
+const findings: Record<'A' | 'B' | 'C' | 'D' | 'E', string[]> = { A: [], B: [], C: [], D: [], E: [] };
+/** `CHECKOUT_PEER_OF_RECOMMENDED` で GOOD になった狙い（参考。件数と例だけ出す）。 */
+const checkoutPeers: string[] = [];
 const engineGradedUnsafe: string[] = [];
 let states = 0;
 
@@ -141,6 +170,19 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
             if (sameFirstDart || review.recommendedDartId === null) contradictions['4'].push(tag);
             else orderOnlyAlternatives.push(tag);
           }
+        }
+      }
+
+      // E: CHECKOUT で、おすすめと戦術評価で同等以上の上がり方がある 1 投目。
+      if (suggestion.checkoutRoutes.length > 0) {
+        const peer = hasCheckoutPeer(suggestion.checkoutRoutes, dart.id);
+        const markedPeer = review.reason?.code === 'CHECKOUT_PEER_OF_RECOMMENDED';
+        if (markedPeer) checkoutPeers.push(`${left}/${dartsLeft} ${dart.id}（推奨度 ${review.grade}）`);
+        if (peer && NEGATIVE.has(review.verdict)) {
+          findings.E.push(`${left}/${dartsLeft} ${dart.id} ${review.verdict}（同等以上なのに否定）`);
+        }
+        if (markedPeer && (!peer || review.verdict !== 'GOOD_DECISION')) {
+          findings.E.push(`${left}/${dartsLeft} ${dart.id} ${review.verdict}（条件を満たさないのに同等扱い）`);
         }
       }
 
@@ -211,9 +253,10 @@ const labels: Record<keyof typeof findings, string> = {
   B: 'GOOD なのに上位互換の的がある（残り 1 本）',
   C: 'Bogey / テンパイ喪失を避けられるのに GOOD（残り 1 本）',
   D: '先にトリプル等が要る残しが、シングル → ダブルの残しと同列 GOOD（残り 1 本）',
+  E: 'CHECKOUT で、おすすめと戦術評価で同等以上の上がり方がある 1 投目の判定が条件と食い違う',
 };
 let failures = 0;
-for (const key of ['A', 'B', 'C', 'D'] as const) {
+for (const key of ['A', 'B', 'C', 'D', 'E'] as const) {
   const list = findings[key];
   failures += list.length;
   console.log(`${list.length === 0 ? '  ok  ' : '  NG  '} ${key}. ${labels[key]}: ${list.length} 件`);
@@ -224,6 +267,10 @@ console.log(
     `安全な的が他にある狙い: ${engineGradedUnsafe.length} 件（承認済みランキングの判断なので上書きしない）`,
 );
 for (const item of engineGradedUnsafe.slice(0, 10)) console.log(`         ${item}`);
+console.log(
+  `  参考 CHECKOUT で推奨度 B / C だが、おすすめと戦術評価で同等以上のため GOOD にした狙い: ` +
+    `${checkoutPeers.length} 件（例: ${checkoutPeers.slice(0, 5).join(' / ')}）`,
+);
 
 const contradictionLabels: Record<Contradiction, string> = {
   '1': '「もっと良い狙いあり」なのに、説明文で同じ 1 投目をおすすめしている',

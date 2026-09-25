@@ -944,6 +944,123 @@ describe('振り返りの自己矛盾を作らない: おすすめの 1 投目�
   });
 });
 
+describe('CHECKOUT: おすすめと戦術評価で同等以上の上がり方を否定しない（v1.4.5）', () => {
+  /*
+   * 実機の例: 42 → S1（41）→ S1（40）→ D20 で上がったのに、2 投目の S1 を
+   * 「上がり方を見直す」「この選択は不適切です」と判定していた。
+   * S1 → D20 は、おすすめ S9 → D16（基準ルート）と戦術スコアも注意点（横ズレに弱い）も同じで、
+   * 基準ルートだけが定義上 S になり、S1 → D20 は非推奨理由つきで C になっていた。
+   */
+  it('前提: 41 / 残り 2 本の S1 → D20 は、おすすめ S9 → D16 と戦術スコアが同じで推奨度 C', () => {
+    const ranked = rankCheckoutRoutes(41, 2);
+    const recommended = ranked[0];
+    const s1 = ranked.find((route) => route.key === 'S1-D20')!;
+    expect(recommended.darts.map((dart) => dart.id)).toEqual(['S9', 'D16']);
+    expect(recommended.isStandard).toBe(true);
+    expect(s1.grade).toBe('C');
+    expect(s1.tacticalScore).toBe(recommended.tacticalScore);
+    const discouraging = (route: typeof s1) =>
+      route.reasons.map((reason) => reason.code).filter((code) => code === 'NEIGHBOR_RISK');
+    expect(discouraging(s1)).toEqual(discouraging(recommended));
+  });
+
+  it('41 / 残り 2 本の S1 は GOOD DECISION（上がり方を見直す・不適切と言わない）', () => {
+    const result = reviewThrow(record(41, 'S1', 'S1', 2));
+    expect(result.verdict).toBe('GOOD_DECISION');
+    expect(result.noteJa).not.toContain('不適切');
+    expect(result.noteJa).not.toContain('活かせていません');
+    expect(result.noteJa).not.toContain('劣ります');
+    expect(result.noteJa).toContain('S1 → D20');
+    expect(result.noteJa).toContain('S9 → D16');
+    expect(result.noteJa).toContain('残り 40');
+    // 共通の弱点は隠さず書く。
+    expect(result.noteJa).toContain('横ズレに弱い');
+    // 推奨度そのものは事実として残す（エンジンの値を書き換えない）。
+    expect(result.grade).toBe('C');
+    expect(result.recommendedDartId).toBe('S9');
+    expect(result.reason).toMatchObject({
+      code: 'CHECKOUT_PEER_OF_RECOMMENDED',
+      grade: 'C',
+      routeDartIds: ['S1', 'D20'],
+      recommendedDartIds: ['S9', 'D16'],
+      leaveOnHit: 40,
+      sharedCautionLabels: ['横ズレに弱い'],
+    });
+  });
+
+  it('着弾ではなく狙いだけで決まる（S1 に入っても T1 に外れても同じ判定）', () => {
+    const hit = reviewThrow(record(41, 'S1', 'S1', 2));
+    const miss = reviewThrow(record(41, 'S1', 'T1', 2));
+    expect(miss.verdict).toBe(hit.verdict);
+    expect(miss.noteJa).toBe(hit.noteJa);
+  });
+
+  it('80 / 残り 2 本の T16 → D16 も、おすすめ T20 → D10 以上の戦術評価なので否定しない', () => {
+    const ranked = rankCheckoutRoutes(80, 2);
+    const t16 = ranked.find((route) => route.key === 'T16-D16')!;
+    expect(ranked[0].key).toBe('T20-D10');
+    expect(t16.grade).toBe('C');
+    expect(t16.tacticalScore).toBeGreaterThanOrEqual(ranked[0].tacticalScore);
+
+    const result = reviewThrow(record(80, 'T16', 'T16', 2));
+    expect(result.verdict).toBe('GOOD_DECISION');
+    expect(result.reason).toMatchObject({ code: 'CHECKOUT_PEER_OF_RECOMMENDED', routeDartIds: ['T16', 'D16'] });
+    expect(result.noteJa).not.toContain('不適切');
+  });
+
+  it('合法なだけでは GOOD にしない: おすすめに無い非推奨理由を持つ上がり方は従来どおり', () => {
+    // 41 / 残り 2 本の T11 → D4 は戦術スコアこそ高いが、「不要なトリプル」がおすすめに無い。
+    const ranked = rankCheckoutRoutes(41, 2);
+    const t11 = ranked.find((route) => route.key === 'T11-D4')!;
+    expect(t11.tacticalScore).toBeGreaterThan(ranked[0].tacticalScore);
+    expect(t11.reasons.some((reason) => reason.code === 'UNNECESSARY_TRIPLE')).toBe(true);
+
+    const result = reviewThrow(record(41, 'T11', 'T11', 2));
+    expect(result.verdict).toBe('ARRANGEMENT_MISTAKE');
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('合法なだけでは GOOD にしない: 戦術スコアがおすすめを下回る上がり方は従来どおり', () => {
+    // 40 / 残り 3 本の S3 は、おすすめ D20 より戦術スコアが低い推奨度 C。
+    const ranked = rankCheckoutRoutes(40, 3);
+    const best = Math.max(
+      ...ranked.filter((route) => route.darts[0].id === 'S3').map((route) => route.tacticalScore),
+    );
+    expect(best).toBeLessThan(ranked[0].tacticalScore);
+    const result = reviewThrow(record(40, 'S3', 'S3'));
+    expect(result.verdict).toBe('ARRANGEMENT_MISTAKE');
+    expect(result.grade).toBe('C');
+  });
+
+  it('1 本で上がる形でも説明文が途切れない（50 / 残り 3 本の BULL）', () => {
+    const result = reviewThrow(record(50, 'BULL', 'BULL'));
+    expect(result.verdict).toBe('GOOD_DECISION');
+    expect(result.reason?.code).toBe('CHECKOUT_PEER_OF_RECOMMENDED');
+    expect(result.noteJa).toContain('この 1 投で上がれます');
+    expect(result.noteJa).not.toContain('残り 0');
+  });
+
+  it('代表ケースの判定は変わらない（43 / 58 / 116 / 129 / 41 の S9）', () => {
+    expect(reviewThrow(record(43, 'S3', 'S3', 2)).verdict).toBe('GOOD_DECISION');
+    expect(reviewThrow(record(58, 'S18', 'S18', 2)).verdict).toBe('GOOD_DECISION');
+    expect(reviewThrow(record(116, 'S16', 'S16', 3)).verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(reviewThrow(record(129, 'T20', 'T20', 2)).reason?.code).toBe('RECOMMENDED_FIRST_DART');
+    const s9 = reviewThrow(record(41, 'S9', 'S9', 2));
+    expect(s9.verdict).toBe('GOOD_DECISION');
+    expect(s9.grade).toBe('S');
+    // NEXT VISIT の第 2 候補（122 / 残り 2 本の T15）はこの変更の対象外。
+    expect(reviewThrow(record(122, 'T15', 'T15', 2)).verdict).toBe('BETTER_OPTION_AVAILABLE');
+    // ビジット最後の 1 投（77 の T15）もこの変更の対象外。
+    expect(reviewThrow(record(77, 'T15', 'T15', 3)).verdict).toBe('BETTER_OPTION_AVAILABLE');
+  });
+
+  it('得意ダブル（MY ROUTE）の保護が先に効く', () => {
+    const result = reviewThrow(record(41, 'S1', 'S1', 2), { preferredDoubles: ['D20'] });
+    expect(result.verdict).toBe('GOOD_DECISION');
+    expect(result.noteJa).toContain('MY ROUTE');
+  });
+});
+
 describe('GAME REVIEW の集計', () => {
   it('9 ダーツで上がった完全プレイを正しく要約する', () => {
     // 501 = T20×3 → 321 = T20×3 → 141 = T20 + T19 + D12
