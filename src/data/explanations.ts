@@ -401,6 +401,41 @@ export const CURATED_SETUP_EXPLANATIONS: Readonly<Record<number, string>> = {
   271: 'T19 + S19 + S-BULL = 101 で 170 残り。1 本目に 60 が入った後、18・19・20・S-BULL で 170 へ乗せる考え方です。',
 };
 
+/** 振り返りの `CHECKOUT_PEER_OF_RECOMMENDED` の説明文へ渡す値（表記は変換済み）。 */
+export interface CheckoutPeerContext {
+  readonly intendedLabel: string;
+  /** 狙いから始まる、おすすめと同等以上の上がり方。 */
+  readonly routeText: string;
+  /** その場面のおすすめ（CHECKOUT の先頭）。 */
+  readonly recommendedText: string;
+  readonly grade: string;
+  readonly leaveOnHit: number;
+  /** 2 投目以降の的（表記済み）。1 投で上がる形なら空。 */
+  readonly restLabels: readonly string[];
+  /** おすすめと共通の注意点（非推奨の理由の表示名）。 */
+  readonly sharedCautionLabels: readonly string[];
+}
+
+/** 振り返りの `CHECKOUT_PEER_OF_RECOMMENDED` の説明文（v1.4.5）。 */
+export function renderCheckoutPeerJa(ctx: CheckoutPeerContext): string {
+  const follow =
+    ctx.restLabels.length === 0
+      ? `${ctx.intendedLabel} が狙い通りに入れば、この 1 投で上がれます。`
+      : `${ctx.intendedLabel} が狙い通りなら残り ${ctx.leaveOnHit} で、` +
+        `続けて ${ctx.restLabels.join(' → ')} を狙えば上がれます。`;
+  const caution =
+    ctx.sharedCautionLabels.length === 0
+      ? ''
+      : `注意点（${ctx.sharedCautionLabels.join('・')}）はおすすめと共通です。`;
+  return (
+    `${ctx.routeText} で上がる形は、この場面のおすすめ（${ctx.recommendedText}）と比べて、` +
+    `アプリの戦術評価（基準ルートの加点を除く）で劣りません。` +
+    `推奨度 ${ctx.grade} は候補の並びの中での相対評価です。` +
+    follow +
+    caution
+  );
+}
+
 /**
  * NEXT VISIT の提案につける短い見出し（v1.3.6）。
  *

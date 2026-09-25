@@ -53,7 +53,7 @@ import {
 } from '../../domain/checkoutRules';
 import { findDart, requireDart, type Dart } from '../../domain/dart';
 import { DISCOURAGING_REASON_CODES, type RouteGrade } from '../../data/rankingRules';
-import { renderNextVisitProposalPeerJa } from '../../data/explanations';
+import { renderCheckoutPeerJa, renderNextVisitProposalPeerJa } from '../../data/explanations';
 import {
   NEXT_VISIT_PROPOSAL_FACETS,
   type NextVisitProposalFacet,
@@ -1203,29 +1203,24 @@ function recommendedFirstDartNoteJa(
   );
 }
 
-/** 構造化した理由（`CHECKOUT_PEER_OF_RECOMMENDED`）から説明文を組み立てる。 */
+/**
+ * 構造化した理由（`CHECKOUT_PEER_OF_RECOMMENDED`）から説明文を組み立てる。
+ * 日本語は `data/explanations.ts` で解決し、ここでは表記の変換だけをする。
+ */
 function checkoutPeerNoteJa(
   intendedLabel: string,
   recommendedText: string,
   reason: Extract<ThrowReviewReason, { code: 'CHECKOUT_PEER_OF_RECOMMENDED' }>,
 ): string {
-  const rest = reason.routeDartIds.slice(1).map(displayTargetId);
-  const follow =
-    rest.length === 0
-      ? `${intendedLabel} が狙い通りに入れば、この 1 投で上がれます。`
-      : `${intendedLabel} が狙い通りなら残り ${reason.leaveOnHit} で、` +
-        `続けて ${rest.join(' → ')} を狙えば上がれます。`;
-  const caution =
-    reason.sharedCautionLabels.length === 0
-      ? ''
-      : `注意点（${reason.sharedCautionLabels.join('・')}）はおすすめと共通です。`;
-  return (
-    `${routeLabelOf(reason.routeDartIds)} で上がる形は、この場面のおすすめ（${recommendedText}）と比べて、` +
-    `アプリの戦術評価（基準ルートの加点を除く）で劣りません。` +
-    `推奨度 ${reason.grade} は候補の並びの中での相対評価です。` +
-    follow +
-    caution
-  );
+  return renderCheckoutPeerJa({
+    intendedLabel,
+    routeText: routeLabelOf(reason.routeDartIds),
+    recommendedText,
+    grade: reason.grade,
+    leaveOnHit: reason.leaveOnHit,
+    restLabels: reason.routeDartIds.slice(1).map(displayTargetId),
+    sharedCautionLabels: reason.sharedCautionLabels,
+  });
 }
 
 /**
