@@ -49,14 +49,33 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴は v1.4.6（振り返りが、NEXT VISIT の別案を理由なく下げない）', async () => {
+  it('最新の履歴は v1.4.7（最後の 1 投のダブルの違いを交換条件として扱う）', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('v1.4.6');
+    expect(latest).toHaveTextContent('v1.4.7');
     expect(latest).toHaveTextContent('現在');
+    expect(latest.textContent ?? '').toMatch(/CHECKOUT \/ SETUP \/ NEXT VISIT \/ TRAINING の推奨・採点/);
+    // 77 の T15 の実例と、得意ダブルが代案側なら従来どおりであること。
+    expect(latest.textContent ?? '').toMatch(/77/);
+    expect(latest.textContent ?? '').toMatch(/32（D16）/);
+    expect(latest.textContent ?? '').toMatch(/交換条件/);
+    expect(latest.textContent ?? '').toMatch(/代案側のダブル/);
+  });
+
+  it('v1.4.6 の履歴は残り、現在版ではなくなっている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const latest = screen
+      .getAllByTestId('version-history-item')
+      .find((item) => (item.textContent ?? '').includes('v1.4.6'));
+    expect(latest).toBeDefined();
+    if (!latest) return;
+    expect(latest.querySelector('.version-history__badge')).toBeNull();
     expect(latest.textContent ?? '').toMatch(/CHECKOUT \/ SETUP \/ NEXT VISIT \/ TRAINING の推奨・採点/);
     // 122 の T15 の実例と、提案に入っているだけでは良い判断にしないこと。
     expect(latest.textContent ?? '').toMatch(/122/);
