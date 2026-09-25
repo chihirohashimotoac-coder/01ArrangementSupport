@@ -533,3 +533,74 @@ export function renderNextVisitProposalPeerJa(ctx: NextVisitProposalPeerContext)
     `（次の投の狙いは、その投で評価します）。`
   );
 }
+
+/** 最後の 1 投の交換条件の説明で、狙い・代案 1 つぶんの値（表記は変換済み）。 */
+export interface LastDartTradeOffTarget {
+  /** 狙う的（表記済み。例: T15）。 */
+  readonly label: string;
+  /** 狙い通りの残り（外側のダブルを直接狙える残り）。 */
+  readonly hitLeave: number;
+  /** 狙い通りのときに残るダブル（表記済み。例: D16）。 */
+  readonly hitDoubleLabel: string;
+  /** 同じナンバーのシングル（表記済み。例: S15）。 */
+  readonly missLabel: string;
+  readonly missLeave: number;
+  /** シングル落ちの残りからの上がりの例（表記済み。例: T10 → D16）。無ければ null。 */
+  readonly missExampleText: string | null;
+}
+
+/** 振り返りの `LAST_DART_DOUBLE_TRADE_OFF` の説明文へ渡す値。 */
+export interface LastDartTradeOffContext {
+  readonly proposalKind: 'leave-quality' | 'preferred-double' | 'alternative';
+  readonly intended: LastDartTradeOffTarget;
+  /** シングル落ち後は有利だが、狙い通りのときに残るダブルが違う代案（先頭から説明する）。 */
+  readonly alternatives: readonly LastDartTradeOffTarget[];
+  /** 狙いの命中ダブルの得意ダブル順位（0 始まり）。設定に無ければ null。 */
+  readonly intendedPreferenceRank: number | null;
+}
+
+/** シングル落ちの残りの言い方（例: 残り 62（例: T10 → D16））。 */
+function missLeaveJa(target: LastDartTradeOffTarget): string {
+  return target.missExampleText === null
+    ? `残り ${target.missLeave}`
+    : `残り ${target.missLeave}（例: ${target.missExampleText}）`;
+}
+
+/**
+ * 振り返りの `LAST_DART_DOUBLE_TRADE_OFF` の説明文（v1.4.7）。
+ *
+ * ビジット最後の 1 投で、アプリが表示した NEXT VISIT の提案の狙いに対し、
+ * シングル落ち後は有利だが狙い通りのときに残るダブルが違う代案があるときの説明。
+ * 狙い通り・シングル落ちの両方の交換条件を具体的な残りで書く。
+ */
+export function renderLastDartDoubleTradeOffJa(ctx: LastDartTradeOffContext): string {
+  const own = ctx.intended;
+  const [first, ...rest] = ctx.alternatives;
+  const preference =
+    ctx.intendedPreferenceRank === null
+      ? ''
+      : `${own.hitDoubleLabel} は得意ダブル第 ${ctx.intendedPreferenceRank + 1} 位です。`;
+  const ownMiss =
+    own.missLeave === own.hitLeave
+      ? ''
+      : `同じナンバーの ${own.missLabel} に落ちると${missLeaveJa(own)}です。`;
+  const others = rest
+    .slice(0, 1)
+    .map(
+      (item) =>
+        `${item.label}（狙い通り ${item.hitLeave} で ${item.hitDoubleLabel}・` +
+        `${item.missLabel} でも ${item.missLeave}）も同じ関係です。`,
+    )
+    .join('');
+  return (
+    `${own.label} は、この場面の${NEXT_VISIT_PROPOSAL_KIND_JA[ctx.proposalKind]}の狙いです。` +
+    `狙い通りなら残り ${own.hitLeave} で、次のビジットは 1 投目から ${own.hitDoubleLabel} を狙えます。` +
+    preference +
+    ownMiss +
+    `${first.label} なら ${first.missLabel} に落ちても${missLeaveJa(first)}で立て直しやすい一方、` +
+    `狙い通りに入ると残るのは ${first.hitLeave}（${first.hitDoubleLabel}）です。` +
+    others +
+    `狙い通りのときに残るダブルと、シングルに落ちたあとの立て直しの交換条件なので、` +
+    `どちらを選んでも良い判断です。`
+  );
+}

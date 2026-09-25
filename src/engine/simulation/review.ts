@@ -53,7 +53,12 @@ import {
 } from '../../domain/checkoutRules';
 import { findDart, requireDart, type Dart } from '../../domain/dart';
 import { DISCOURAGING_REASON_CODES, type RouteGrade } from '../../data/rankingRules';
-import { renderCheckoutPeerJa, renderNextVisitProposalPeerJa } from '../../data/explanations';
+import {
+  renderCheckoutPeerJa,
+  renderLastDartDoubleTradeOffJa,
+  renderNextVisitProposalPeerJa,
+  type LastDartTradeOffTarget,
+} from '../../data/explanations';
 import {
   NEXT_VISIT_PROPOSAL_FACETS,
   type NextVisitProposalFacet,
@@ -212,6 +217,21 @@ export type ThrowReviewReason =
       readonly code: 'LAST_DART_LEAVE_DOMINATED';
       readonly intended: ProfiledAlternative;
       readonly dominating: readonly ProfiledAlternative[];
+    }
+  /**
+   * ビジット最後の 1 投（v1.4.7 / A-26）。狙いはアプリが表示した NEXT VISIT の提案の
+   * 1 投目で、シングル落ち後は有利な代案があるが、狙い通りのときに残る外側のダブルが違う
+   * （交換条件）。シングル落ち後の差だけで「明確な上位互換」とは断定しない。
+   */
+  | {
+      readonly code: 'LAST_DART_DOUBLE_TRADE_OFF';
+      /** 狙いを 1 投目に持つ提案の種類。 */
+      readonly proposalKind: NextVisitProposalKind;
+      readonly intended: ProfiledAlternative;
+      /** シングル落ち後は有利だが、狙い通りのときに残るダブルが違う代案（良い順）。 */
+      readonly tradeOffs: readonly ProfiledAlternative[];
+      /** 狙いの命中ダブルの得意ダブル順位（0 始まり）。設定に無ければ null。 */
+      readonly intendedPreferenceRank: number | null;
     }
   /**
    * 狙いが、その場面のアプリのおすすめルートの 1 投目そのもの（v1.4.4）。
@@ -426,7 +446,19 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
    */
   if (context.kind === 'setup' && dartsLeft === 1) {
     const protectedDartId = preferenceDrivenFirstDartOf(suggestion, left, options);
-    const lastDart = lastDartSetupReview(record, left, intendedLabel, grade, best, protectedDartId);
+    const tradeOff: LastDartTradeOffScope = {
+      proposals: suggestion.nextVisitProposals,
+      preferredDoubles: options.preferredDoubles ?? [],
+    };
+    const lastDart = lastDartSetupReview(
+      record,
+      left,
+      intendedLabel,
+      grade,
+      best,
+      protectedDartId,
+      tradeOff,
+    );
     if (lastDart !== null) return lastDart;
   }
 
@@ -718,6 +750,7 @@ function lastDartSetupReview(
   grade: RouteGrade | null,
   best: RouteSummary | null,
   protectedDartId: string | null,
+  tradeOff: LastDartTradeOffScope,
 ): ThrowReview | null {
   const analysis = analyzeLastDartSetup(left);
   if (!analysis.hasTenpaiTargets) return null;
@@ -739,7 +772,7 @@ function lastDartSetupReview(
    * （116 で「T18（狙い通り 62）も同じ条件を満たす」と勧めない）。
    */
   const alternatives = recommendedLastDartTargets(analysis, Number.POSITIVE_INFINITY, option.dartId)
-    .filter((item) => dominatingLastDartOptionsOf(analysis, item).length === 0)
+    .filter((item) => dominatingLastDartOptionsOf(analysis, item, tradeOff).length === 0)
     .slice(0, 2);
   const alternativesText = alternatives.map(describeLastDartOption).join('または ');
 
@@ -801,12 +834,32 @@ function lastDartSetupReview(
    *
    * 得意ダブルの設定で NEXT VISIT の第 1 候補が変わった狙い（MY ROUTE）は、
    * この比較で下げない。
+   *
+   * 2-d. アプリが表示した NEXT VISIT の提案の狙いで、代案との差が
+   *      「狙い通りのときに残る外側のダブル」と「シングル落ち後の立て直し」の
+   *      交換条件になっているだけなら、上位互換とは断定しない（v1.4.7 / A-26）。
+   *      条件は `isLastDartDoubleTradeOff` を参照。
    */
   if (
     (option.singleMissTenpai || analysis.safeTargets.length === 0) &&
     option.dartId !== protectedDartId
   ) {
-    const dominating = dominatingLastDartOptionsOf(analysis, option);
+    const { dominating, tradeOffs } = lastDartDominanceOf(analysis, option, tradeOff);
+    if (dominating.length === 0 && tradeOffs.length > 0) {
+      const reason: ThrowReviewReason = {
+        code: 'LAST_DART_DOUBLE_TRADE_OFF',
+        proposalKind: proposalOfFirstDart(tradeOff.proposals, option.dartId)!.kind,
+        intended: profiledAlternativeOf(option),
+        tradeOffs: tradeOffs.map(profiledAlternativeOf),
+        intendedPreferenceRank: preferenceRankOf(option.leaveOnHit, tradeOff.preferredDoubles),
+      };
+      return {
+        ...base,
+        verdict: 'GOOD_DECISION',
+        noteJa: lastDartDoubleTradeOffNoteJa(intendedLabel, reason),
+        reason,
+      };
+    }
     if (dominating.length > 0) {
       const reason: ThrowReviewReason = {
         code: 'LAST_DART_LEAVE_DOMINATED',
@@ -930,7 +983,102 @@ function leavePairOf(option: LastDartOption): LeavePair | null {
  * 比べるのはテンパイを作れる的のうち、落ち先を決められる（BULL 以外）
  * ダブル以外の的だけ。ダブルは SETUP の得点手段として勧めない。
  */
+/** 最後の 1 投の交換条件（A-26）を判定するための、その場面の表示内容。 */
+interface LastDartTradeOffScope {
+  /** アプリがその場面で表示した NEXT VISIT の提案（最大 3 件）。 */
+  readonly proposals: readonly NextVisitProposal[];
+  /** 得意ダブル（順位順）。 */
+  readonly preferredDoubles: readonly string[];
+}
+
+function proposalOfFirstDart(
+  proposals: readonly NextVisitProposal[],
+  dartId: string,
+): NextVisitProposal | null {
+  return proposals.find((proposal) => proposal.route.darts[0]?.id === dartId) ?? null;
+}
+
+/** 外側のダブルで直接上がれる残りの、そのダブル（内部 ID）。それ以外は null。 */
+function directDoubleIdOf(leave: number): string | null {
+  return nextVisitLeaveProfileOf(leave).kind === 'DIRECT_DOUBLE' ? `D${leave / 2}` : null;
+}
+
+/** 残りを上がるダブルの得意ダブル順位（0 始まり）。外側ダブル以外・設定に無ければ null。 */
+function preferenceRankOf(leave: number, preferredDoubles: readonly string[]): number | null {
+  const double = directDoubleIdOf(leave);
+  if (double === null) return null;
+  const rank = preferredDoubles.indexOf(double);
+  return rank < 0 ? null : rank;
+}
+
+/**
+ * ビジット最後の 1 投で、代案 `alternative` が狙い `intended` を上回るのが
+ * **交換条件にすぎない**か（v1.4.7 / A-26）。次のすべてを満たすときだけ true。
+ *
+ *   1. 狙いが、アプリが表示した NEXT VISIT の提案の 1 投目である
+ *   2. 狙い・代案とも、狙い通りなら外側のダブルを直接狙える残りになる
+ *   3. その 2 つのダブルが違う（同じダブルなら、シングル落ちの差はそのまま優劣になる）
+ *   4. 得意ダブルの設定が代案側のダブルを優先していない
+ *      - 代案のダブルだけが設定に含まれる → 代案が優先（false）
+ *      - 両方が含まれる → 順位が上の方が優先（代案が上なら false）
+ *      - 狙いのダブルだけが含まれる・どちらも含まれない → 優先していない
+ *
+ * 代案の方がシングル落ち後に有利なこと（A-22 の上位互換の条件）は呼び出し側で確かめる。
+ * `DOUBLE_QUALITY`・NEXT VISIT の提案順・`leaveProfile.ts` の段階は使わない・変えない。
+ */
+export function isLastDartDoubleTradeOff(params: {
+  readonly intendedDartId: string;
+  readonly intendedHitLeave: number;
+  readonly alternativeHitLeave: number;
+  readonly proposalFirstDartIds: readonly string[];
+  readonly preferredDoubles: readonly string[];
+}): boolean {
+  if (!params.proposalFirstDartIds.includes(params.intendedDartId)) return false;
+  const own = directDoubleIdOf(params.intendedHitLeave);
+  const other = directDoubleIdOf(params.alternativeHitLeave);
+  if (own === null || other === null || own === other) return false;
+  const ownRank = params.preferredDoubles.indexOf(own);
+  const otherRank = params.preferredDoubles.indexOf(other);
+  if (otherRank < 0) return true;
+  return ownRank >= 0 && ownRank < otherRank;
+}
+
+/**
+ * 残り 1 投で、`option` の上位互換（A-22）を、交換条件（A-26）とそれ以外に分ける。
+ * `dominating` が 1 つでもあれば明確な上位互換あり。
+ */
+function lastDartDominanceOf(
+  analysis: LastDartSetupAnalysis,
+  option: LastDartOption,
+  tradeOff: LastDartTradeOffScope,
+): { readonly dominating: readonly LastDartOption[]; readonly tradeOffs: readonly LastDartOption[] } {
+  const all = baseDominatingLastDartOptionsOf(analysis, option);
+  const proposalFirstDartIds = tradeOff.proposals.map((proposal) => proposal.route.darts[0]?.id ?? '');
+  const isTradeOff = (candidate: LastDartOption) =>
+    isLastDartDoubleTradeOff({
+      intendedDartId: option.dartId,
+      intendedHitLeave: option.leaveOnHit,
+      alternativeHitLeave: candidate.leaveOnHit,
+      proposalFirstDartIds,
+      preferredDoubles: tradeOff.preferredDoubles,
+    });
+  return {
+    dominating: all.filter((candidate) => !isTradeOff(candidate)),
+    tradeOffs: all.filter(isTradeOff),
+  };
+}
+
+/** 残り 1 投で、`option` の明確な上位互換になっている的（交換条件を除く・良い順）。 */
 function dominatingLastDartOptionsOf(
+  analysis: LastDartSetupAnalysis,
+  option: LastDartOption,
+  tradeOff: LastDartTradeOffScope,
+): readonly LastDartOption[] {
+  return lastDartDominanceOf(analysis, option, tradeOff).dominating;
+}
+
+/** 残り 1 投で、Next Visit Leave Profile だけで見た `option` の上位互換（A-22・良い順）。 */
+function baseDominatingLastDartOptionsOf(
   analysis: LastDartSetupAnalysis,
   option: LastDartOption,
 ): readonly LastDartOption[] {
@@ -995,6 +1143,35 @@ function profiledAlternativeOf(option: LastDartOption): ProfiledAlternative {
     hitProfile: pair.hit.kind,
     missProfile: pair.miss.kind,
   };
+}
+
+/** 説明文へ渡す、狙い・代案 1 つぶんの値（表記の変換だけをする）。 */
+function tradeOffTargetOf(item: ProfiledAlternative): LastDartTradeOffTarget {
+  const example = nextVisitLeaveProfileOf(item.leaveOnSingleMiss ?? item.leaveOnHit).exampleDartIds;
+  return {
+    label: displayTargetId(item.dartId),
+    hitLeave: item.leaveOnHit,
+    hitDoubleLabel: displayTargetId(`D${item.leaveOnHit / 2}`),
+    missLabel: item.missDartId === null ? '' : displayTargetId(item.missDartId),
+    missLeave: item.leaveOnSingleMiss ?? item.leaveOnHit,
+    missExampleText: example === null ? null : routeLabelOf(example),
+  };
+}
+
+/**
+ * 構造化した理由（`LAST_DART_DOUBLE_TRADE_OFF`）から説明文を組み立てる。
+ * 日本語は `data/explanations.ts` で解決し、ここでは表記の変換だけをする。
+ */
+function lastDartDoubleTradeOffNoteJa(
+  intendedLabel: string,
+  reason: Extract<ThrowReviewReason, { code: 'LAST_DART_DOUBLE_TRADE_OFF' }>,
+): string {
+  return renderLastDartDoubleTradeOffJa({
+    proposalKind: reason.proposalKind,
+    intended: { ...tradeOffTargetOf(reason.intended), label: intendedLabel },
+    alternatives: reason.tradeOffs.map(tradeOffTargetOf),
+    intendedPreferenceRank: reason.intendedPreferenceRank,
+  });
 }
 
 /** 構造化した理由（`LAST_DART_LEAVE_DOMINATED`）から説明文を組み立てる。 */
