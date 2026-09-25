@@ -54,10 +54,15 @@ import {
 import { findDart, requireDart, type Dart } from '../../domain/dart';
 import { DISCOURAGING_REASON_CODES, type RouteGrade } from '../../data/rankingRules';
 import {
+  BETTER_OPTION_LEAD_JA,
+  appRouteSuggestionJa,
   renderCheckoutPeerJa,
+  renderGradeBetterJa,
   renderLastDartDoubleTradeOffJa,
   renderNextVisitProposalPeerJa,
+  reviewComparisonSuggestionJa,
   type LastDartTradeOffTarget,
+  type ReviewComparisonTargetJa,
 } from '../../data/explanations';
 import {
   NEXT_VISIT_PROPOSAL_FACETS,
@@ -176,6 +181,42 @@ export interface ThrowReview {
    * `noteJa` はこの値から組み立てる。
    */
   readonly reason?: ThrowReviewReason;
+  /**
+   * 振り返りが**今回の判断と比べた代案**（v1.4.8）。否定的な判定のときだけ入る。
+   *
+   * 判定の根拠（上位互換の的・テンパイを作れる的・同じナンバーのトリプル・
+   * エンジンの第 1 案）からそのまま作る。説明文（`noteJa`）を解析して取り出さない。
+   * 1 投目が狙いと同じになることはない。アプリの第 1 案（`recommendedRouteText`）とは別物で、
+   * 画面では両者を区別して見せる。
+   */
+  readonly comparison: ReviewComparison | null;
+}
+
+/**
+ * 振り返りが比べた代案の根拠。
+ *
+ * - `APP_ROUTE`: エンジンの第 1 案（推奨度・Bust・候補に無い狙いとの比較）
+ * - `LAST_DART_TENPAI`: 最後の 1 投で、テンパイ（シングル落ちでも）を作れる的（A-20）
+ * - `LAST_DART_SAME_NUMBER_TRIPLE`: 同じナンバーのトリプル（A-21）
+ * - `LAST_DART_LEAVE_PROFILE`: Next Visit Leave Profile の上位互換（A-22）
+ * - `SETUP_RECOVERY`: SETUP・残り 2 本以上のシングル落ち回復（A-22）
+ */
+export type ReviewComparisonBasis =
+  | 'APP_ROUTE'
+  | 'LAST_DART_TENPAI'
+  | 'LAST_DART_SAME_NUMBER_TRIPLE'
+  | 'LAST_DART_LEAVE_PROFILE'
+  | 'SETUP_RECOVERY';
+
+export interface ReviewComparison {
+  readonly basis: ReviewComparisonBasis;
+  /** 代案の的（内部 ID）。1 投だけの比較なら 1 つ。先頭は狙いと違う。 */
+  readonly dartIds: readonly string[];
+  /** 代案を狙い通りに投げ切ったときの残り。上がるルートなら 0。 */
+  readonly leaveOnHit: number;
+  /** 1 投目の同ナンバーのシングル（内部 ID）。1 投だけの比較でないとき・BULL は null。 */
+  readonly missDartId: string | null;
+  readonly leaveOnSingleMiss: number | null;
 }
 
 /** 代わりに示す的と、その狙い通り / シングル落ちの残り。 */
@@ -409,6 +450,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     return {
       record,
       verdict: 'SCORING_PHASE',
+      comparison: null,
       grade: null,
       intendedLeave: left - intended.score,
       recommendedRouteText: null,
@@ -425,6 +467,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     return {
       record,
       verdict: 'ARRANGEMENT_MISTAKE',
+      comparison: appRouteComparisonOf(best, record.intendedDartId),
       grade: null,
       intendedLeave: null,
       recommendedRouteText: best?.routeText ?? null,
@@ -444,6 +487,14 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
    * 判定できない場面（テンパイを作れない残り点・BULL 狙い・ダブル狙い）は
    * null が返り、従来どおり推奨度で判定する。
    */
+  /*
+   * ビジット最後の 1 投で、最後の 1 投の比較（A-20〜A-22 / A-26）では判定しない狙い
+   * （ダブル・BULL など）は、推奨度やボギーで判定する。その説明と「振り返りが比べた代案」に
+   * エンジンの第 1 案を出すと、振り返り自身がその第 1 案を下げる場面がある
+   * （残り 171 の S11。A-21 では T11 が上位）。その場面だけ、振り返り自身の代案に置き換える
+   * （v1.4.8。判定は変えない）。
+   */
+  let lastDartFallback: ReviewComparison | null = null;
   if (context.kind === 'setup' && dartsLeft === 1) {
     const protectedDartId = preferenceDrivenFirstDartOf(suggestion, left, options);
     const tradeOff: LastDartTradeOffScope = {
@@ -460,7 +511,16 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       tradeOff,
     );
     if (lastDart !== null) return lastDart;
+    lastDartFallback = lastDartFallbackComparisonOf(record, left, best, protectedDartId, tradeOff);
   }
+  const comparison = lastDartFallback ?? appRouteComparisonOf(best, record.intendedDartId);
+  /** 説明文の末尾に置く代案への言及（`lastDartFallback` のときは振り返り自身の代案）。 */
+  const suggestionJa =
+    lastDartFallback !== null
+      ? reviewComparisonSuggestionJa(comparisonTargetJaOf(lastDartFallback))
+      : best
+        ? appRouteSuggestionJa(best.routeText, best.reasonJa)
+        : '';
 
   /*
    * Bogey を作る狙いは、成立していても先に指摘する。
@@ -478,6 +538,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     return {
       record,
       verdict: 'BOGEY_CREATED',
+      comparison,
       grade,
       intendedLeave,
       recommendedRouteText: best?.routeText ?? null,
@@ -485,7 +546,11 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       noteJa:
         `この選択で Bogey Number（残り ${intendedLeave}）を作っています。` +
         `狙い通りに入っても 3 本あって上がれないノーテンで、次のラウンドの Checkout 機会を失います。` +
-        (best ? `${best.routeText} なら上がり（または上がれる残り）を保てました。` : ''),
+        (lastDartFallback !== null
+          ? suggestionJa
+          : best
+            ? `${best.routeText} なら上がり（または上がれる残り）を保てました。`
+            : ''),
     };
   }
 
@@ -500,6 +565,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     return {
       record,
       verdict: 'GOOD_DECISION',
+      comparison: null,
       grade,
       intendedLeave,
       recommendedRouteText: best?.routeText ?? null,
@@ -512,6 +578,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     return {
       record,
       verdict: 'GOOD_DECISION',
+      comparison: null,
       grade,
       intendedLeave,
       recommendedRouteText: best?.routeText ?? null,
@@ -544,6 +611,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     return {
       record,
       verdict: 'GOOD_DECISION',
+      comparison: null,
       grade,
       intendedLeave,
       recommendedRouteText: best.routeText,
@@ -584,6 +652,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       return {
         record,
         verdict: 'GOOD_DECISION',
+        comparison: null,
         grade,
         intendedLeave,
         recommendedRouteText: best.routeText,
@@ -625,6 +694,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       return {
         record,
         verdict: 'GOOD_DECISION',
+        comparison: null,
         grade,
         intendedLeave,
         recommendedRouteText: best.routeText,
@@ -639,14 +709,17 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     return {
       record,
       verdict: 'BETTER_OPTION_AVAILABLE',
+      comparison,
       grade,
       intendedLeave,
       recommendedRouteText: best?.routeText ?? null,
       recommendedDartId: best?.firstDartId ?? null,
-      noteJa:
-        `成立はしますが、良い選択ではありません。${intendedLabel} は${context.label}として明確に劣ります` +
-        `（狙い通りだと残り ${intendedLeave}）。` +
-        (best ? `おすすめは ${best.routeText}（${best.reasonJa ?? '推奨度 S'}）。` : ''),
+      noteJa: renderGradeBetterJa({
+        intendedLabel,
+        contextLabel: context.label,
+        intendedLeave,
+        suggestionJa,
+      }),
     };
   }
 
@@ -655,6 +728,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     return {
       record,
       verdict: mistake,
+      comparison,
       grade,
       intendedLeave,
       recommendedRouteText: best?.routeText ?? null,
@@ -662,7 +736,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
       noteJa:
         `この選択は不適切です。${intendedLabel} は成立はしますが、${context.label}としては非推奨で` +
         `（狙い通りだと残り ${intendedLeave}）、この 1 投を活かせていません。` +
-        (best ? `おすすめは ${best.routeText}（${best.reasonJa ?? '推奨度 S'}）。` : ''),
+        suggestionJa,
     };
   }
 
@@ -671,6 +745,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     return {
       record,
       verdict: 'NOT_EVALUATED',
+      comparison: null,
       grade: null,
       intendedLeave,
       recommendedRouteText: null,
@@ -707,6 +782,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
     return {
       record,
       verdict: 'NOT_EVALUATED',
+      comparison: null,
       grade: null,
       intendedLeave,
       recommendedRouteText: best?.routeText ?? null,
@@ -721,6 +797,7 @@ export function reviewThrow(record: ThrowRecord, options: ReviewOptions = {}): T
   return {
     record,
     verdict: mistake,
+    comparison: appRouteComparisonOf(best, record.intendedDartId),
     grade: null,
     intendedLeave,
     recommendedRouteText: best?.routeText ?? null,
@@ -795,6 +872,7 @@ function lastDartSetupReview(
     return {
       ...base,
       verdict: option.createsBogey ? 'BOGEY_CREATED' : 'SETUP_MISTAKE',
+      comparison: singleDartComparisonOf('LAST_DART_TENPAI', lastDartAlternativeOf(alternatives[0]), option.dartId),
       noteJa: lead + advice + (alternativesText === '' ? '' : `例: ${alternativesText}。`),
     };
   }
@@ -815,6 +893,7 @@ function lastDartSetupReview(
     return {
       ...base,
       verdict: 'BETTER_OPTION_AVAILABLE',
+      comparison: singleDartComparisonOf('LAST_DART_SAME_NUMBER_TRIPLE', lastDartAlternativeOf(tripleUpgrade), option.dartId),
       noteJa:
         `テンパイは作れますが、${tripleLabel} を狙えば、シングルに落ちても同じ残り ` +
         `${option.leaveOnHit} を維持でき、${tripleLabel} に入れば残り ` +
@@ -856,6 +935,7 @@ function lastDartSetupReview(
       return {
         ...base,
         verdict: 'GOOD_DECISION',
+        comparison: null,
         noteJa: lastDartDoubleTradeOffNoteJa(intendedLabel, reason),
         reason,
       };
@@ -869,6 +949,7 @@ function lastDartSetupReview(
       return {
         ...base,
         verdict: 'BETTER_OPTION_AVAILABLE',
+        comparison: singleDartComparisonOf('LAST_DART_LEAVE_PROFILE', lastDartAlternativeOf(dominating[0]), option.dartId),
         noteJa: dominatedLeaveNoteJa(intendedLabel, reason),
         reason,
       };
@@ -895,6 +976,7 @@ function lastDartSetupReview(
     return {
       ...base,
       verdict: 'GOOD_DECISION',
+      comparison: null,
       noteJa: leaveNote + teach,
     };
   }
@@ -908,6 +990,7 @@ function lastDartSetupReview(
     return {
       ...base,
       verdict: 'GOOD_DECISION',
+      comparison: null,
       noteJa:
         `狙い通りなら残り ${option.leaveOnHit} で、次のラウンドに 3 本で Checkout できます。` +
         `この残り点には、シングルに外れてもテンパイを保てるターゲットがありません。`,
@@ -920,8 +1003,9 @@ function lastDartSetupReview(
   return {
     ...base,
     verdict: 'BETTER_OPTION_AVAILABLE',
+    comparison: singleDartComparisonOf('LAST_DART_TENPAI', lastDartAlternativeOf(alternatives[0]), option.dartId),
     noteJa:
-      `成立はしますが、良い選択ではありません。${intendedLabel} はシングルに外れると${missNote}。` +
+      `${BETTER_OPTION_LEAD_JA}${intendedLabel} はシングルに外れると${missNote}。` +
       `${alternativesText}なら、シングルに外れてもテンパイを作れます。`,
   };
 }
@@ -1288,7 +1372,13 @@ function setupRecoveryReview(
         .slice(0, 2)
         .map(toAlternative),
     };
-    return { ...base, verdict: 'SETUP_MISTAKE', noteJa: setupRecoveryNoteJa(intendedLabel, reason), reason };
+    return {
+      ...base,
+      verdict: 'SETUP_MISTAKE',
+      comparison: singleDartComparisonOf('SETUP_RECOVERY', reason.alternatives[0], record.intendedDartId),
+      noteJa: setupRecoveryNoteJa(intendedLabel, reason),
+      reason,
+    };
   }
 
   if (facts.singleMissCanReachTenpai || facts.leaveOnSingleMiss === null) return null;
@@ -1310,6 +1400,7 @@ function setupRecoveryReview(
   return {
     ...base,
     verdict: 'BETTER_OPTION_AVAILABLE',
+    comparison: singleDartComparisonOf('SETUP_RECOVERY', reason.alternatives[0], record.intendedDartId),
     noteJa: setupRecoveryNoteJa(intendedLabel, reason),
     reason,
   };
@@ -1429,6 +1520,92 @@ function describeLastDartOption(option: LastDartOption): string {
     return `${label}（狙い通り ${option.leaveOnHit}）`;
   }
   return `${label}（狙い通り ${option.leaveOnHit}・シングルでも ${option.leaveOnSingleMiss}）`;
+}
+
+/**
+ * ビジット最後の 1 投で、最後の 1 投の比較では判定しない狙い（ダブル・BULL など）の代案。
+ *
+ * エンジンの第 1 案の 1 投目を、同じ場面の最後の 1 投の比較（`lastDartSetupReview`）に
+ * かけて「良い判断」にならないときだけ、振り返り自身が勧める的
+ * （`recommendedLastDartTargets` の順で、同じ比較で「良い判断」になる最初の的）を返す。
+ * それ以外は null（エンジンの第 1 案をそのまま代案にする）。判定には使わない。
+ */
+function lastDartFallbackComparisonOf(
+  record: ThrowRecord,
+  left: number,
+  best: RouteSummary | null,
+  protectedDartId: string | null,
+  tradeOff: LastDartTradeOffScope,
+): ReviewComparison | null {
+  if (best === null || best.firstDartId === record.intendedDartId) return null;
+  const judge = (dartId: string) =>
+    lastDartSetupReview(
+      { ...record, intendedDartId: dartId },
+      left,
+      displayTargetId(dartId),
+      null,
+      best,
+      protectedDartId,
+      tradeOff,
+    );
+  const asAppRoute = judge(best.firstDartId);
+  if (asAppRoute === null || asAppRoute.verdict === 'GOOD_DECISION') return null;
+  const analysis = analyzeLastDartSetup(left);
+  for (const item of recommendedLastDartTargets(analysis, Number.POSITIVE_INFINITY, record.intendedDartId)) {
+    if (judge(item.dartId)?.verdict === 'GOOD_DECISION') {
+      return singleDartComparisonOf('LAST_DART_TENPAI', lastDartAlternativeOf(item), record.intendedDartId);
+    }
+  }
+  return null;
+}
+
+/** 代案（1 投）を説明文用の値へ写す（表記の変換だけ）。 */
+function comparisonTargetJaOf(comparison: ReviewComparison): ReviewComparisonTargetJa {
+  return {
+    label: displayTargetId(comparison.dartIds[0]),
+    leaveOnHit: comparison.leaveOnHit,
+    missLabel: comparison.missDartId === null ? null : displayTargetId(comparison.missDartId),
+    leaveOnSingleMiss: comparison.leaveOnSingleMiss,
+  };
+}
+
+/** エンジンの第 1 案を、比べた代案として渡す（1 投目が狙いと同じなら渡さない）。 */
+function appRouteComparisonOf(best: RouteSummary | null, intendedDartId: string): ReviewComparison | null {
+  if (best === null || best.firstDartId === intendedDartId) return null;
+  return {
+    basis: 'APP_ROUTE',
+    dartIds: best.dartIds,
+    leaveOnHit: best.leave,
+    missDartId: null,
+    leaveOnSingleMiss: null,
+  };
+}
+
+/** 1 投だけの代案（的・狙い通りの残り・シングル落ちの残り）を、比べた代案として渡す。 */
+function singleDartComparisonOf(
+  basis: Exclude<ReviewComparisonBasis, 'APP_ROUTE'>,
+  item: ReviewAlternative | undefined,
+  intendedDartId: string,
+): ReviewComparison | null {
+  if (item === undefined || item.dartId === intendedDartId) return null;
+  return {
+    basis,
+    dartIds: [item.dartId],
+    leaveOnHit: item.leaveOnHit,
+    missDartId: item.missDartId,
+    leaveOnSingleMiss: item.leaveOnSingleMiss,
+  };
+}
+
+/** 最後の 1 投の的を、比べた代案の形へ写す。 */
+function lastDartAlternativeOf(option: LastDartOption | undefined): ReviewAlternative | undefined {
+  if (option === undefined) return undefined;
+  return {
+    dartId: option.dartId,
+    leaveOnHit: option.leaveOnHit,
+    missDartId: option.dart.baseNumber === null ? null : `S${option.dart.baseNumber}`,
+    leaveOnSingleMiss: option.leaveOnSingleMiss,
+  };
 }
 
 interface RouteSummary {

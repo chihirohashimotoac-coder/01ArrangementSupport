@@ -29,6 +29,16 @@
  *        G3. 交換条件を満たさない上位互換の的があるのに、BETTER（上位互換）になっていない
  *      交換条件は review.ts とは独立に計算する（提案の 1 投目・外側ダブル・違うダブル・得意ダブルの順位）。
  *
+ *   H. 振り返りの**表示の誤読**（v1.4.8）。否定的な判定の「振り返りが比べた代案」
+ *      （`ThrowReview.comparison`）と「アプリの第 1 案」の表示を検査する。
+ *        H1. 否定的な判定なのに、比べた代案が無い
+ *        H2. 比べた代案の 1 投目が、減点した狙いと同じ
+ *        H3. 比べた代案の 1 投目を同じ場面で振り返りにかけると、良い判断にならない
+ *        H4. 画面の行で、減点した狙いを代案として出している / アプリの第 1 案が狙いと同じなのに
+ *            「改善案ではありません」を添えていない
+ *        H5. 否定的でない判定に、比べた代案が付いている
+ *      得意ダブル設定なしの全 64,914 状態と、D16/D20/D8・D10・D11 のビジット最後の 1 投（2〜170）。
+ *
  * B は A-26 の例外を一律に外さない。GOOD の狙いに上位互換の的があれば、その的ごとに
  * 交換条件をここで確かめ、満たさない的が 1 つでもあるか、理由コードが交換条件でなければ数える。
  *
@@ -42,7 +52,7 @@
  * おすすめの 1 投目が狙いと同じでも、振り返り独自の比較（A-21 / A-22 の上位互換など）で
  * 説明文が**別の 1 投目**を示している判定は、分類して件数だけ出す（矛盾には数えない）。
  *
- * A〜G（ただし B は残り 1 本のみ）と矛盾 1〜4 に 1 件でも該当すると終了コード 1 を返す。
+ * A〜H（ただし B は残り 1 本のみ）と矛盾 1〜4 に 1 件でも該当すると終了コード 1 を返す。
  * 残り 2 本以上で推奨度 S / A が付いた狙いは、承認済みの SETUP ランキングの判断なので
  * 参考値として件数だけ出す（レビュー層では上書きしない）。
  */
@@ -62,8 +72,10 @@ import { dominatesLeavePair, nextVisitLeaveProfileOf } from '../src/engine/simul
 import {
   THROW_VERDICTS,
   reviewThrow,
+  type ThrowReview,
   type ThrowVerdict,
 } from '../src/engine/simulation/review';
+import { suggestionsOf } from '../src/engine/simulation/reviewHighlights';
 import { analyzeSetupRecovery } from '../src/engine/simulation/setupRecovery';
 import { displayTargetId } from '../src/engine/simulation/notation';
 import { DISCOURAGING_REASON_CODES, type RouteGrade } from '../src/data/rankingRules';
@@ -135,7 +147,7 @@ const classifiedSameFirstDart = new Map<string, string[]>();
 const orderOnlyAlternatives: string[] = [];
 
 const counts = new Map<number, Record<ThrowVerdict, number>>();
-const findings: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G', string[]> = {
+const findings: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H', string[]> = {
   A: [],
   B: [],
   C: [],
@@ -143,7 +155,41 @@ const findings: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G', string[]> = {
   E: [],
   F: [],
   G: [],
+  H: [],
 };
+
+/**
+ * H: 1 つの場面（残り・残り本数・得意ダブル設定）の全ターゲットの判定から、表示の誤読を数える。
+ * 比べた代案の判定は、同じ場面の判定一覧から引く（振り返りをやり直さない）。
+ */
+function auditDisplay(tag: string, reviews: ReadonlyMap<string, ThrowReview>): void {
+  for (const [dartId, review] of reviews) {
+    const item = `${tag} ${dartId} ${review.verdict}`;
+    if (!NEGATIVE.has(review.verdict)) {
+      if (review.comparison !== null && review.comparison !== undefined) findings.H.push(`H5 ${item}`);
+      continue;
+    }
+    const comparison = review.comparison ?? null;
+    if (comparison === null) {
+      findings.H.push(`H1 ${item}`);
+      continue;
+    }
+    const target = comparison.dartIds[0];
+    if (target === dartId) findings.H.push(`H2 ${item}`);
+    const targetVerdict = reviews.get(target)?.verdict;
+    if (targetVerdict !== 'GOOD_DECISION') {
+      findings.H.push(`H3 ${item}（代案 ${target} は ${targetVerdict}）`);
+    }
+    const lines = suggestionsOf(review);
+    const intendedLabel = displayTargetId(dartId);
+    if (lines.comparisonLineJa.includes(`代案: ${intendedLabel}（`) || lines.comparisonLineJa.endsWith(`代案: ${intendedLabel}`)) {
+      findings.H.push(`H4 ${item}（代案の行に狙いが出ている）`);
+    }
+    if (lines.appFirstRelation === 'SAME_AS_INTENDED' && !(lines.appFirstLineJa ?? '').includes('改善案ではありません')) {
+      findings.H.push(`H4 ${item}（第 1 案が狙いと同じなのに注記が無い）`);
+    }
+  }
+}
 
 /**
  * A-26 の交換条件（review.ts とは独立に計算する）。狙い `option` に対する上位互換の的 `other` が、
@@ -182,6 +228,7 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
 
     const verdicts = new Map<string, ThrowVerdict>();
     const reasonCodes = new Map<string, string | null>();
+    const reviews = new Map<string, ThrowReview>();
     // 振り返りが推奨度を読む候補一覧（review.ts の contextOf と同じ選び方）。
     const suggestion = suggestFor(left, dartsLeft, { maxRoutes: 1000 });
     const candidateRoutes: ReadonlyArray<{ darts: readonly Dart[]; grade: RouteGrade }> =
@@ -196,6 +243,7 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
       perDarts[review.verdict] += 1;
       verdicts.set(dart.id, review.verdict);
       reasonCodes.set(dart.id, review.reason?.code ?? null);
+      reviews.set(dart.id, review);
 
       // 矛盾 1〜4: 振り返りの自己矛盾。
       if (NEGATIVE.has(review.verdict)) {
@@ -263,6 +311,8 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
         }
       }
     }
+
+    auditDisplay(`設定なし ${left}/${dartsLeft}`, reviews);
 
     // B / C / D: ビジット最後の 1 本で「次のラウンドへ残す」場面。
     if (dartsLeft !== 1 || left > MAX_SETUP_REMAINING) continue;
@@ -435,6 +485,17 @@ for (const preferred of [[], ['D20'], ['D16'], ['D8'], ['D10'], ['D11'], ['D16',
 }
 console.log(`  参考 ビジット最後の 1 投で交換条件（A-26）により GOOD にした狙い: 7 通りの設定の合計 ${tradeOffGood} 件`);
 
+// H（得意ダブル設定あり）: ビジット最後の 1 投（2〜170）。
+for (const preferred of [['D16', 'D20', 'D8'], ['D10'], ['D11']]) {
+  for (let left = 2; left <= MAX_CHECKOUT; left += 1) {
+    const reviews = new Map<string, ThrowReview>();
+    for (const dart of THROWABLE_DARTS) {
+      reviews.set(dart.id, reviewThrow(record(left, dart, 1), { preferredDoubles: preferred }));
+    }
+    auditDisplay(`${preferred.join('/')} ${left}/1`, reviews);
+  }
+}
+
 const labels: Record<keyof typeof findings, string> = {
   A: '計算で言い切れるのに NOT_EVALUATED',
   B: 'GOOD なのに上位互換の的がある（残り 1 本）',
@@ -443,9 +504,10 @@ const labels: Record<keyof typeof findings, string> = {
   E: 'CHECKOUT で、おすすめと戦術評価で同等以上の上がり方がある 1 投目の判定が条件と食い違う',
   F: 'NEXT VISIT の第 1 案以外の提案の 1 投目の判定が、第 1 案との上位互換の有無と食い違う',
   G: 'ビジット最後の 1 投で、交換条件（A-26）と判定が食い違う',
+  H: '振り返りの表示で、減点した狙いを改善案と読める / 比べた代案が判定と食い違う',
 };
 let failures = 0;
-for (const key of ['A', 'B', 'C', 'D', 'E', 'F', 'G'] as const) {
+for (const key of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const) {
   const list = findings[key];
   failures += list.length;
   console.log(`${list.length === 0 ? '  ok  ' : '  NG  '} ${key}. ${labels[key]}: ${list.length} 件`);
@@ -476,7 +538,7 @@ for (const key of ['1', '2', '3', '4'] as const) {
 const classifiedTotal = [...classifiedSameFirstDart.values()].reduce((sum, list) => sum + list.length, 0);
 console.log(
   `  分類 「もっと良い狙いあり」でおすすめの 1 投目が狙いと同じだが、説明文は別の 1 投目を示す: ` +
-    `${classifiedTotal} 件（アプリの第 1 候補と振り返り独自の比較の食い違い。画面では代案に出さない）`,
+    `${classifiedTotal} 件（アプリの第 1 候補と振り返り独自の比較の食い違い。画面では「振り返りが比べた代案」と「アプリの第 1 案（改善案ではない）」に分けて出す。項目 H で検査）`,
 );
 for (const [key, list] of classifiedSameFirstDart) {
   console.log(`         ${key}: ${list.length} 件（例: ${list.slice(0, 3).join(' / ')}）`);

@@ -12,6 +12,7 @@ import {
 import {
   THROW_VERDICTS,
   buildGameReview,
+  reviewThrow,
   type GameReview,
   type GameSummary,
   type RoundReview,
@@ -23,6 +24,7 @@ import {
   buildReviewHighlights,
   dartsLeftBefore,
   describeGameResultJa,
+  suggestionsOf,
 } from './reviewHighlights';
 
 const PERFECT: SimulationSettings = {
@@ -74,6 +76,7 @@ function syntheticReview(rounds: ReadonlyArray<readonly ThrowVerdict[]>): GameRe
         recommendedRouteText: null,
         recommendedDartId: null,
         noteJa: '',
+        comparison: null,
       };
     }),
   }));
@@ -206,8 +209,27 @@ describe('振り返りの代表（良かった判断・改善ポイント）', (
   });
 });
 
-describe('代案の出し方', () => {
-  it('狙い通りで BUST する狙いには、良い判断になるおすすめをそのまま代案に出す', () => {
+describe('振り返りが比べた代案と、アプリの第 1 案（v1.4.8）', () => {
+  /** 1 投だけの記録（判定の確認用）。 */
+  const single = (leftBefore: number, intendedDartId: string, dartsLeft: number) => ({
+    round: 1,
+    dartNumber: 4 - dartsLeft,
+    dartIndex: 4 - dartsLeft,
+    leftBefore,
+    intendedSegmentId: 'x',
+    intendedDartId,
+    intendedPoint: { x: 0, y: 0 },
+    actualPoint: { x: 0, y: 0 },
+    actualDartId: intendedDartId,
+    score: 0,
+    leftAfter: leftBefore,
+    bust: false,
+    bustReason: null,
+    checkout: false,
+    drawsBefore: 0,
+  });
+
+  it('狙い通りで BUST する狙い: 代案はアプリの第 1 案そのもの（1 行にまとめる）', () => {
     // 40 から T20 → BUST。おすすめは D20。
     let game = createGame({ ...PERFECT, startScore: 40 }, 1);
     game = throwMany(game, ['segment-t20']);
@@ -217,31 +239,71 @@ describe('代案の出し方', () => {
     const highlights = buildReviewHighlights(buildGameReview(game));
 
     expect(highlights.improvement?.review.verdict).toBe('ARRANGEMENT_MISTAKE');
-    expect(highlights.improvement?.alternative).toEqual({ kind: 'route', text: 'D20' });
+    const suggestions = highlights.improvement?.suggestions;
+    expect(suggestions?.comparison).toMatchObject({ basis: 'APP_ROUTE', dartIds: ['D20'] });
+    expect(suggestions?.appFirstRelation).toBe('SAME_AS_COMPARISON');
+    expect(suggestions?.comparisonLineJa).toBe('振り返りが比べた代案: D20（アプリの第 1 案と同じ）');
+    expect(suggestions?.appFirstLineJa).toBeNull();
   });
 
-  it('残り 178 の最後の 1 投: 振り返りの評価と食い違う第 1 候補は代案に出さない', () => {
-    for (const aim of ['segment-t19', 'segment-s18-outer']) {
-      let game = createGame({ ...PERFECT, startScore: 258 }, 1);
-      game = throwMany(game, ['segment-t20', 'segment-s20-outer', aim]);
-      const review = buildGameReview({
-        ...game,
-        rounds: [{ ...game.current!, scored: 0, leftAfter: 0, entry: null }],
-      });
-      const focus = buildReviewHighlights(review).improvements.find(
-        (item) => item.review.record.leftBefore === 178,
-      );
-      expect(focus?.review.verdict).toBe('BETTER_OPTION_AVAILABLE');
-      // 第 1 候補（S18）は、同じ場面の振り返りでは良い判断に当たらない。
-      expect(focus?.alternative).toEqual({ kind: 'in-note' });
-    }
+  it('残り 178 の最後の 1 投で S18: アプリの第 1 案は狙いと同じなので、改善案として出さない', () => {
+    const review = reviewThrow(single(178, 'S18', 1));
+    expect(review.verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(review.recommendedDartId).toBe('S18');
+    const suggestions = suggestionsOf(review);
+    // 代案は振り返りの判定根拠（同じナンバーのトリプル、A-21）。
+    expect(suggestions.comparison).toMatchObject({
+      basis: 'LAST_DART_SAME_NUMBER_TRIPLE',
+      dartIds: ['T18'],
+      leaveOnHit: 124,
+      missDartId: 'S18',
+      leaveOnSingleMiss: 160,
+    });
+    expect(suggestions.comparisonLineJa).toBe(
+      '振り返りが比べた代案: T18（狙い通りなら残り 124・S18 に落ちても残り 160）',
+    );
+    expect(suggestions.appFirstRelation).toBe('SAME_AS_INTENDED');
+    expect(suggestions.appFirstLineJa).toContain('この場面のアプリの第 1 案: S18');
+    expect(suggestions.appFirstLineJa).toContain('今回の狙いと同じ 1 投目です');
+    expect(suggestions.appFirstLineJa).toContain('改善案ではありません');
+  });
+
+  it('残り 102 の最後の 1 投で S20（A-22）: 代案は上位互換の的、第 1 案は狙いと同じ', () => {
+    const review = reviewThrow(single(102, 'S20', 1));
+    expect(review.verdict).toBe('BETTER_OPTION_AVAILABLE');
+    const suggestions = suggestionsOf(review);
+    expect(suggestions.comparison?.basis).toBe('LAST_DART_LEAVE_PROFILE');
+    expect(suggestions.comparison?.dartIds[0]).toBe('T20');
+    expect(suggestions.comparisonLineJa).toContain('振り返りが比べた代案: T20（狙い通りなら残り 42');
+    expect(suggestions.appFirstRelation).toBe('SAME_AS_INTENDED');
+  });
+
+  it('残り 178 の最後の 1 投で T19: 第 1 案（S18）は参考として別に出す', () => {
+    const review = reviewThrow(single(178, 'T19', 1));
+    const suggestions = suggestionsOf(review);
+    expect(suggestions.comparison?.basis).toBe('LAST_DART_TENPAI');
+    expect(suggestions.comparison?.dartIds[0]).not.toBe('T19');
+    expect(suggestions.appFirstRelation).toBe('DIFFERENT');
+    expect(suggestions.appFirstLineJa).toContain('参考');
+  });
+
+  it('最後の 1 投でダブルを狙った場面: 振り返り自身が下げる第 1 案を代案にしない（残り 171 の D2）', () => {
+    const review = reviewThrow(single(171, 'D2', 1));
+    // 第 1 案 S11 は、同じ場面の振り返りでは T11 に上位互換を取られる（A-21）。
+    expect(review.recommendedDartId).toBe('S11');
+    expect(reviewThrow(single(171, 'S11', 1)).verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(review.comparison?.basis).toBe('LAST_DART_TENPAI');
+    const target = review.comparison!.dartIds[0];
+    expect(reviewThrow(single(171, target, 1)).verdict).toBe('GOOD_DECISION');
+    expect(review.noteJa).toContain('振り返りの代案は');
+    expect(review.noteJa).not.toContain('おすすめは S11');
   });
 
   it('良かった判断には代案を付けない', () => {
     let game = createGame({ ...PERFECT, startScore: 40 }, 1);
     game = throwMany(game, ['segment-d20']);
     game = advanceRound(submitScore(game, 40));
-    expect(buildReviewHighlights(buildGameReview(game)).good?.alternative).toEqual({ kind: 'none' });
+    expect(buildReviewHighlights(buildGameReview(game)).good?.suggestions).toBeNull();
   });
 });
 

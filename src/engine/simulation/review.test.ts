@@ -312,7 +312,8 @@ describe('残り 1 投で「次のラウンドで上がれる数字」を作れ�
     expect(result.noteJa).toContain('158');
     expect(result.noteJa).toContain('160');
     // 「成立する」と「良い選択」を混同しない。
-    expect(result.noteJa).toContain('良い選択ではありません');
+    // 「もっと良い狙いあり」の強さにそろえた書き出し（v1.4.8）。
+    expect(result.noteJa).toContain('成立はしますが、もっと良い狙いがあります');
   });
 
   it('178 / 残り 1 投の T20・T18 は GOOD DECISION（正解を 1 つに絞らない）', () => {
