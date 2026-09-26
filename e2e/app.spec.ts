@@ -770,6 +770,7 @@ test('TRAINING: 読み取れない古い履歴を正答率へ混ぜない', asyn
             valid: true,
             grade: 'S',
             finishDouble: 'D20',
+            primaryCategory: 'checkout-100-119',
             elapsedMs: 3000,
           },
           null,
