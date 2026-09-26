@@ -1,7 +1,7 @@
 import './StatusBar.css';
 
 export interface StatusBarProps {
-  readonly remaining: number;
+  readonly remaining: number | null;
   readonly dartsLeft: number;
   /** 状況の見出し（BUST / CHECKOUT など）。 */
   readonly status?: 'in-progress' | 'checkout' | 'bust';
@@ -31,7 +31,7 @@ export function StatusBar({
         <div className="status-bar__left">
           <span className="status-bar__caption">LEFT</span>
           <span className="status-bar__value" data-testid="status-left">
-            {remaining}
+            {remaining ?? '—'}
           </span>
         </div>
         <div className="status-bar__darts">

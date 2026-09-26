@@ -17,6 +17,46 @@
   padding: 0.7rem 0.75rem 0.75rem;
 }
 
+.practice__darts-choice {
+  min-width: 0;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.practice__darts-choice legend {
+  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.practice__darts-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.practice__darts-buttons button {
+  min-width: 0;
+  min-height: 2.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  color: var(--text);
+  background: var(--chip);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.practice__darts-buttons button[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.practice__darts-buttons button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+}
+
 .practice__result {
   display: flex;
   flex-direction: column;

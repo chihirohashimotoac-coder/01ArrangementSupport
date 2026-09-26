@@ -2,7 +2,7 @@
  * 1 ビジット（最大 3 投）の進行状態。
  *
  * CHECKOUT / SETUP のどちらでも同じ型を使い、1 投ごとに実際の着弾を
- * 積み上げていく。Bust したときはビジット開始時の残りへ戻す。
+ * 積み上げていく。開始点が既知のときだけ Bust でビジット開始点へ戻す。
  */
 import { MISS_DART, type Dart } from '../../domain/dart';
 import {
@@ -23,8 +23,12 @@ export interface ThrownDart {
 }
 
 export interface VisitState {
-  /** ビジット開始時の残り（Bust したらここへ戻る）。 */
+  /** 参照開始時の残り。途中参照では本当のビジット開始点とは限らない。 */
   readonly visitStartRemaining: number;
+  /** 本当のビジット開始点が記録されているか。 */
+  readonly visitStartKnown: boolean;
+  /** 参照開始時に使えた本数。Undo はこの本数を超えて戻らない。 */
+  readonly initialDartsLeft: number;
   readonly thrown: readonly ThrownDart[];
   /** 現在の残り。 */
   readonly remaining: number;
@@ -38,11 +42,23 @@ export interface VisitState {
 export function createVisit(remaining: number): VisitState {
   return {
     visitStartRemaining: remaining,
+    visitStartKnown: true,
+    initialDartsLeft: DARTS_PER_VISIT,
     thrown: [],
     remaining,
     dartsLeft: DARTS_PER_VISIT,
     status: 'in-progress',
     bustReason: null,
+  };
+}
+
+/** すでに進んだビジットを、現在の残りと使える本数から参照する。 */
+export function createReferenceVisit(remaining: number, dartsLeft: 1 | 2 | 3): VisitState {
+  return {
+    ...createVisit(remaining),
+    visitStartKnown: dartsLeft === DARTS_PER_VISIT,
+    initialDartsLeft: dartsLeft,
+    dartsLeft,
   };
 }
 
@@ -58,7 +74,7 @@ export function recordThrow(state: VisitState, dart: Dart): VisitState {
     dart,
     remainingBefore: state.remaining,
     remainingAfter:
-      result.outcome === 'bust' ? state.visitStartRemaining : result.remainingAfter,
+      result.outcome === 'bust' && state.visitStartKnown ? state.visitStartRemaining : result.remainingAfter,
     outcome: result.outcome === 'continue' ? 'in-progress' : result.outcome,
   };
 
@@ -67,7 +83,9 @@ export function recordThrow(state: VisitState, dart: Dart): VisitState {
       ...state,
       thrown: [...state.thrown, thrown],
       // Bust したビジットの得点は無効。開始時の残りへ戻す。
-      remaining: state.visitStartRemaining,
+      // 開始点不明の BUST は復帰点を確定できない。参照点を仮の値として保持し、
+      // UI では再入力まで次のビジットへ進ませない。
+      remaining: state.visitStartKnown ? state.visitStartRemaining : state.remaining,
       dartsLeft: 0,
       status: 'bust',
       bustReason: result.bustReason,
@@ -91,9 +109,11 @@ export function undoThrow(state: VisitState): VisitState {
   const last = remainingThrows[remainingThrows.length - 1];
   return {
     visitStartRemaining: state.visitStartRemaining,
+    visitStartKnown: state.visitStartKnown,
+    initialDartsLeft: state.initialDartsLeft,
     thrown: remainingThrows,
     remaining: last ? last.remainingAfter : state.visitStartRemaining,
-    dartsLeft: DARTS_PER_VISIT - remainingThrows.length,
+    dartsLeft: state.initialDartsLeft - remainingThrows.length,
     status: 'in-progress',
     bustReason: null,
   };

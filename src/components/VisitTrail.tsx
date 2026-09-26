@@ -8,22 +8,23 @@ export interface VisitTrailProps {
 }
 
 /**
- * 実際に投げたこの 3 投の記録と、3 投単位のやり直し操作。
+ * 実際に記録した残りの投球と、次の3投への操作。
  *
  * 「1投戻す」はここではなく盤面直下（NextTarget）に置く。誤タップの訂正は
  * 盤面を見たまま行う操作なので、盤面から離すと探しに行くことになる。
  */
 export function VisitTrail({ visit, onNextVisit, onReset }: VisitTrailProps) {
-  const finished = visit.status !== 'in-progress' || visit.dartsLeft === 0;
+  const unknownBust = visit.status === 'bust' && !visit.visitStartKnown;
+  const finished = (visit.status !== 'in-progress' || visit.dartsLeft === 0) && !unknownBust;
 
   return (
     <div className="visit-trail" data-testid="visit-trail">
-      <ol className="visit-trail__list" aria-label="この3投の記録">
-        {[0, 1, 2].map((index) => {
+      <ol className="visit-trail__list" aria-label="この参照からの投球記録">
+        {Array.from({ length: visit.initialDartsLeft }, (_, index) => {
           const thrown = visit.thrown[index];
           return (
             <li key={index} data-filled={thrown ? 'true' : undefined}>
-              <span className="visit-trail__index">{index + 1}</span>
+              <span className="visit-trail__index">{4 - visit.initialDartsLeft + index}</span>
               <span className="visit-trail__dart" data-testid={`thrown-${index}`}>
                 {thrown ? thrown.dart.id : '—'}
               </span>
@@ -38,9 +39,11 @@ export function VisitTrail({ visit, onNextVisit, onReset }: VisitTrailProps) {
         <button type="button" data-testid="next-visit-button" onClick={onNextVisit} disabled={!finished}>
           次の3投へ
         </button>
-        <button type="button" data-testid="reset-button" onClick={onReset}>
-          最初から
-        </button>
+        {!unknownBust && (
+          <button type="button" data-testid="reset-button" onClick={onReset}>
+            最初から
+          </button>
+        )}
       </div>
     </div>
   );

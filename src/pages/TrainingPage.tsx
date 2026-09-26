@@ -17,6 +17,7 @@ import { gradeAnswer, type GradeResult } from '../engine/training/grade';
 import { buildFeedback, type TrainingFeedback } from '../engine/training/feedback';
 import { analyzeAimArea } from '../engine/aimArea/aimArea';
 import type { LeaveTier } from '../engine/setup/leaveQuality';
+import { trainingCategoryLabel } from '../data/trainingCategoryLabels';
 import {
   appendRecord,
   clearHistory,
@@ -670,7 +671,7 @@ export function TrainingPage() {
             <tbody>
               {stats.byCategory.map((item) => (
                 <tr key={item.key}>
-                  <th scope="row">{item.key}</th>
+                  <th scope="row">{trainingCategoryLabel(item.key)}</th>
                   <td>{item.attempts}</td>
                   <td>{Math.round(item.accuracy * 100)}%</td>
                 </tr>
