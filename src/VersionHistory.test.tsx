@@ -49,18 +49,16 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴は v1.4.8（アプリの第 1 案と振り返りの代案を分けて表示）', async () => {
+  it('最新の履歴は v1.4.9（実戦推奨と振り返りの整合）', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('v1.4.8');
+    expect(latest).toHaveTextContent('v1.4.9');
     expect(latest).toHaveTextContent('現在');
-    // 判定そのものを変えていないことを、いちばん先に伝える。
-    expect(latest.textContent ?? '').toMatch(/判定そのもの/);
-    expect(latest.textContent ?? '').toMatch(/振り返りが比べた代案/);
-    expect(latest.textContent ?? '').toMatch(/改善案ではありません/);
+    expect(latest.textContent ?? '').toMatch(/実戦推奨 T18/);
+    expect(latest.textContent ?? '').toMatch(/残りダーツ数/);
   });
 
   it('v1.4.7 の履歴は残り、現在版ではなくなっている', async () => {

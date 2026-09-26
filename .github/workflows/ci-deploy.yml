@@ -61,6 +61,9 @@ jobs:
       - name: SIMULATION scatter model audit
         run: npm run audit:simulation
 
+      - name: SIMULATION review alignment audit
+        run: npm run audit:review
+
       # E2E はルートパス（base = /）のビルドに対して実行する
       - name: Build (for E2E)
         run: npm run build
