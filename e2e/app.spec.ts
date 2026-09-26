@@ -770,7 +770,6 @@ test('TRAINING: 読み取れない古い履歴を正答率へ混ぜない', asyn
             valid: true,
             grade: 'S',
             finishDouble: 'D20',
-            primaryCategory: 'checkout-100-119',
             elapsedMs: 3000,
           },
           null,
@@ -785,7 +784,56 @@ test('TRAINING: 読み取れない古い履歴を正答率へ混ぜない', asyn
   await expect(page.getByTestId('stat-attempts')).toHaveText('1');
   await expect(page.getByTestId('stat-accuracy')).toHaveText('100%');
   await expect(page.getByTestId('training-migration-skipped')).toContainText('2 件');
+});
+
+test('TRAINING: 保存済みV2履歴のカテゴリは日本語表示だけを変え、集計を保つ', async ({ page }) => {
+  await page.evaluate(() => {
+    const record = {
+      id: 'known',
+      at: 1,
+      kind: 'checkout',
+      format: 'checkout-route',
+      problemKey: 'checkout|v2|left=103|darts=3',
+      difficulty: 'medium',
+      primaryCategory: 'checkout-100-119',
+      learningTags: [],
+      startRemaining: 103,
+      currentRemaining: 103,
+      contextualThrows: [],
+      dartsAvailable: 3,
+      answer: ['T19', 'S6', 'D20'],
+      ruleValid: true,
+      learningCorrect: true,
+      grade: 'S',
+      failureCode: null,
+      finishDouble: 'D20',
+      elapsedMs: 3000,
+    };
+    window.localStorage.setItem(
+      'oas.training.v1',
+      JSON.stringify({
+        version: 2,
+        records: [
+          record,
+          {
+            ...record,
+            id: 'unknown',
+            primaryCategory: 'legacy-unknown',
+            learningCorrect: false,
+            grade: 'C',
+          },
+        ],
+        migrationSkippedCount: 0,
+      }),
+    );
+  });
+  await page.reload();
+  await page.getByTestId('nav-training').click();
+
+  await expect(page.getByTestId('stat-attempts')).toHaveText('2');
+  await expect(page.getByTestId('stat-accuracy')).toHaveText('50%');
   await expect(page.getByTestId('training-by-category')).toContainText('100〜119点の上がり');
+  await expect(page.getByTestId('training-by-category')).toContainText('その他');
   await expect(page.getByTestId('training-by-category')).not.toContainText('checkout-100-119');
 });
 
