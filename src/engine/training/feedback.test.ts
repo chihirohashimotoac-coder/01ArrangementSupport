@@ -12,6 +12,28 @@ import { gradeAnswer, type FailureCode } from './grade';
 import { buildFeedback, recommendedAnswerOf } from './feedback';
 import { checkoutProblemKey, type TrainingQuestion } from './model';
 import { requireDart } from '../../domain/dart';
+import { setupDifferenceJa } from '../../data/trainingExplanations';
+
+describe('SETUP の比較説明', () => {
+  it('現在183で19を選んだとき、同じ着弾説明を重ねない', () => {
+    const text = setupDifferenceJa({
+      answerDartId: 'S19',
+      answerLandings: [
+        { dartId: 'S19', leave: 164, verdict: 'checkoutable' },
+        { dartId: 'T19', leave: 126, verdict: 'checkoutable' },
+      ],
+      answerSafe: true,
+      recommendedDartId: 'S19',
+      recommendedLandings: [
+        { dartId: 'S19', leave: 164, verdict: 'checkoutable' },
+        { dartId: 'T19', leave: 126, verdict: 'checkoutable' },
+      ],
+      recommendedLeave: 164,
+    });
+    expect(text.match(/S19 なら 164/g)).toHaveLength(1);
+    expect(text.match(/T19 なら 126/g)).toHaveLength(1);
+  });
+});
 
 function checkoutQuestion(left: number, darts = DARTS_PER_VISIT): TrainingQuestion {
   return {

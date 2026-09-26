@@ -36,6 +36,37 @@ const PERFECT: SimulationSettings = {
   maxMiss: 'medium',
 };
 
+describe('最後の1本の実戦推奨とレビュー', () => {
+  it('178では基準S18と区別してT18を示し、両方の残りを計算する', () => {
+    const suggestion = suggestFor(178, 1);
+    expect(suggestion.setupRoutes[0].darts[0].id).toBe('S18');
+    expect(suggestion.practicalLastDart?.dartId).toBe('T18');
+    expect(suggestion.practicalLastDart?.leaveOnHit).toBe(124);
+    expect(suggestion.practicalLastDart?.leaveOnSingleMiss).toBe(160);
+    expect(reviewThrow(record(178, 'T18', 'S18', 3)).verdict).toBe('GOOD_DECISION');
+    expect(reviewThrow(record(178, 'S18', 'S18', 3)).comparison?.dartIds[0]).toBe('T18');
+  });
+
+  it('99では実戦推奨をS19以外にし、狙い通りとSingle落ちの残りを示す', () => {
+    const suggestion = suggestFor(99, 1);
+    expect(suggestion.nextVisitRoute?.darts[0].id).toBe('S19');
+    expect(suggestion.practicalLastDart?.dartId).not.toBe('S19');
+    expect(suggestion.practicalLastDart?.singleMissTenpai).toBe(true);
+    expect(reviewThrow(record(99, suggestion.practicalLastDart!.dartId, 'S1', 3)).verdict)
+      .toBe('GOOD_DECISION');
+  });
+
+  it('CHECKOUT成立時と3本SETUPでは従来順位だけを使う', () => {
+    const checkout = suggestFor(41, 2);
+    expect(checkout.checkoutRoutes[0].routeText).toBe('S9 → D16');
+    expect(checkout.practicalLastDart).toBeNull();
+
+    const setup = suggestFor(302, 3);
+    expect(setup.setupRoutes[0].routeText).toBe('T18 → S18 → T20');
+    expect(setup.practicalLastDart).toBeNull();
+  });
+});
+
 /**
  * レビュー判定だけを確かめるための 1 投の記録。
  * 「狙い」と「着弾」を自由に組み合わせられるようにしている。
@@ -202,11 +233,12 @@ describe('分類', () => {
     expect(result.noteJa).toContain('上がる組み立てがありません');
   });
 
-  it('成立はするが非推奨（推奨度 C）の狙いも ARRANGEMENT MISTAKE', () => {
+  it('成立するCをルール違反と混同せず、比較上の低推奨として扱う', () => {
     const result = reviewThrow(record(40, 'S3', 'S3'));
-    expect(result.verdict).toBe('ARRANGEMENT_MISTAKE');
+    expect(result.verdict).toBe('BETTER_OPTION_AVAILABLE');
     expect(result.grade).toBe('C');
-    expect(result.noteJa).toContain('非推奨');
+    expect(result.noteJa).toContain('成立');
+    expect(result.noteJa).not.toContain('不適切');
   });
 
   it('SETUP では、候補に無いだけの狙いをミスと言い切らない', () => {
@@ -1041,8 +1073,8 @@ describe('CHECKOUT: おすすめと戦術評価で同等以上の上がり方を
     expect(t11.reasons.some((reason) => reason.code === 'UNNECESSARY_TRIPLE')).toBe(true);
 
     const result = reviewThrow(record(41, 'T11', 'T11', 2));
-    expect(result.verdict).toBe('ARRANGEMENT_MISTAKE');
-    expect(result.reason).toBeUndefined();
+    expect(result.verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(result.reason?.code).toBe('CHECKOUT_RELATIVE_DISADVANTAGE');
   });
 
   it('合法なだけでは GOOD にしない: 戦術スコアがおすすめを下回る上がり方は従来どおり', () => {
@@ -1053,7 +1085,7 @@ describe('CHECKOUT: おすすめと戦術評価で同等以上の上がり方を
     );
     expect(best).toBeLessThan(ranked[0].tacticalScore);
     const result = reviewThrow(record(40, 'S3', 'S3'));
-    expect(result.verdict).toBe('ARRANGEMENT_MISTAKE');
+    expect(result.verdict).toBe('BETTER_OPTION_AVAILABLE');
     expect(result.grade).toBe('C');
   });
 

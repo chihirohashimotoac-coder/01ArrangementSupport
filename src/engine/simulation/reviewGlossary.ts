@@ -48,7 +48,8 @@ export const REVIEW_GLOSSARY_JA: readonly GlossaryTerm[] = [
   },
   {
     term: '推奨度',
-    meaning: GRADES.map((grade) => `${grade} = ${ROUTE_GRADE_LABEL_JA[grade]}`).join('、') + '。',
+    meaning: GRADES.map((grade) => `${grade} = ${ROUTE_GRADE_LABEL_JA[grade]}`).join('、') +
+      '。ルート候補の相対評価。Cでも成立する上がり方はTRAININGでは正解。最後の1本の実戦推奨は別の比較軸で表示する。',
   },
   {
     term: 'MY ROUTE',

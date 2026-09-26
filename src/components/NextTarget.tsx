@@ -4,11 +4,12 @@ import type { VisitStatus } from '../engine/recovery/visit';
 import './NextTarget.css';
 
 export interface NextTargetProps {
-  readonly remaining: number;
+  readonly remaining: number | null;
   readonly dartsLeft: number;
   readonly status: VisitStatus;
   /** 実際の着弾を 1 投でも入力したか。 */
   readonly hasThrown: boolean;
+  readonly bustStartUnknown?: boolean;
   /** 次に狙う推奨ルート。無ければ null。 */
   readonly dartIds: readonly string[] | null;
   /**
@@ -31,24 +32,27 @@ export function NextTarget({
   dartsLeft,
   status,
   hasThrown,
+  bustStartUnknown = false,
   dartIds,
   nextVisitProposals = [],
   onUndo,
 }: NextTargetProps) {
   const message =
     status === 'bust'
-      ? 'BUST — この3投の得点は無効です。次の3投へ進んでください。'
+      ? bustStartUnknown
+        ? 'BUST — ラウンド開始時の残りを入力してください。'
+        : 'BUST — この3投の得点は無効です。次の3投へ進んでください。'
       : status === 'checkout'
         ? 'CHECKOUT! 上がりました。'
         : dartsLeft === 0
-          ? '3 投を使い切りました。次の3投へ進んでください。'
+          ? '残りのダーツを使い切りました。次の3投へ進んでください。'
           : null;
 
   return (
     <div className="next-target" data-testid="recovery-next">
       <p className="next-target__status">
         <span className="next-target__number" data-testid="next-remaining">
-          {remaining}
+          {remaining ?? '—'}
         </span>
         <span className="next-target__unit">LEFT</span>
         <span className="next-target__sep" aria-hidden="true">
