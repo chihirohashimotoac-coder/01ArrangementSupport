@@ -2,8 +2,9 @@
  * バージョン履歴（ユーザー向け）。
  *
  * このリポジトリには Git tag も GitHub Release も無いため、
- * 各項目は main へ merge された Pull Request と、その commit 履歴から作成している。
- * 日付は merge された日（JST）。バージョン番号は PR で実際に使われた呼称だけを載せ、
+ * 既存項目は main へ merge された Pull Request と、その commit 履歴から作成している。
+ * 先頭の未マージ項目は、この PR の Preview に含まれる変更を表す。
+ * 既存項目の日付は merge された日（JST）。バージョン番号は PR で実際に使われた呼称だけを載せ、
  * 呼称が無い期間は「何をした更新か」で識別する（存在しない版番号を作らない）。
  *
  * 内部的な作業メモ・commit SHA・実装者向けの細部は載せない。
@@ -17,12 +18,24 @@ export interface VersionHistoryEntry {
   readonly summary: string;
   /** 主な変更点。 */
   readonly changes: readonly string[];
-  /** 現在稼働している版なら true。 */
+  /** このビルドに含まれる最新版なら true。 */
   readonly current?: boolean;
 }
 
 /** 新しい順。先頭が現在の版。 */
 export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
+  {
+    label: 'v1.4.9 最後の1本の実戦推奨と振り返りの整合',
+    date: '2026-09-26',
+    summary: '最後の1本の実戦推奨を振り返りの比較理由と揃え、成立する別案の不利を具体的に説明します。CHECKOUT / SETUP は残りダーツ数から直接参照できます。',
+    changes: [
+      '178 / 残り1本では実戦推奨 T18 と従来の基準例 S18 を選択前に分けて表示します。得意ダブルと交換条件を考慮し、従来の戦術データ・ランキングの重みは変えていません。',
+      '39 の S17→D11 のような成立案は、BUST 狙いと分類を分け、比較上の不利を具体的な着弾条件で説明します。',
+      '残り1・2・3本を直接指定できます。途中から参照してBUSTした場合だけ、実際のラウンド開始点の再入力が必要です。',
+      '学習履歴のカテゴリ名を日本語で表示し、SETUP の重複説明と別展開例の見せ方を整えました。',
+    ],
+    current: true,
+  },
   {
     label: 'v1.4.8 SIMULATION の振り返りで、アプリの第 1 案と振り返りの代案を分けて表示',
     date: '2026-09-25',
@@ -33,7 +46,6 @@ export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
       '最後の 1 投でダブルや BULL を狙った場面では、振り返り自身が下げる的（残り 171 の S11 など）を代案に出さず、同じ場面で良い判断になる的を示します。',
       '「もっと良い狙いあり」の説明文を、「上がり方を見直す」より弱い言い方にそろえました（「良い選択ではありません」「明確に劣ります」→「もっと良い狙いがあります」「推奨度 B です」）。',
     ],
-    current: true,
   },
   {
     label: 'v1.4.7 SIMULATION の振り返りが、最後の 1 投のダブルの違いを交換条件として扱う',

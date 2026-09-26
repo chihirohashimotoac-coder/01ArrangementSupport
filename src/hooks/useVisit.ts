@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import type { Dart } from '../domain/dart';
 import {
   createVisit,
+  createReferenceVisit,
   recordThrow,
   undoThrow,
   type VisitState,
@@ -12,7 +13,7 @@ import { suggestFor, type SuggestOptions, type Suggestion } from '../engine/reco
  * 1 ビジットの実戦入力。
  *
  * 1 投ごとに実際の着弾を記録し、そのつど提案を再計算する。
- * Bust したらビジット開始時の残りへ戻す（engine 側の責務）。
+ * 開始点が既知の Bust だけビジット開始時の残りへ戻す（engine 側の責務）。
  *
  * 残り点が未入力のあいだは `visit` / `suggestion` が null になる。
  * 入力前に既定値の候補を出さないための、明示的な「まだ何もない」状態。
@@ -32,12 +33,20 @@ export function useVisit(initialRemaining: number | null, options: SuggestOption
 
   /** 現在の残りのまま次のビジットを始める。 */
   const nextVisit = useCallback(() => {
-    setVisit((current) => (current === null ? null : createVisit(current.remaining)));
+    setVisit((current) =>
+      current === null || (current.status === 'bust' && !current.visitStartKnown)
+        ? current
+        : createVisit(current.remaining),
+    );
   }, []);
 
   /** 残り点を指定してやり直す。 */
   const reset = useCallback((remaining: number) => {
     setVisit(createVisit(remaining));
+  }, []);
+
+  const resetReference = useCallback((remaining: number, dartsLeft: 1 | 2 | 3) => {
+    setVisit(createReferenceVisit(remaining, dartsLeft));
   }, []);
 
   /** 残り点を未入力へ戻す。 */
@@ -46,10 +55,27 @@ export function useVisit(initialRemaining: number | null, options: SuggestOption
   }, []);
 
   const suggestion = useMemo<Suggestion | null>(
-    () => (visit === null ? null : suggestFor(visit.remaining, visit.dartsLeft, options)),
+    () => {
+      if (visit === null) return null;
+      const result = suggestFor(visit.remaining, visit.dartsLeft, options);
+      if (visit.status !== 'bust' || visit.visitStartKnown) return result;
+      return {
+        ...result,
+        mode: 'unavailable',
+        checkoutRoutes: [],
+        setupRoutes: [],
+        nextVisitRoute: null,
+        nextVisitProposals: [],
+        practicalLastDart: null,
+        isBogey: false,
+        canReachTenpai: null,
+        tonTrapLeave: null,
+        unavailableReason: 'BUST。ラウンド開始時の残りを入力してください。',
+      };
+    },
     // options はページ側で useMemo 済みの値を渡す前提。
     [visit, options],
   );
 
-  return { visit, suggestion, throwDart, undo, nextVisit, reset, clear };
+  return { visit, suggestion, throwDart, undo, nextVisit, reset, resetReference, clear };
 }

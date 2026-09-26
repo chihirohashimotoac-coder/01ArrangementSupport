@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_PPR } from './accuracy';
+import { suggestFor } from '../recovery/suggest';
 import {
   MAX_ROUNDS,
   advanceRound,
@@ -246,10 +247,11 @@ describe('振り返りが比べた代案と、アプリの第 1 案（v1.4.8）'
     expect(suggestions?.appFirstLineJa).toBeNull();
   });
 
-  it('残り 178 の最後の 1 投で S18: アプリの第 1 案は狙いと同じなので、改善案として出さない', () => {
+  it('残り 178 の最後の 1 投で S18: 実戦推奨 T18 と代案を1行にまとめる', () => {
     const review = reviewThrow(single(178, 'S18', 1));
     expect(review.verdict).toBe('BETTER_OPTION_AVAILABLE');
-    expect(review.recommendedDartId).toBe('S18');
+    expect(suggestFor(178, 1).setupRoutes[0].darts[0].id).toBe('S18');
+    expect(review.recommendedDartId).toBe('T18');
     const suggestions = suggestionsOf(review);
     // 代案は振り返りの判定根拠（同じナンバーのトリプル、A-21）。
     expect(suggestions.comparison).toMatchObject({
@@ -260,42 +262,48 @@ describe('振り返りが比べた代案と、アプリの第 1 案（v1.4.8）'
       leaveOnSingleMiss: 160,
     });
     expect(suggestions.comparisonLineJa).toBe(
-      '振り返りが比べた代案: T18（狙い通りなら残り 124・S18 に落ちても残り 160）',
+      '振り返りが比べた代案: T18（狙い通りなら残り 124・S18 に落ちても残り 160）（アプリの第 1 案と同じ）',
     );
-    expect(suggestions.appFirstRelation).toBe('SAME_AS_INTENDED');
-    expect(suggestions.appFirstLineJa).toContain('この場面のアプリの第 1 案: S18');
-    expect(suggestions.appFirstLineJa).toContain('今回の狙いと同じ 1 投目です');
-    expect(suggestions.appFirstLineJa).toContain('改善案ではありません');
+    expect(suggestions.appFirstRelation).toBe('SAME_AS_COMPARISON');
+    expect(suggestions.appFirstLineJa).toBeNull();
   });
 
-  it('残り 102 の最後の 1 投で S20（A-22）: 代案は上位互換の的、第 1 案は狙いと同じ', () => {
+  it('残り 102 の最後の 1 投で S20（A-22）: 上位互換の的が実戦推奨と一致する', () => {
     const review = reviewThrow(single(102, 'S20', 1));
     expect(review.verdict).toBe('BETTER_OPTION_AVAILABLE');
+    expect(review.recommendedDartId).toBe('T20');
     const suggestions = suggestionsOf(review);
     expect(suggestions.comparison?.basis).toBe('LAST_DART_LEAVE_PROFILE');
     expect(suggestions.comparison?.dartIds[0]).toBe('T20');
     expect(suggestions.comparisonLineJa).toContain('振り返りが比べた代案: T20（狙い通りなら残り 42');
-    expect(suggestions.appFirstRelation).toBe('SAME_AS_INTENDED');
+    expect(suggestions.appFirstRelation).toBe('SAME_AS_COMPARISON');
+    expect(suggestions.comparisonLineJa).toContain('アプリの第 1 案と同じ');
+    expect(suggestions.appFirstLineJa).toBeNull();
   });
 
-  it('残り 178 の最後の 1 投で T19: 第 1 案（S18）は参考として別に出す', () => {
+  it('残り 178 の最後の 1 投で T19: 代案 T20 と実戦推奨 T18 を区別する', () => {
     const review = reviewThrow(single(178, 'T19', 1));
     const suggestions = suggestionsOf(review);
     expect(suggestions.comparison?.basis).toBe('LAST_DART_TENPAI');
-    expect(suggestions.comparison?.dartIds[0]).not.toBe('T19');
+    expect(suggestions.comparison?.dartIds[0]).toBe('T20');
     expect(suggestions.appFirstRelation).toBe('DIFFERENT');
-    expect(suggestions.appFirstLineJa).toContain('参考');
+    expect(suggestions.appFirstLineJa).toContain('この場面のアプリの第 1 案: T18');
+    expect(suggestions.appFirstLineJa).toContain('振り返りは上の代案とも比べています');
+    expect(suggestions.appFirstLineJa).not.toContain('参考');
   });
 
-  it('最後の 1 投でダブルを狙った場面: 振り返り自身が下げる第 1 案を代案にしない（残り 171 の D2）', () => {
+  it('最後の 1 投でダブルを狙った場面: 基準例 S11 ではなく実戦推奨 T11 を示す（残り 171 の D2）', () => {
     const review = reviewThrow(single(171, 'D2', 1));
-    // 第 1 案 S11 は、同じ場面の振り返りでは T11 に上位互換を取られる（A-21）。
-    expect(review.recommendedDartId).toBe('S11');
+    // 基準例 S11 は、同じ場面の振り返りでは T11 に上位互換を取られる（A-21）。
+    expect(suggestFor(171, 1).setupRoutes[0].darts[0].id).toBe('S11');
+    expect(review.recommendedDartId).toBe('T11');
     expect(reviewThrow(single(171, 'S11', 1)).verdict).toBe('BETTER_OPTION_AVAILABLE');
-    expect(review.comparison?.basis).toBe('LAST_DART_TENPAI');
+    expect(review.comparison?.basis).toBe('APP_ROUTE');
     const target = review.comparison!.dartIds[0];
+    expect(target).toBe('T11');
     expect(reviewThrow(single(171, target, 1)).verdict).toBe('GOOD_DECISION');
-    expect(review.noteJa).toContain('振り返りの代案は');
+    expect(suggestionsOf(review).appFirstRelation).toBe('SAME_AS_COMPARISON');
+    expect(review.noteJa).toContain('おすすめは T11');
     expect(review.noteJa).not.toContain('おすすめは S11');
   });
 

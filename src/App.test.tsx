@@ -894,6 +894,8 @@ describe('v1.2 UX（答えを先に見せる）', () => {
       .map((chip) => chip.getAttribute('data-dart'));
     expect(chips[0]).toBe('T18');
     expect(best.textContent).toContain('残り 170');
+    expect(best.textContent).toContain('別の展開例：');
+    expect(best.textContent).toContain('T20 が 2 本入った時点で 182 残り');
   });
 
   it('S: TRAINING は採点後にだけ、結果の直下へ「次の問題」を出す', async () => {
@@ -1622,8 +1624,17 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     await user.click(screen.getByTestId('segment-miss'));
     await user.click(screen.getByTestId('segment-miss'));
 
-    expect(screen.getByTestId('next-visit-route')).toBeInTheDocument();
-    expect(nextVisitProposals()?.[0]).toContain('S19');
+    expect(screen.getByTestId('status-left')).toHaveTextContent('117');
+    expect(screen.getByTestId('status-darts')).toHaveTextContent('1');
+    const practical = screen.getByTestId('practical-last-dart');
+    expect(practical).toHaveTextContent('T20');
+    expect(practical).toHaveTextContent('残り 57');
+    expect(practical).toHaveTextContent('残り 97');
+    const baseline = screen.getByTestId('next-visit-route');
+    expect(baseline).toHaveTextContent('基準例');
+    expect(baseline).toHaveTextContent('S19');
+    expect(nextRoute()).toEqual(['T20']);
+    expect(nextVisitProposals()).toBeNull();
   });
 
   it('SETUP の OTHER ROUTE も、予定どおりのあいだは選んだ続きを案内する', async () => {

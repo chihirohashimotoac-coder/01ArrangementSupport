@@ -182,6 +182,7 @@ export interface PracticePageProps {
 
 export function PracticePage({ mode }: PracticePageProps) {
   const { preferences } = usePreferences();
+  const [selectedDarts, setSelectedDarts] = useState<1 | 2 | 3>(3);
   const [visibleCount, setVisibleCount] = useState(INITIAL_ROUTE_COUNT);
   const [focusedDartId, setFocusedDartId] = useState<string | null>(null);
   /*
@@ -214,7 +215,7 @@ export function PracticePage({ mode }: PracticePageProps) {
    * 残り点は未入力（null）から始める。入力する前に 103 / 305 のような
    * 既定値の候補を出してしまうと、実戦では読み違えのもとになる。
    */
-  const { visit, suggestion, throwDart, undo, nextVisit, reset, clear } = useVisit(
+  const { visit, suggestion, throwDart, undo, nextVisit, reset, resetReference, clear } = useVisit(
     null,
     suggestOptions,
   );
@@ -309,6 +310,7 @@ export function PracticePage({ mode }: PracticePageProps) {
    * CHECKOUT ルートがある状態では engine 側で必ず null になる。
    */
   const nextVisitRoute = suggestion?.nextVisitRoute ?? null;
+  const practicalLastDart = suggestion?.practicalLastDart ?? null;
   const standardRoute = checkoutRoutes.find((route) => route.isStandard) ?? checkoutRoutes[0] ?? null;
   const bestSetup = setupRoutes[0] ?? null;
 
@@ -336,14 +338,16 @@ export function PracticePage({ mode }: PracticePageProps) {
    * どの分岐でも engine の出力そのものを使い、作り直しはしない。
    */
   const nextDartIds = useMemo(() => {
-    if (suggestion === null) return null;
+    if (suggestion === null || visit?.status !== 'in-progress') return null;
 
     if (suggestion.mode === 'setup') {
       if (selectedRoute?.source === 'other-setup' && selectedRoute.remainingDartIds !== null) {
         return selectedRoute.remainingDartIds;
       }
       // 選んでいない、または外した場合は現在の残りからの BEST へ戻る。
-      return bestSetup?.darts.map((dart) => dart.id) ?? null;
+      return practicalLastDart === null
+        ? bestSetup?.darts.map((dart) => dart.id) ?? null
+        : [practicalLastDart.dartId];
     }
 
     /*
@@ -365,8 +369,10 @@ export function PracticePage({ mode }: PracticePageProps) {
 
     if (standardRoute) return standardRoute.darts.map((dart) => dart.id);
     // CHECKOUT ルートが無いときだけ、次ラウンドへの残しを盤面へ出す。
-    return nextVisitRoute?.darts.map((dart) => dart.id) ?? null;
-  }, [suggestion, bestSetup, standardRoute, nextVisitRoute, selectedRoute, myRoute]);
+    return practicalLastDart === null
+      ? nextVisitRoute?.darts.map((dart) => dart.id) ?? null
+      : [practicalLastDart.dartId];
+  }, [suggestion, visit?.status, bestSetup, standardRoute, nextVisitRoute, practicalLastDart, selectedRoute, myRoute]);
 
   const highlightedDartIds = nextDartIds ?? [];
 
@@ -388,7 +394,9 @@ export function PracticePage({ mode }: PracticePageProps) {
   const statusNote = (() => {
     if (visit === null || suggestion === null) return null;
     if (visit.status === 'bust') {
-      return `Bust です。この3投の得点は無効になり、${visit.visitStartRemaining} へ戻ります。`;
+      return visit.visitStartKnown
+        ? `Bust です。この3投の得点は無効になり、${visit.visitStartRemaining} へ戻ります。`
+        : 'BUST。ラウンド開始時の残りを入力してください。';
     }
     if (visit.status === 'checkout') return 'チェックアウト成立です。';
     if (suggestion.unavailableReason) return suggestion.unavailableReason;
@@ -514,7 +522,7 @@ export function PracticePage({ mode }: PracticePageProps) {
           aria-label="実戦入力"
         >
           <StatusBar
-            remaining={visit.remaining}
+            remaining={visit.status === 'bust' && !visit.visitStartKnown ? null : visit.remaining}
             dartsLeft={visit.dartsLeft}
             status={visit.status}
             note={statusNote}
@@ -536,7 +544,9 @@ export function PracticePage({ mode }: PracticePageProps) {
             disabled={visit.status !== 'in-progress' || visit.dartsLeft === 0}
             disabledReason={
               visit.status === 'bust'
-                ? 'Bust しました。「次の3投へ」を押してください。'
+                ? visit.visitStartKnown
+                  ? 'Bust しました。「次の3投へ」を押してください。'
+                  : 'BUST。ラウンド開始時の残りを入力してください。'
                 : visit.status === 'checkout'
                   ? '上がりました。'
                   : '3 投を使い切りました。'
@@ -544,12 +554,13 @@ export function PracticePage({ mode }: PracticePageProps) {
             ariaLabel="ダーツボード。実際に刺さった区画を選んでください。"
           />
           <NextTarget
-            remaining={visit.remaining}
+            remaining={visit.status === 'bust' && !visit.visitStartKnown ? null : visit.remaining}
             dartsLeft={visit.dartsLeft}
             status={visit.status}
             hasThrown={visit.thrown.length > 0}
+            bustStartUnknown={visit.status === 'bust' && !visit.visitStartKnown}
             dartIds={nextDartIds}
-            nextVisitProposals={suggestion?.nextVisitProposals ?? []}
+            nextVisitProposals={practicalLastDart ? [] : suggestion?.nextVisitProposals ?? []}
             onUndo={handleUndo}
           />
           <VisitTrail
@@ -557,11 +568,12 @@ export function PracticePage({ mode }: PracticePageProps) {
             onNextVisit={() => {
               // 前のビジットのルートを次のビジットへ持ち越さない。
               setSelectedRoutePlan(null);
+              setSelectedDarts(3);
               nextVisit();
             }}
             onReset={() => {
               setSelectedRoutePlan(null);
-              reset(visit.visitStartRemaining);
+              resetReference(visit.visitStartRemaining, visit.initialDartsLeft as 1 | 2 | 3);
             }}
           />
         </section>
@@ -578,8 +590,9 @@ export function PracticePage({ mode }: PracticePageProps) {
           placeholder={copy.placeholder}
           min={copy.min}
           max={copy.max}
-          value={visit?.visitStartRemaining ?? null}
+          value={visit?.status === 'bust' && !visit.visitStartKnown ? null : visit?.visitStartRemaining ?? null}
           onChange={(value) => {
+            setSelectedDarts(3);
             setVisibleCount(INITIAL_ROUTE_COUNT);
             setFocusedDartId(null);
             // 別の残り点は別の場面。前の残り点で選んだルートは捨てる。
@@ -594,6 +607,32 @@ export function PracticePage({ mode }: PracticePageProps) {
           }}
           onCommit={handleCommit}
         />
+        <fieldset className="practice__darts-choice" aria-label="残りダーツ数">
+          <legend>残りダーツ</legend>
+          <div className="practice__darts-buttons">
+            {([1, 2, 3] as const).map((count) => (
+              <button
+                key={count}
+                type="button"
+                aria-pressed={selectedDarts === count}
+                disabled={visit?.status === 'bust' && !visit.visitStartKnown}
+                onClick={() => {
+                  cancelPendingScroll();
+                  setSelectedDarts(count);
+                  setSelectedRoutePlan(null);
+                  setFocusedDartId(null);
+                  setVisibleCount(INITIAL_ROUTE_COUNT);
+                  setRecoveryOpen(false);
+                  if (visit !== null && !(visit.status === 'bust' && !visit.visitStartKnown)) {
+                    resetReference(visit.remaining, count);
+                  }
+                }}
+              >
+                {count}本
+              </button>
+            ))}
+          </div>
+        </fieldset>
       </section>
 
       {visit === null || suggestion === null ? (
@@ -653,17 +692,38 @@ export function PracticePage({ mode }: PracticePageProps) {
             </section>
           )}
 
+          {practicalLastDart && (
+            <section className="practice__routes" aria-label="この条件での実戦推奨">
+              <h2 className="practice__heading">実戦推奨 — 最後の1本</h2>
+              <RouteCard
+                testId="practical-last-dart"
+                badge="実戦推奨"
+                dartIds={[practicalLastDart.dartId]}
+                meta={`狙い通り → 残り ${practicalLastDart.leaveOnHit} / 同番号シングル → 残り ${practicalLastDart.leaveOnSingleMiss}`}
+                reasons={[]}
+                onDartFocus={focusDefaultDart}
+                focusedDartId={focusedDartId}
+              />
+            </section>
+          )}
+
           {suggestion.mode === 'setup' && bestSetup && (
             <section className="practice__routes" aria-label="推奨セットアップ">
-              <h2 className="practice__heading">BEST — 次ラウンドの残しを作る</h2>
+              <h2 className="practice__heading">
+                {practicalLastDart ? '基準例 — 従来のSETUP順位' : 'BEST — 次ラウンドの残しを作る'}
+              </h2>
               <RouteCard
                 testId="standard-route"
-                badge="BEST"
-                grade={bestSetup.grade}
+                badge={practicalLastDart ? '基準例' : 'BEST'}
+                grade={practicalLastDart ? undefined : bestSetup.grade}
                 dartIds={bestSetup.darts.map((dart) => dart.id)}
                 meta={`取得 ${bestSetup.scored} 点 → 残り ${bestSetup.leave}`}
                 reasons={toReasonViews(bestSetup.reasons)}
-                curatedExplanation={CURATED_SETUP_EXPLANATIONS[visit.remaining] ?? null}
+                curatedExplanation={
+                  visit.remaining === 302
+                    ? `別の展開例：${CURATED_SETUP_EXPLANATIONS[302]}`
+                    : CURATED_SETUP_EXPLANATIONS[visit.remaining] ?? null
+                }
                 onDartFocus={focusDefaultDart}
                 focusedDartId={focusedDartId}
                 defaultOpen
@@ -683,10 +743,12 @@ export function PracticePage({ mode }: PracticePageProps) {
           */}
           {suggestion.mode === 'checkout' && nextVisitRoute && (
             <section className="practice__routes" aria-label="次ラウンドへの残し">
-              <h2 className="practice__heading">NEXT VISIT — 次ラウンドへ整える</h2>
+              <h2 className="practice__heading">
+                {practicalLastDart ? '基準例 — 従来のNEXT VISIT順位' : 'NEXT VISIT — 次ラウンドへ整える'}
+              </h2>
               <RouteCard
                 testId="next-visit-route"
-                badge="NEXT VISIT"
+                badge={practicalLastDart ? '基準例' : 'NEXT VISIT'}
                 dartIds={nextVisitRoute.darts.map((dart) => dart.id)}
                 meta={`取得 ${nextVisitRoute.scored} 点 → 残り ${nextVisitRoute.leave}`}
                 reasons={[]}

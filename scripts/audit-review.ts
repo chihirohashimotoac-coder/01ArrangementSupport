@@ -147,7 +147,10 @@ const classifiedSameFirstDart = new Map<string, string[]>();
 const orderOnlyAlternatives: string[] = [];
 
 const counts = new Map<number, Record<ThrowVerdict, number>>();
-const findings: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H', string[]> = {
+let practicalChanges = 0;
+let practicalSetupChanges = 0;
+let baselineReviewConflicts = 0;
+const findings: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J', string[]> = {
   A: [],
   B: [],
   C: [],
@@ -156,6 +159,8 @@ const findings: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H', string[]> 
   F: [],
   G: [],
   H: [],
+  I: [],
+  J: [],
 };
 
 /**
@@ -314,6 +319,31 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
 
     auditDisplay(`設定なし ${left}/${dartsLeft}`, reviews);
 
+    // I: 最後の1本の第1案をレビューが下げるなら、選択前に別の実戦推奨が必要。
+    // 数値と判定を別々に検査し、レビューの結論だけを期待値にしない。
+    if (dartsLeft === 1 && suggestion.checkoutRoutes.length === 0) {
+      const baseline = suggestion.nextVisitRoute?.darts[0] ?? suggestion.setupRoutes[0]?.darts[0];
+      const baselineReview = baseline === undefined ? null : reviews.get(baseline.id) ?? null;
+      const practical = suggestion.practicalLastDart;
+      if (baselineReview !== null && NEGATIVE.has(baselineReview.verdict) && practical === null) {
+        findings.I.push(`${left}/1 ${baseline!.id}: 基準例を下げるが実戦推奨がない`);
+      }
+      if (baselineReview !== null && NEGATIVE.has(baselineReview.verdict)) baselineReviewConflicts += 1;
+      if (practical !== null) {
+        practicalChanges += 1;
+        if (left > MAX_CHECKOUT) practicalSetupChanges += 1;
+        const practicalReview = reviews.get(practical.dartId);
+        const hit = left - practical.dart.score;
+        const miss = practical.dart.baseNumber === null ? null : left - practical.dart.baseNumber;
+        if (practicalReview?.verdict !== 'GOOD_DECISION' ||
+          practical.leaveOnHit !== hit || practical.leaveOnSingleMiss !== miss ||
+          (baselineReview !== null && !NEGATIVE.has(baselineReview.verdict)) ||
+          baselineReview?.recommendedDartId !== practical.dartId) {
+          findings.I.push(`${left}/1 ${practical.dartId}: 推奨・判定・残しのいずれかが不一致`);
+        }
+      }
+    }
+
     // B / C / D: ビジット最後の 1 本で「次のラウンドへ残す」場面。
     if (dartsLeft !== 1 || left > MAX_SETUP_REMAINING) continue;
     if (suggestFor(left, 1).checkoutRoutes.length > 0) continue;
@@ -363,6 +393,7 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
 }
 
 console.log(`検査した状態数: ${states}（残り 2〜${MAX_SETUP_REMAINING} × 残り 1〜3 本 × ${THROWABLE_DARTS.length} ターゲット）`);
+console.log(`  最後の1本で基準例から実戦推奨へ切替: ${practicalChanges} 件（SETUP ${practicalSetupChanges} / NEXT VISIT ${practicalChanges - practicalSetupChanges}）。基準例をレビューが下げる状態: ${baselineReviewConflicts} 件`);
 for (const [dartsLeft, perDarts] of [...counts.entries()].sort((a, b) => a[0] - b[0])) {
   console.log(`  残り ${dartsLeft} 本: ${THROW_VERDICTS.map((verdict) => `${verdict}=${perDarts[verdict]}`).join(' ')}`);
 }
@@ -432,12 +463,12 @@ for (const preferred of [[], ['D20'], ['D16'], ['D18'], ['D16', 'D20', 'D8']]) {
   }
 }
 console.log(
-  `  参考 NEXT VISIT の全提案の 1 投目の判定（5 通りの得意ダブル設定の合計）: ` +
+  `  参考 NEXT VISIT の基準例・全提案の 1 投目の判定（5 通りの得意ダブル設定の合計。最後の1本では実戦推奨と別）: ` +
     [...proposalScan.entries()].map(([key, count]) => `${key}=${count}`).join(' / '),
 );
 console.log(
   `  参考 ビジット最後の 1 投で、第 1 案以外の提案の 1 投目が否定される: ${lastDartProposals.length} 件` +
-    `（最後の 1 投と得意ダブルの競合。この監査の範囲外）`,
+    `（実戦推奨との整合は項目 I で検査）`,
 );
 for (const item of lastDartProposals.slice(0, 10)) console.log(`         ${item}`);
 
@@ -448,6 +479,23 @@ for (const preferred of [[], ['D20'], ['D16'], ['D8'], ['D10'], ['D11'], ['D16',
   for (let left = 2; left <= MAX_CHECKOUT; left += 1) {
     const suggestion = suggestFor(left, 1, { fallbackPreferredDoubles: preferred, maxRoutes: 1000 });
     if (suggestion.checkoutRoutes.length > 0) continue;
+    const baselineId = suggestion.nextVisitRoute?.darts[0]?.id ?? null;
+    if (baselineId !== null) {
+      const baselineReview = reviewThrow(record(left, findDart(baselineId)!, 1), { preferredDoubles: preferred });
+      const practical = suggestion.practicalLastDart;
+      if (NEGATIVE.has(baselineReview.verdict) && practical === null) {
+        findings.I.push(`${tag} ${left}/1 ${baselineId}: 得意ダブル設定時の基準例を下げるが実戦推奨がない`);
+      }
+      if (practical !== null) {
+        const practicalReview = reviewThrow(record(left, practical.dart, 1), { preferredDoubles: preferred });
+        if (practicalReview.verdict !== 'GOOD_DECISION' ||
+          baselineReview.recommendedDartId !== practical.dartId ||
+          practical.leaveOnHit !== left - practical.dart.score ||
+          practical.leaveOnSingleMiss !== left - practical.dart.baseNumber!) {
+          findings.I.push(`${tag} ${left}/1 ${practical.dartId}: 得意ダブル設定時の実戦推奨が不整合`);
+        }
+      }
+    }
     const firstDarts = suggestion.nextVisitProposals.map((proposal) => proposal.route.darts[0].id);
     // 得意ダブルで第 1 候補が変わった狙い（A-22 の MY ROUTE の保護）は、先に GOOD が決まる。
     const withoutPreference = suggestFor(left, 1).nextVisitProposals[0]?.route.darts[0].id ?? null;
@@ -505,9 +553,23 @@ const labels: Record<keyof typeof findings, string> = {
   F: 'NEXT VISIT の第 1 案以外の提案の 1 投目の判定が、第 1 案との上位互換の有無と食い違う',
   G: 'ビジット最後の 1 投で、交換条件（A-26）と判定が食い違う',
   H: '振り返りの表示で、減点した狙いを改善案と読める / 比べた代案が判定と食い違う',
+  I: '最後の1本の実戦推奨・基準例・レビュー・数値的な残しが食い違う',
+  J: '合法なCと実際のBUSTを混同する、または39の比較理由が不正確',
 };
+const legal39 = reviewThrow(record(39, findDart('S17')!, 3));
+const slipped39 = reviewThrow({ ...record(39, findDart('S17')!, 3), actualDartId: 'T17' });
+const bust39 = reviewThrow(record(39, findDart('T17')!, 3));
+if (legal39.verdict !== 'BETTER_OPTION_AVAILABLE' || legal39.grade !== 'C' ||
+  legal39.reason?.code !== 'CHECKOUT_RELATIVE_DISADVANTAGE' ||
+  !legal39.noteJa.includes('成立') || !legal39.noteJa.includes('T17') ||
+  !legal39.noteJa.includes('BUST') || !legal39.noteJa.includes('S11') ||
+  !legal39.noteJa.includes('奇数') ||
+  slipped39.verdict !== legal39.verdict ||
+  bust39.verdict !== 'ARRANGEMENT_MISTAKE' || !bust39.noteJa.includes('Bust')) {
+  findings.J.push('39/3 S17→D11・実着弾T17・狙いT17の分類または説明');
+}
 let failures = 0;
-for (const key of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const) {
+for (const key of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'] as const) {
   const list = findings[key];
   failures += list.length;
   console.log(`${list.length === 0 ? '  ok  ' : '  NG  '} ${key}. ${labels[key]}: ${list.length} 件`);
@@ -536,9 +598,9 @@ for (const key of ['1', '2', '3', '4'] as const) {
   for (const item of list.slice(0, 10)) console.log(`         ${item}`);
 }
 const classifiedTotal = [...classifiedSameFirstDart.values()].reduce((sum, list) => sum + list.length, 0);
+failures += classifiedTotal;
 console.log(
-  `  分類 「もっと良い狙いあり」でおすすめの 1 投目が狙いと同じだが、説明文は別の 1 投目を示す: ` +
-    `${classifiedTotal} 件（アプリの第 1 候補と振り返り独自の比較の食い違い。画面では「振り返りが比べた代案」と「アプリの第 1 案（改善案ではない）」に分けて出す。項目 H で検査）`,
+  `  ${classifiedTotal === 0 ? 'ok  ' : 'NG  '} 実戦推奨の初手をレビューが下げる表示矛盾: ${classifiedTotal} 件`,
 );
 for (const [key, list] of classifiedSameFirstDart) {
   console.log(`         ${key}: ${list.length} 件（例: ${list.slice(0, 3).join(' / ')}）`);

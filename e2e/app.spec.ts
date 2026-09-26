@@ -97,6 +97,79 @@ test('1 投ごとのリカバリーが追従する', async ({ page }) => {
   await expect(page.getByTestId('standard-route')).toBeVisible();
 });
 
+test('129を2本から直接参照し、3本へ戻すと上がり候補へ切り替わる', async ({ page }) => {
+  await openCheckout(page, 129);
+  await page.getByRole('button', { name: '2本' }).click();
+  await expect(page.getByTestId('no-routes')).toContainText('残り 2 本では 129 を上がれません');
+  await expect(page.getByTestId('next-visit-route')).toBeVisible();
+  await expect(page.getByTestId('standard-route')).toHaveCount(0);
+  await openRecovery(page);
+  await expect(page.getByTestId('status-left')).toHaveText('129');
+  await expect(page.getByTestId('status-darts')).toHaveText('2');
+  await expect(page.getByTestId('thrown-0')).toHaveText('—');
+  await page.getByRole('button', { name: '3本' }).click();
+  await expect(page.getByTestId('standard-route')).toBeVisible();
+  await expect(page.getByTestId('next-visit-route')).toHaveCount(0);
+});
+
+test('最後の1本では実戦推奨を基準例より先に示し、残しを区別する', async ({ page }) => {
+  await openSetup(page, 178);
+  await page.getByRole('button', { name: '1本' }).click();
+  const practical178 = page.getByTestId('practical-last-dart');
+  await expect(practical178).toContainText('T18');
+  await expect(practical178).toContainText('124');
+  await expect(practical178).toContainText('160');
+  const baseline178 = page.getByTestId('standard-route');
+  await expect(baseline178).toContainText('基準例');
+  await expect(baseline178).toContainText('S18');
+  expect(await practical178.evaluate((item, baseline) =>
+    Boolean(item.compareDocumentPosition(document.querySelector(baseline)!) & Node.DOCUMENT_POSITION_FOLLOWING),
+  '[data-testid="standard-route"]')).toBe(true);
+
+  await openCheckout(page, 99);
+  await page.getByRole('button', { name: '1本' }).click();
+  const practical99 = page.getByTestId('practical-last-dart');
+  await expect(practical99).toBeVisible();
+  await expect(practical99).not.toContainText('S19');
+  await expect(page.getByTestId('next-visit-route')).toContainText('基準例');
+});
+
+test('320pxでも残りダーツ操作が収まり、押せる幅を保つ', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await openCheckout(page, 129);
+  const two = page.getByRole('button', { name: '2本' });
+  await two.click();
+  await expect(two).toHaveAttribute('aria-pressed', 'true');
+  const metrics = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    page: document.documentElement.scrollWidth,
+  }));
+  expect(metrics.page).toBeLessThanOrEqual(metrics.viewport);
+  const box = await two.boundingBox();
+  expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+});
+
+test('途中参照の投球・Undo・BUSTでは未知の開始点を復帰点として見せない', async ({ page }) => {
+  await openCheckout(page, 40);
+  await page.getByRole('button', { name: '1本' }).click();
+  await openRecovery(page);
+  await page.getByTestId('segment-t20').click();
+  await expect(page.getByTestId('status-flag')).toHaveText('BUST');
+  await expect(page.getByTestId('status-left')).toHaveText('—');
+  await expect(page.getByTestId('next-visit-button')).toBeDisabled();
+  await expect(page.getByTestId('recovery-next-message')).toContainText('ラウンド開始時の残り');
+  await page.getByTestId('undo-button').click();
+  await expect(page.getByTestId('status-left')).toHaveText('40');
+  await expect(page.getByTestId('status-darts')).toHaveText('1');
+  await page.getByTestId('segment-s1-outer').click();
+  await expect(page.getByTestId('status-left')).toHaveText('39');
+  await expect(page.getByTestId('next-visit-button')).toBeEnabled();
+  await page.getByTestId('next-visit-button').click();
+  await expect(page.getByTestId('status-left')).toHaveText('39');
+  await expect(page.getByTestId('status-darts')).toHaveText('3');
+});
+
 test('Undo で 1 投戻せる', async ({ page }) => {
   await openCheckout(page, 103);
   await openRecovery(page);
@@ -711,6 +784,57 @@ test('TRAINING: 読み取れない古い履歴を正答率へ混ぜない', asyn
   await expect(page.getByTestId('stat-attempts')).toHaveText('1');
   await expect(page.getByTestId('stat-accuracy')).toHaveText('100%');
   await expect(page.getByTestId('training-migration-skipped')).toContainText('2 件');
+});
+
+test('TRAINING: 保存済みV2履歴のカテゴリは日本語表示だけを変え、集計を保つ', async ({ page }) => {
+  await page.evaluate(() => {
+    const record = {
+      id: 'known',
+      at: 1,
+      kind: 'checkout',
+      format: 'checkout-route',
+      problemKey: 'checkout|v2|left=103|darts=3',
+      difficulty: 'medium',
+      primaryCategory: 'checkout-100-119',
+      learningTags: [],
+      startRemaining: 103,
+      currentRemaining: 103,
+      contextualThrows: [],
+      dartsAvailable: 3,
+      answer: ['T19', 'S6', 'D20'],
+      ruleValid: true,
+      learningCorrect: true,
+      grade: 'S',
+      failureCode: null,
+      finishDouble: 'D20',
+      elapsedMs: 3000,
+    };
+    window.localStorage.setItem(
+      'oas.training.v1',
+      JSON.stringify({
+        version: 2,
+        records: [
+          record,
+          {
+            ...record,
+            id: 'unknown',
+            primaryCategory: 'legacy-unknown',
+            learningCorrect: false,
+            grade: 'C',
+          },
+        ],
+        migrationSkippedCount: 0,
+      }),
+    );
+  });
+  await page.reload();
+  await page.getByTestId('nav-training').click();
+
+  await expect(page.getByTestId('stat-attempts')).toHaveText('2');
+  await expect(page.getByTestId('stat-accuracy')).toHaveText('50%');
+  await expect(page.getByTestId('training-by-category')).toContainText('100〜119点の上がり');
+  await expect(page.getByTestId('training-by-category')).toContainText('その他');
+  await expect(page.getByTestId('training-by-category')).not.toContainText('checkout-100-119');
 });
 
 test('バージョン履歴: トップから開き、「トップへ戻る」で戻れる', async ({ page }) => {

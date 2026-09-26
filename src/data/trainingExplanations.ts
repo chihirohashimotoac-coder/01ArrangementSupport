@@ -78,6 +78,7 @@ export function setupDifferenceJa(input: SetupDifferenceInput): string {
   }
 
   const answerTarget = targetNumberOf(input.answerDartId) ?? input.answerDartId;
+  if (answerTarget === recommendedTarget) return `${recommendedText}。`;
   if (input.answerSafe) {
     return `${answerTarget} は ${wedgeTextJa(input.answerLandings)} で、どちらに入っても上がれます。${recommendedText}。`;
   }

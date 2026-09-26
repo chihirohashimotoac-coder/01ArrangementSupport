@@ -22,6 +22,8 @@ import {
   type NextVisitOptions,
   type NextVisitProposal,
 } from './nextVisitSelection';
+import { practicalLastDartChoice } from '../simulation/lastDartChoice';
+import type { LastDartOption } from '../simulation/lastDartSetup';
 
 export type SuggestionMode = 'checkout' | 'setup' | 'unavailable';
 
@@ -46,6 +48,8 @@ export interface Suggestion {
    * 「的を切り替えずに作る案」を、重複しない範囲で足す。
    */
   readonly nextVisitProposals: readonly NextVisitProposal[];
+  /** 最後の1本で基準例より実戦的な的があるとき。推奨度とは別尺度。 */
+  readonly practicalLastDart: LastDartOption | null;
   /** この残りが Bogey Number か。 */
   readonly isBogey: boolean;
   /** SETUP でテンパイを作れるか。CHECKOUT では常に null。 */
@@ -71,6 +75,7 @@ export function suggestFor(
     setupRoutes: [] as readonly RankedSetupRoute[],
     nextVisitRoute: null as RankedSetupRoute | null,
     nextVisitProposals: [] as readonly NextVisitProposal[],
+    practicalLastDart: null as LastDartOption | null,
     isBogey: isBogey(remaining),
     canReachTenpai: null as boolean | null,
     tonTrapLeave: tonTrapWarning(remaining)?.leaveAfterTon ?? null,
@@ -104,6 +109,21 @@ export function suggestFor(
         fallbackPreferredDoubles: options.fallbackPreferredDoubles,
       });
       const nextVisit = proposals[0]?.route ?? null;
+      const preferred = options.fallbackPreferredDoubles ?? [];
+      const withoutPreference = preferred.length > 0 && dartsLeft === 1
+        ? selectNextVisitProposals(remaining, dartsLeft, { mainTarget: options.mainTarget })[0]
+          ?.route.darts[0]?.id ?? null
+        : null;
+      const protectedDartId = preferred.length > 0 &&
+        nextVisit?.darts[0]?.id !== withoutPreference ? nextVisit?.darts[0]?.id ?? null : null;
+      const practicalLastDart = dartsLeft === 1
+        ? practicalLastDartChoice(
+            remaining,
+            nextVisit?.darts[0]?.id ?? null,
+            { proposals, preferredDoubles: preferred },
+            protectedDartId,
+          )
+        : null;
       const cannot = isBogey(remaining)
         ? `${remaining} はノーテン（Bogey）です。この残りは 3 本でも上がれません。`
         : `残り ${dartsLeft} 本では ${remaining} を上がれません。`;
@@ -112,6 +132,7 @@ export function suggestFor(
         mode: 'checkout',
         nextVisitRoute: nextVisit,
         nextVisitProposals: proposals,
+        practicalLastDart,
         // 残しを提示できるときは、答えの無い「作りましょう」で終わらせない。
         unavailableReason: nextVisit === null
           ? `${cannot}次ラウンドへ良い残りを作りましょう。`
@@ -122,11 +143,19 @@ export function suggestFor(
   }
 
   const setupRoutes = rankSetupRoutes(remaining, dartsLeft, options);
+  const practicalLastDart = dartsLeft === 1
+    ? practicalLastDartChoice(
+        remaining,
+        setupRoutes[0]?.darts[0]?.id ?? null,
+        { proposals: [], preferredDoubles: [] },
+      )
+    : null;
   const reachable = canReachTenpai(remaining, dartsLeft);
   return {
     ...base,
     mode: 'setup',
     setupRoutes,
+    practicalLastDart,
     canReachTenpai: reachable,
     unavailableReason: reachable
       ? null

@@ -404,6 +404,11 @@ describe('CHECKOUT の採点', () => {
     expect(negatives.length).toBeGreaterThan(0);
   });
 
+  it('39 / S17→D11 は合法なCとして正解にする', () => {
+    const result = gradeAnswer(makeQuestion({ currentRemaining: 39 }), parseRoute(['S17', 'D11']));
+    expect([result.ruleValid, result.learningCorrect, result.grade]).toEqual([true, true, 'C']);
+  });
+
   it('122 の T20 始動は「成立するが非推奨」として C になり、理由が示される', () => {
     const result = gradeAnswer(
       makeQuestion({ currentRemaining: 122 }),

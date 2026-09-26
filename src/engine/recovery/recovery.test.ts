@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createVisit, isVisitFinished, recordMiss, recordThrow, undoThrow } from './visit';
+import { createReferenceVisit, createVisit, isVisitFinished, recordMiss, recordThrow, undoThrow } from './visit';
 import { suggestFor } from './suggest';
 import { requireDart } from '../../domain/dart';
 
@@ -92,6 +92,33 @@ describe('ビジットの進行', () => {
     expect(visit.status).toBe('in-progress');
     expect(visit.remaining).toBe(40);
     expect(visit.dartsLeft).toBe(3);
+  });
+
+  it('129 / 2本の途中参照は偽MISSなしで投げ切り、Undoは参照点で止まる', () => {
+    let visit = createReferenceVisit(129, 2);
+    expect(visit.thrown).toEqual([]);
+    expect(visit.visitStartKnown).toBe(false);
+    expect(suggestFor(visit.remaining, visit.dartsLeft).checkoutRoutes).toEqual([]);
+    expect(suggestFor(visit.remaining, visit.dartsLeft).nextVisitRoute).not.toBeNull();
+    visit = recordThrow(visit, requireDart('T20'));
+    expect([visit.remaining, visit.dartsLeft]).toEqual([69, 1]);
+    visit = recordThrow(visit, requireDart('S19'));
+    expect([visit.remaining, visit.dartsLeft]).toEqual([50, 0]);
+    visit = undoThrow(undoThrow(visit));
+    expect([visit.remaining, visit.dartsLeft, visit.thrown.length]).toEqual([129, 2, 0]);
+    expect(undoThrow(visit)).toBe(visit);
+    expect(suggestFor(129, 3).checkoutRoutes.length).toBeGreaterThan(0);
+  });
+
+  it('途中参照でBUSTした場合は本当の復帰点を既知扱いしない', () => {
+    let visit = createReferenceVisit(40, 1);
+    visit = recordThrow(visit, requireDart('T20'));
+    expect(visit.status).toBe('bust');
+    expect(visit.visitStartKnown).toBe(false);
+    expect(visit.remaining).toBe(40);
+    expect(visit.thrown[0].outcome).toBe('bust');
+    visit = undoThrow(visit);
+    expect([visit.remaining, visit.dartsLeft]).toEqual([40, 1]);
   });
 
   it('上がったあとは投げられない', () => {

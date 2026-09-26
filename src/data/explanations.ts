@@ -16,6 +16,41 @@ import type {
   SetupReasonCode,
 } from '../domain/reasonCodes';
 
+/** 成立する CHECKOUT 下位案の比較理由を、計算済みの着弾条件だけで説明する。 */
+export function renderCheckoutRelativeDisadvantageJa(input: {
+  readonly reason: {
+    readonly tripleBustDartId: string | null;
+    readonly alternativeTripleLeave: number | null;
+    readonly innerSingleDartId: string | null;
+    readonly innerSingleLeave: number | null;
+    readonly cautionSummaries: readonly string[];
+  };
+  readonly routeText: string;
+  readonly intendedLabel: string;
+  readonly intendedLeave: number;
+  readonly suggestionJa: string;
+}): string {
+  const { reason, routeText, intendedLabel, intendedLeave, suggestionJa } = input;
+  const facts: string[] = [];
+  if (reason.tripleBustDartId !== null) {
+    facts.push(`${intendedLabel} を狙って ${reason.tripleBustDartId} に入ると BUST しますが、` +
+      `代案の同番号トリプルなら残り ${reason.alternativeTripleLeave} で続けられます`);
+  }
+  if (reason.innerSingleDartId !== null) {
+    facts.push(`最後のダブルの内側 ${reason.innerSingleDartId} に入ると` +
+      `残り ${reason.innerSingleLeave} の奇数になります`);
+  }
+  if (facts.length === 0 && reason.cautionSummaries.length > 0) {
+    facts.push(reason.cautionSummaries[0]);
+  }
+  const comparison = facts.length > 0
+    ? `${facts.join('。')}。`
+    : '比較上の具体的な優劣までは、この基準から断定しません。';
+  return `${routeText} で上がる案は成立します` +
+    `（初手が狙い通りなら残り ${intendedLeave}）。${comparison}` +
+    `この基準での推奨度は C です。${suggestionJa}`;
+}
+
 /** 説明テンプレートへ渡す文脈。engine が計算した値だけを入れる。 */
 export interface ReasonContext {
   readonly remaining: number;
@@ -705,7 +740,7 @@ export function renderAppFirstProposalLineJa(ctx: {
     case 'DIFFERENT':
       return (
         `${APP_FIRST_PROPOSAL_LABEL_JA}: ${ctx.routeText}` +
-        '（参考。振り返りの代案とは選び方の基準が違います）'
+        '（振り返りは上の代案とも比べています）'
       );
   }
 }
