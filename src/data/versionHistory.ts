@@ -3,7 +3,7 @@
  *
  * このリポジトリには Git tag も GitHub Release も無いため、
  * 既存項目は main へ merge された Pull Request と、その commit 履歴から作成している。
- * 先頭の未マージ項目は、この PR の Preview に含まれる変更を表す。
+ * 先頭の項目は現在の main に含まれる最新版を表す。
  * 既存項目の日付は merge された日（JST）。バージョン番号は PR で実際に使われた呼称だけを載せ、
  * 呼称が無い期間は「何をした更新か」で識別する（存在しない版番号を作らない）。
  *
@@ -26,7 +26,7 @@ export interface VersionHistoryEntry {
 export const VERSION_HISTORY: readonly VersionHistoryEntry[] = [
   {
     label: 'v1.4.9 最後の1本の実戦推奨と振り返りの整合',
-    date: '2026-09-26',
+    date: '2026-09-27',
     summary: '最後の1本の実戦推奨を振り返りの比較理由と揃え、成立する別案の不利を具体的に説明します。CHECKOUT / SETUP は残りダーツ数から直接参照できます。',
     changes: [
       '178 / 残り1本では実戦推奨 T18 と従来の基準例 S18 を選択前に分けて表示します。得意ダブルと交換条件を考慮し、従来の戦術データ・ランキングの重みは変えていません。',

@@ -771,8 +771,8 @@ export function SimulationPage() {
           </p>
 
           {/* --- 詳細: 内訳 / 改善候補 / 全投 ----------------------------- */}
-          <details className="simulation__help" data-testid="sim-verdict-breakdown">
-            <summary>判断の内訳</summary>
+          <section className="simulation__help" data-testid="sim-verdict-breakdown">
+            <h3 className="simulation__section-heading">判断の内訳</h3>
             <div className="simulation__detail-body">
               <p className="simulation__review-note" data-testid="sim-evaluated-note">
                 採点した狙い {highlights.evaluatedCount} 投のうち、良い判断{' '}
@@ -793,7 +793,7 @@ export function SimulationPage() {
                 )}
               </ul>
             </div>
-          </details>
+          </section>
 
           {highlights.improvements.length > 0 && (
             <details className="simulation__help" data-testid="sim-improvements">
@@ -812,8 +812,8 @@ export function SimulationPage() {
             </details>
           )}
 
-          <details className="simulation__help" data-testid="sim-all-throws">
-            <summary>全投を見る（{review.summary.totalDarts} 投）</summary>
+          <section className="simulation__help" data-testid="sim-all-throws">
+            <h3 className="simulation__section-heading">全投（{review.summary.totalDarts} 投）</h3>
             <div className="simulation__detail-body">
               {highlights.scoringCount > 0 && (
                 <p className="simulation__review-note">
@@ -890,7 +890,7 @@ export function SimulationPage() {
                 ))}
               </ol>
             </div>
-          </details>
+          </section>
 
           <details className="simulation__help" data-testid="sim-review-glossary">
             <summary>判断の分類と用語の意味</summary>

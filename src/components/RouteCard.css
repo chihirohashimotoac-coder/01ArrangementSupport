@@ -31,7 +31,6 @@
 }
 
 .route-card__grade {
-  margin-left: auto;
   font-size: 0.85rem;
   font-weight: 800;
   width: 1.6rem;
@@ -40,6 +39,10 @@
   place-items: center;
   border-radius: 50%;
 }
+
+.route-card__grade-group { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; }
+.route-card__grade-context { color: var(--text-secondary); font-size: 0.68rem; font-weight: 700; }
+.route-card__reasons-inline { margin: 0; padding-left: 1.1rem; color: var(--text-secondary); font-size: 0.8rem; line-height: 1.5; }
 
 .route-card__grade--S {
   background: var(--grade-s-bg);

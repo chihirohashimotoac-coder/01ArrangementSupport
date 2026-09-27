@@ -19,6 +19,8 @@ export interface ScoreInputProps {
    * または値を書き換えたあとの blur）。入力途中の onChange では呼ばない。
    */
   readonly onCommit?: (value: number) => void;
+  /** BUST の未知の開始点では、入力確定まで親の状態を保つ。 */
+  readonly commitOnly?: boolean;
 }
 
 const toDraft = (value: number | null) => (value === null ? '' : String(value));
@@ -45,6 +47,7 @@ export function ScoreInput({
   value,
   onChange,
   onCommit,
+  commitOnly = false,
 }: ScoreInputProps) {
   const inputId = useId();
   const errorId = `${inputId}-error`;
@@ -84,8 +87,10 @@ export function ScoreInput({
      * 実戦で別の残り点のルートを読んでしまう。範囲外では計算しない、が仕様。
      */
     const parsed = parse(raw);
-    setLastValue(parsed);
-    onChange(parsed);
+    if (!commitOnly) {
+      setLastValue(parsed);
+      onChange(parsed);
+    }
   };
 
   /** 入力を終えた時点で、まだ範囲外なら理由を示す。空欄はエラーにしない。 */

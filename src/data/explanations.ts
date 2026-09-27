@@ -15,6 +15,41 @@ import type {
   ReasonPolarity,
   SetupReasonCode,
 } from '../domain/reasonCodes';
+import type { LeaveProfileKind } from '../engine/simulation/leaveProfile';
+
+const PRACTICAL_LEAVE_VALUE_JA: Record<LeaveProfileKind, string> = {
+  DIRECT_DOUBLE: '次の1本目からダブルを狙える',
+  AIM_AREA: 'シングル1本でダブルを残せる',
+  SINGLE_TO_DOUBLE: 'シングル1本でダブルを残せる',
+  TWO_DART_OTHER: '次の2本で上がれる',
+  THREE_DART: '次の3本で上がれる',
+  NO_CHECKOUT: '次の3本では上がれない',
+};
+
+/** 計算済みの残しの価値を、実戦推奨カード向けに短く示す。 */
+export function practicalLastDartReasonsJa(input: {
+  readonly dartId: string;
+  readonly singleDartId: string | null;
+  readonly hitLeave: number;
+  readonly hitKind: LeaveProfileKind;
+  readonly missLeave: number | null;
+  readonly missKind: LeaveProfileKind | null;
+  readonly baselineDartId: string | null;
+}): readonly { readonly code: string; readonly polarity: 'positive'; readonly label: string; readonly summary: string; readonly detail: null }[] {
+  const miss = input.singleDartId !== null && input.missLeave !== null && input.missKind !== null
+    ? `、${input.singleDartId} に落ちても残り ${input.missLeave}（${PRACTICAL_LEAVE_VALUE_JA[input.missKind]}）`
+    : '';
+  return [
+    {
+      code: 'PRACTICAL_LAST_DART_OUTCOMES', polarity: 'positive', label: '残しの比較', detail: null,
+      summary: `最後の1本は ${input.dartId} を優先。狙い通りなら残り ${input.hitLeave}（${PRACTICAL_LEAVE_VALUE_JA[input.hitKind]}）${miss}。`,
+    },
+    {
+      code: 'PRACTICAL_LAST_DART_CONTEXT', polarity: 'positive', label: '判断の基準', detail: null,
+      summary: `基準例 ${input.baselineDartId ?? ''} は通常のルート順位です。今の残り1本では、狙い通りと外れた後の残しを比べます。`,
+    },
+  ];
+}
 
 /** 成立する CHECKOUT 下位案の比較理由を、計算済みの着弾条件だけで説明する。 */
 export function renderCheckoutRelativeDisadvantageJa(input: {
@@ -44,7 +79,7 @@ export function renderCheckoutRelativeDisadvantageJa(input: {
     facts.push(reason.cautionSummaries[0]);
   }
   const comparison = facts.length > 0
-    ? `${facts.join('。')}。`
+    ? `${facts.map((fact) => fact.replace(/。+$/u, '')).join('。')}。`
     : '比較上の具体的な優劣までは、この基準から断定しません。';
   return `${routeText} で上がる案は成立します` +
     `（初手が狙い通りなら残り ${intendedLeave}）。${comparison}` +
