@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "icons": "node scripts/generate-icons.mjs",
+    "icons": "python3 scripts/generate-icons.py",
     "import:checkout": "node scripts/import-checkout-excel.mjs",
     "check:base": "node scripts/check-base-path.mjs",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
