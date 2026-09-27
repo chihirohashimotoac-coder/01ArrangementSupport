@@ -22,7 +22,11 @@ export default defineConfig({
        */
       registerType: 'prompt',
       injectRegister: null,
-      includeAssets: ['favicon.svg', 'icons/apple-touch-icon-180.png'],
+      includeAssets: [
+        'icons/favicon-32.png',
+        'icons/favicon-48.png',
+        'icons/apple-touch-icon-180.png',
+      ],
       manifest: {
         id: base,
         name: '01 Arrangement Support',
@@ -41,6 +45,12 @@ export default defineConfig({
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          {
+            src: 'icons/icon-maskable-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
           {
             src: 'icons/icon-maskable-512.png',
             sizes: '512x512',
