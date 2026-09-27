@@ -11,12 +11,28 @@ test('manifest と Service Worker が配信される', async ({ page, request })
   const body = (await manifest.json()) as {
     name: string;
     display: string;
-    icons: Array<{ sizes: string; purpose?: string }>;
+    icons: Array<{ src: string; sizes: string; purpose?: string }>;
   };
   expect(body.name).toBe('01 Arrangement Support');
   expect(body.display).toBe('standalone');
   expect(body.icons.some((icon) => icon.sizes === '512x512')).toBe(true);
   expect(body.icons.some((icon) => icon.purpose === 'maskable')).toBe(true);
+
+  // manifest・favicon・apple-touch-icon が指すアイコンが実際に配信される。
+  const linkedIcons = await page
+    .locator('link[rel="icon"], link[rel="apple-touch-icon"]')
+    .evaluateAll((links) => links.map((link) => (link as HTMLLinkElement).href));
+  expect(linkedIcons.length).toBeGreaterThan(0);
+  const manifestUrl = new URL(manifestHref!, page.url());
+  const iconUrls = [
+    ...linkedIcons,
+    ...body.icons.map((icon) => new URL(icon.src, manifestUrl).toString()),
+  ];
+  for (const url of iconUrls) {
+    const icon = await request.get(url);
+    expect(icon.ok(), url).toBe(true);
+    expect(icon.headers()['content-type'], url).toContain('image/png');
+  }
 
   const serviceWorker = await request.get(new URL('sw.js', page.url()).toString());
   expect(serviceWorker.ok()).toBe(true);
