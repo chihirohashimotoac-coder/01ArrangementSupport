@@ -170,6 +170,14 @@
   display: flex;
   align-items: center;
 }
+.simulation__section-heading {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 740;
+  border-bottom: 1px solid var(--border);
+}
 
 .simulation__help[open] > summary {
   border-bottom: 1px solid var(--border);

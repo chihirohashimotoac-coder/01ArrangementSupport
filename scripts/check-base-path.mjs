@@ -25,7 +25,8 @@ const check = (condition, message) => {
 };
 
 rmSync(outDir, { recursive: true, force: true });
-execFileSync('npx', ['vite', 'build', '--outDir', outDir, '--emptyOutDir'], {
+// Node's execFileSync does not resolve npx.cmd on Windows; invoke the locked local Vite directly.
+execFileSync(process.execPath, [resolve(root, 'node_modules/vite/bin/vite.js'), 'build', '--outDir', outDir, '--emptyOutDir'], {
   cwd: root,
   env: { ...process.env, VITE_BASE_PATH: base },
   stdio: 'inherit',

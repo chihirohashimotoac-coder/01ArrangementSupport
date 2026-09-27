@@ -8,6 +8,20 @@ import {
   type LastDartSetupAnalysis,
 } from './lastDartSetup';
 import { dominatesLeavePair, nextVisitLeaveProfileOf, type LeaveProfile } from './leaveProfile';
+import { practicalLastDartReasonsJa } from '../../data/explanations';
+
+/** 実戦推奨に使った構造化結果をそのまま説明へ渡す。 */
+export function practicalLastDartReasonViews(option: LastDartOption, baselineDartId: string | null) {
+  return practicalLastDartReasonsJa({
+    dartId: option.dartId,
+    singleDartId: option.dart.baseNumber === null ? null : `S${option.dart.baseNumber}`,
+    hitLeave: option.leaveOnHit,
+    hitKind: nextVisitLeaveProfileOf(option.leaveOnHit).kind,
+    missLeave: option.leaveOnSingleMiss,
+    missKind: option.leaveOnSingleMiss === null ? null : nextVisitLeaveProfileOf(option.leaveOnSingleMiss).kind,
+    baselineDartId,
+  });
+}
 
 export interface LeavePair {
   readonly hit: LeaveProfile;

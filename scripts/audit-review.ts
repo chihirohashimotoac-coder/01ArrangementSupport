@@ -79,6 +79,8 @@ import { suggestionsOf } from '../src/engine/simulation/reviewHighlights';
 import { analyzeSetupRecovery } from '../src/engine/simulation/setupRecovery';
 import { displayTargetId } from '../src/engine/simulation/notation';
 import { DISCOURAGING_REASON_CODES, type RouteGrade } from '../src/data/rankingRules';
+import { otherRoutesGradeContext } from '../src/data/gradeLabels';
+import { practicalLastDartReasonViews } from '../src/engine/simulation/lastDartChoice';
 import type { RankedCheckoutRoute } from '../src/engine/ranking/checkoutRanking';
 
 function record(leftBefore: number, dart: Dart, dartsLeft: number): ThrowRecord {
@@ -150,7 +152,7 @@ const counts = new Map<number, Record<ThrowVerdict, number>>();
 let practicalChanges = 0;
 let practicalSetupChanges = 0;
 let baselineReviewConflicts = 0;
-const findings: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J', string[]> = {
+const findings: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J' | 'K' | 'L', string[]> = {
   A: [],
   B: [],
   C: [],
@@ -161,7 +163,15 @@ const findings: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J'
   H: [],
   I: [],
   J: [],
+  K: [],
+  L: [],
 };
+let lastDartOtherRouteConflicts = 0;
+let scannedTextCount = 0;
+function checkGeneratedText(text: string, context: string): void {
+  scannedTextCount += 1;
+  if (text.includes('。。')) findings.L.push(`${context}: ${text}`);
+}
 
 /**
  * H: 1 つの場面（残り・残り本数・得意ダブル設定）の全ターゲットの判定から、表示の誤読を数える。
@@ -236,6 +246,13 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
     const reviews = new Map<string, ThrowReview>();
     // 振り返りが推奨度を読む候補一覧（review.ts の contextOf と同じ選び方）。
     const suggestion = suggestFor(left, dartsLeft, { maxRoutes: 1000 });
+    for (const route of [...suggestion.checkoutRoutes, ...suggestion.setupRoutes,
+      ...suggestion.nextVisitProposals.map((proposal) => proposal.route)]) {
+      for (const reason of route.reasons) {
+        checkGeneratedText(reason.summary, `${left}/${dartsLeft} ${route.key} summary`);
+        if (reason.detail !== null) checkGeneratedText(reason.detail, `${left}/${dartsLeft} ${route.key} detail`);
+      }
+    }
     const candidateRoutes: ReadonlyArray<{ darts: readonly Dart[]; grade: RouteGrade }> =
       suggestion.checkoutRoutes.length > 0
         ? suggestion.checkoutRoutes
@@ -245,6 +262,7 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
     for (const dart of THROWABLE_DARTS) {
       states += 1;
       const review = reviewThrow(record(left, dart, dartsLeft));
+      checkGeneratedText(review.noteJa, `${left}/${dartsLeft} ${dart.id} review`);
       perDarts[review.verdict] += 1;
       verdicts.set(dart.id, review.verdict);
       reasonCodes.set(dart.id, review.reason?.code ?? null);
@@ -330,6 +348,14 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
       }
       if (baselineReview !== null && NEGATIVE.has(baselineReview.verdict)) baselineReviewConflicts += 1;
       if (practical !== null) {
+        const reasons = practicalLastDartReasonViews(practical, baseline?.id ?? null);
+        for (const reason of reasons) checkGeneratedText(reason.summary, `${left}/1 practical`);
+        const visibleReason = reasons.map((reason) => reason.summary).join(' ');
+        if (!visibleReason.includes(practical.dartId) ||
+          !visibleReason.includes(`残り ${practical.leaveOnHit}`) ||
+          (practical.leaveOnSingleMiss !== null && !visibleReason.includes(`残り ${practical.leaveOnSingleMiss}`))) {
+          findings.I.push(`${left}/1 ${practical.dartId}: カードの理由が実際の候補と一致しない`);
+        }
         practicalChanges += 1;
         if (left > MAX_CHECKOUT) practicalSetupChanges += 1;
         const practicalReview = reviews.get(practical.dartId);
@@ -340,6 +366,20 @@ for (let left = 2; left <= MAX_SETUP_REMAINING; left += 1) {
           (baselineReview !== null && !NEGATIVE.has(baselineReview.verdict)) ||
           baselineReview?.recommendedDartId !== practical.dartId) {
           findings.I.push(`${left}/1 ${practical.dartId}: 推奨・判定・残しのいずれかが不一致`);
+        }
+      }
+    }
+
+    // K: 171〜190 の最後の1本で、従来推奨度と実戦レビューの文脈を明示する。
+    if (dartsLeft === 1 && left >= 171 && left <= 190) {
+      const context = otherRoutesGradeContext('setup', dartsLeft);
+      for (const route of suggestion.setupRoutes.slice(1)) {
+        const review = reviews.get(route.darts[0].id);
+        if (review !== undefined && NEGATIVE.has(review.verdict) && route.grade === 'A') {
+          lastDartOtherRouteConflicts += 1;
+          if (context === null || !context.includes('通常のSETUP順位') || !context.includes('シングル落ち')) {
+            findings.K.push(`${left}/1 ${route.key}: 基準評価と実戦判断の文脈が無い`);
+          }
         }
       }
     }
@@ -488,6 +528,13 @@ for (const preferred of [[], ['D20'], ['D16'], ['D8'], ['D10'], ['D11'], ['D16',
       }
       if (practical !== null) {
         const practicalReview = reviewThrow(record(left, practical.dart, 1), { preferredDoubles: preferred });
+        const visibleReason = practicalLastDartReasonViews(practical, baselineId)
+          .map((reason) => reason.summary).join(' ');
+        if (!visibleReason.includes(practical.dartId) ||
+          !visibleReason.includes(`残り ${practical.leaveOnHit}`) ||
+          (practical.leaveOnSingleMiss !== null && !visibleReason.includes(`残り ${practical.leaveOnSingleMiss}`))) {
+          findings.I.push(`${tag} ${left}/1 ${practical.dartId}: 得意ダブル設定時の理由が候補と不一致`);
+        }
         if (practicalReview.verdict !== 'GOOD_DECISION' ||
           baselineReview.recommendedDartId !== practical.dartId ||
           practical.leaveOnHit !== left - practical.dart.score ||
@@ -555,6 +602,8 @@ const labels: Record<keyof typeof findings, string> = {
   H: '振り返りの表示で、減点した狙いを改善案と読める / 比べた代案が判定と食い違う',
   I: '最後の1本の実戦推奨・基準例・レビュー・数値的な残しが食い違う',
   J: '合法なCと実際のBUSTを混同する、または39の比較理由が不正確',
+  K: 'OTHER ROUTES の基準評価と最後の1本の実戦判断の文脈が欠ける',
+  L: '生成文面に二重句点がある',
 };
 const legal39 = reviewThrow(record(39, findDart('S17')!, 3));
 const slipped39 = reviewThrow({ ...record(39, findDart('S17')!, 3), actualDartId: 'T17' });
@@ -569,12 +618,14 @@ if (legal39.verdict !== 'BETTER_OPTION_AVAILABLE' || legal39.grade !== 'C' ||
   findings.J.push('39/3 S17→D11・実着弾T17・狙いT17の分類または説明');
 }
 let failures = 0;
-for (const key of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'] as const) {
+for (const key of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'] as const) {
   const list = findings[key];
   failures += list.length;
   console.log(`${list.length === 0 ? '  ok  ' : '  NG  '} ${key}. ${labels[key]}: ${list.length} 件`);
   for (const item of list.slice(0, 10)) console.log(`         ${item}`);
 }
+console.log(`  OTHER ROUTES の基準評価とレビューが異なる候補: ${lastDartOtherRouteConflicts} 件（文脈漏れ ${findings.K.length} 件）`);
+console.log(`  全生成文面の二重句点: ${findings.L.length} / ${scannedTextCount} 件`);
 console.log(
   `  参考 SETUP 残り 2 本以上で、推奨度 S / A だがシングル落ちでテンパイを外し、` +
     `安全な的が他にある狙い: ${engineGradedUnsafe.length} 件（承認済みランキングの判断なので上書きしない）`,

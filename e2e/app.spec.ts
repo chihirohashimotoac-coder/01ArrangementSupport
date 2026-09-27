@@ -119,6 +119,11 @@ test('最後の1本では実戦推奨を基準例より先に示し、残しを�
   await expect(practical178).toContainText('T18');
   await expect(practical178).toContainText('124');
   await expect(practical178).toContainText('160');
+  await expect(practical178).toContainText('次の3本で上がれる');
+  await expect(practical178).toContainText('基準例 S18 は通常のルート順位');
+  await expect(practical178.locator('.route-card__reasons-inline li')).toHaveCount(2);
+  await expect(page.getByTestId('setup-routes')).toContainText('基準評価');
+  await expect(page.getByText(/基準評価は通常のSETUP順位/)).toBeVisible();
   const baseline178 = page.getByTestId('standard-route');
   await expect(baseline178).toContainText('基準例');
   await expect(baseline178).toContainText('S18');
@@ -130,7 +135,9 @@ test('最後の1本では実戦推奨を基準例より先に示し、残しを�
   await page.getByRole('button', { name: '1本' }).click();
   const practical99 = page.getByTestId('practical-last-dart');
   await expect(practical99).toBeVisible();
-  await expect(practical99).not.toContainText('S19');
+  await expect(practical99).toContainText('残り 39');
+  await expect(practical99).toContainText('残り 79');
+  await expect(practical99.locator('.route-card__darts [data-dart="T20"]')).toHaveCount(1);
   await expect(page.getByTestId('next-visit-route')).toContainText('基準例');
 });
 
@@ -168,6 +175,74 @@ test('途中参照の投球・Undo・BUSTでは未知の開始点を復帰点と
   await page.getByTestId('next-visit-button').click();
   await expect(page.getByTestId('status-left')).toHaveText('39');
   await expect(page.getByTestId('status-darts')).toHaveText('3');
+});
+
+test('未知の BUST 開始点はモードを越えて復元でき、無効値では待機を保つ', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openCheckout(page, 61);
+  await page.getByRole('button', { name: '1本' }).click();
+  await openRecovery(page);
+  await page.getByTestId('segment-t20').click();
+  await expect(page.getByTestId('status-left')).toHaveText('—');
+  for (const invalid of ['1', '351', '18.1']) {
+    await page.getByTestId('score-input').fill(invalid);
+    await page.getByTestId('score-input').press('Enter');
+    await expect(page.getByRole('alert')).toContainText('2〜350');
+    await expect(page.getByTestId('status-flag')).toHaveText('BUST');
+  }
+  await page.getByTestId('score-input').fill('181');
+  await page.getByTestId('score-input').press('Enter');
+  await expect(page.getByTestId('nav-setup')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('score-input')).toHaveValue('181');
+  await openRecovery(page);
+  await expect(page.getByTestId('status-left')).toHaveText('181');
+  await expect(page.getByTestId('status-darts')).toHaveText('3');
+  await expect(page.getByTestId('standard-route')).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 640 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+});
+
+test('39 / 2本の未知 BUST と既知の 60 の自動復帰を保つ', async ({ page }) => {
+  await openCheckout(page, 39);
+  await page.getByRole('button', { name: '2本' }).click();
+  await openRecovery(page);
+  await page.getByTestId('segment-t17').click();
+  await expect(page.getByTestId('status-left')).toHaveText('—');
+  await expect(page.getByTestId('recovery-next-message')).toContainText('ラウンド開始時の残り');
+
+  await page.getByTestId('score-input').fill('60');
+  await page.getByTestId('score-input').press('Enter');
+  await expect(page.getByTestId('standard-route')).toBeVisible();
+  await openRecovery(page);
+  await page.getByTestId('segment-s12-outer').click();
+  await page.getByTestId('segment-t16').click();
+  await expect(page.getByTestId('status-flag')).toHaveText('BUST');
+  await expect(page.getByTestId('status-left')).toHaveText('60');
+  await page.getByTestId('next-visit-button').click();
+  await expect(page.getByTestId('status-darts')).toHaveText('3');
+});
+
+test('未知 BUST を同じ残り点で復元しても、前の OTHER ROUTE を持ち越さない', async ({ page }) => {
+  await openCheckout(page, 39);
+  await page.getByRole('button', { name: '2本' }).click();
+  const other = page.getByTestId('route-S19-D10');
+  await other.getByRole('button', { name: /^1 投目 S19/ }).click();
+  await expect(page.getByTestId('segment-s19-outer')).toHaveAttribute('data-highlighted', 'true');
+
+  await page.getByTestId('segment-t17').click();
+  await expect(page.getByTestId('status-left')).toHaveText('—');
+  await page.getByTestId('score-input').fill('39');
+  await page.getByTestId('score-input').press('Enter');
+  await openRecovery(page);
+  await expect(page.getByTestId('status-left')).toHaveText('39');
+  await expect(page.getByTestId('status-darts')).toHaveText('3');
+  const standardDarts = await page.getByTestId('standard-route').locator('.route-card__dart').evaluateAll(
+    (buttons) => buttons.map((button) => button.getAttribute('data-dart')),
+  );
+  const highlighted = await page.getByTestId('dartboard').locator('[data-highlighted="true"]').evaluateAll(
+    (segments) => [...new Set(segments.map((segment) => segment.getAttribute('data-dart')))],
+  );
+  expect(highlighted.sort()).toEqual(standardDarts.sort());
 });
 
 test('Undo で 1 投戻せる', async ({ page }) => {

@@ -9,8 +9,10 @@ import { VisitTrail } from '../components/VisitTrail';
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
 import type { Dart } from '../domain/dart';
 import { CURATED_CHECKOUT_EXPLANATIONS, CURATED_SETUP_EXPLANATIONS } from '../data/explanations';
+import { otherRoutesGradeContext } from '../data/gradeLabels';
 import { analyzeAimArea } from '../engine/aimArea/aimArea';
 import { rankCheckoutRoutes } from '../engine/ranking/checkoutRanking';
+import { practicalLastDartReasonViews } from '../engine/simulation/lastDartChoice';
 import type { VisitState } from '../engine/recovery/visit';
 import { useVisit } from '../hooks/useVisit';
 import { usePreferences } from '../hooks/usePreferences';
@@ -178,9 +180,10 @@ function RouteListControls({ total, visibleCount, allLabel, onChange }: RouteLis
 
 export interface PracticePageProps {
   readonly mode: PracticeMode;
+  readonly onModeChange: (mode: PracticeMode) => void;
 }
 
-export function PracticePage({ mode }: PracticePageProps) {
+export function PracticePage({ mode, onModeChange }: PracticePageProps) {
   const { preferences } = usePreferences();
   const [selectedDarts, setSelectedDarts] = useState<1 | 2 | 3>(3);
   const [visibleCount, setVisibleCount] = useState(INITIAL_ROUTE_COUNT);
@@ -490,6 +493,11 @@ export function PracticePage({ mode }: PracticePageProps) {
   }, [undo]);
 
   const copy = COPY[mode];
+  const otherRoutesContext = otherRoutesGradeContext(mode, visit?.dartsLeft ?? 3);
+  const restoringUnknownBust = visit?.status === 'bust' && !visit.visitStartKnown;
+  const inputCopy: ModeCopy = restoringUnknownBust
+    ? { min: 2, max: MAX_SETUP_REMAINING, hint: 'ラウンド開始時の残りを入力・2〜350', placeholder: '例 181' }
+    : copy;
 
   /** STANDARD / BEST の直後に置く「実際の着弾を入力」とその展開部。 */
   const recoverySection = visit === null ? null : (
@@ -586,10 +594,11 @@ export function PracticePage({ mode }: PracticePageProps) {
       <section className="practice__controls" aria-label="残り点の設定">
         <ScoreInput
           label="残り点 LEFT"
-          hint={copy.hint}
-          placeholder={copy.placeholder}
-          min={copy.min}
-          max={copy.max}
+          hint={inputCopy.hint}
+          placeholder={inputCopy.placeholder}
+          min={inputCopy.min}
+          max={inputCopy.max}
+          commitOnly={restoringUnknownBust}
           value={visit?.status === 'bust' && !visit.visitStartKnown ? null : visit?.visitStartRemaining ?? null}
           onChange={(value) => {
             setSelectedDarts(3);
@@ -605,7 +614,20 @@ export function PracticePage({ mode }: PracticePageProps) {
             if (value === null) clear();
             else reset(value);
           }}
-          onCommit={handleCommit}
+          onCommit={(value) => {
+            if (restoringUnknownBust) {
+              setSelectedDarts(3);
+              setSelectedRoutePlan(null);
+              setFocusedDartId(null);
+              setVisibleCount(INITIAL_ROUTE_COUNT);
+              setRecoveryOpen(false);
+              reset(value);
+              if ((value <= MAX_CHECKOUT ? 'checkout' : 'setup') !== mode) {
+                onModeChange(value <= MAX_CHECKOUT ? 'checkout' : 'setup');
+              }
+            }
+            handleCommit();
+          }}
         />
         <fieldset className="practice__darts-choice" aria-label="残りダーツ数">
           <legend>残りダーツ</legend>
@@ -699,8 +721,11 @@ export function PracticePage({ mode }: PracticePageProps) {
                 testId="practical-last-dart"
                 badge="実戦推奨"
                 dartIds={[practicalLastDart.dartId]}
-                meta={`狙い通り → 残り ${practicalLastDart.leaveOnHit} / 同番号シングル → 残り ${practicalLastDart.leaveOnSingleMiss}`}
-                reasons={[]}
+                reasons={practicalLastDartReasonViews(
+                  practicalLastDart,
+                  suggestion.mode === 'setup' ? bestSetup?.darts[0]?.id ?? null : nextVisitRoute?.darts[0]?.id ?? null,
+                )}
+                reasonsAlwaysVisible
                 onDartFocus={focusDefaultDart}
                 focusedDartId={focusedDartId}
               />
@@ -837,12 +862,14 @@ export function PracticePage({ mode }: PracticePageProps) {
           {suggestion.mode === 'setup' && bestSetup && otherSetup.length > 0 && (
             <section className="practice__routes" aria-label="その他のセットアップ候補">
               <h2 className="practice__heading">OTHER ROUTES</h2>
+              {otherRoutesContext && <p className="practice__grade-note">{otherRoutesContext}</p>}
               <div className="practice__list" data-testid="setup-routes">
                 {visibleSetup.map((route) => (
                   <RouteCard
                     key={route.key}
                     testId={`setup-${route.key}`}
                     grade={route.grade}
+                    gradeContext={otherRoutesContext ?? undefined}
                     dartIds={route.darts.map((dart) => dart.id)}
                     meta={`取得 ${route.scored} 点 → 残り ${route.leave}`}
                     reasons={toReasonViews(route.reasons)}

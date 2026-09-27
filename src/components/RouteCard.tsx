@@ -16,6 +16,7 @@ export interface RouteCardProps {
   /** ルートを構成するセグメント表記。 */
   readonly dartIds: readonly string[];
   readonly grade?: RouteGrade;
+  readonly gradeContext?: string;
   /** 見出しのラベル（STANDARD / MY ROUTE など）。 */
   readonly badge?: string;
   readonly isStandard?: boolean;
@@ -29,6 +30,7 @@ export interface RouteCardProps {
   readonly focusedDartId?: string | null;
   readonly defaultOpen?: boolean;
   readonly testId?: string;
+  readonly reasonsAlwaysVisible?: boolean;
 }
 
 const GRADE_LABEL = ROUTE_GRADE_LABEL_JA;
@@ -42,6 +44,7 @@ const GRADE_LABEL = ROUTE_GRADE_LABEL_JA;
 export function RouteCard({
   dartIds,
   grade,
+  gradeContext,
   badge,
   isStandard = false,
   reasons,
@@ -51,6 +54,7 @@ export function RouteCard({
   focusedDartId,
   defaultOpen = false,
   testId,
+  reasonsAlwaysVisible = false,
 }: RouteCardProps) {
   const [open, setOpen] = useState(defaultOpen);
   const detailsId = useId();
@@ -70,9 +74,12 @@ export function RouteCard({
       <header className="route-card__header">
         {badge && <span className="route-card__badge">{badge}</span>}
         {grade && (
-          <span className={`route-card__grade route-card__grade--${grade}`}>
-            <span aria-hidden="true">{grade}</span>
-            <span className="visually-hidden">{`推奨度 ${grade}: ${GRADE_LABEL[grade]}`}</span>
+          <span className="route-card__grade-group">
+            {gradeContext && <span className="route-card__grade-context">基準評価</span>}
+            <span className={`route-card__grade route-card__grade--${grade}`}>
+              <span aria-hidden="true">{grade}</span>
+              <span className="visually-hidden">{`${gradeContext ? '基準評価' : '推奨度'} ${grade}: ${GRADE_LABEL[grade]}`}</span>
+            </span>
           </span>
         )}
       </header>
@@ -96,13 +103,13 @@ export function RouteCard({
 
       {meta && <p className="route-card__meta">{meta}</p>}
 
-      {headline && (
+      {headline && !reasonsAlwaysVisible && (
         <p className="route-card__headline" data-testid={testId ? `${testId}-headline` : undefined}>
           {headline}
         </p>
       )}
 
-      {reasons.length > 0 && (
+      {reasons.length > 0 && !reasonsAlwaysVisible && (
         <>
           <button
             type="button"
@@ -127,6 +134,13 @@ export function RouteCard({
             </ul>
           </div>
         </>
+      )}
+      {reasonsAlwaysVisible && reasons.length > 0 && (
+        <ul className="route-card__reasons-inline">
+          {reasons.map((reason) => (
+            <li key={reason.code} data-code={reason.code}>{reason.summary}</li>
+          ))}
+        </ul>
       )}
     </article>
   );

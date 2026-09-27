@@ -87,6 +87,7 @@ function HomePage({ onSelect }: { onSelect: (tab: Tab) => void }) {
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('home');
+  const [practiceSession, setPracticeSession] = useState(0);
   const { preferences, setTheme } = usePreferences();
 
   useEffect(() => {
@@ -151,7 +152,13 @@ export default function App() {
             type="button"
             data-testid={`nav-${item.id}`}
             aria-pressed={tab === item.id}
-            onClick={() => setTab(item.id)}
+            onClick={() => {
+              if ((tab === 'checkout' || tab === 'setup') &&
+                (item.id === 'checkout' || item.id === 'setup') && tab !== item.id) {
+                setPracticeSession((value) => value + 1);
+              }
+              setTab(item.id);
+            }}
           >
             {item.label}
           </button>
@@ -160,9 +167,9 @@ export default function App() {
 
       <main className="app__main">
         {tab === 'home' && <HomePage onSelect={setTab} />}
-        {/* key を分けて、モードを切り替えたら残り点を持ち越さず未入力から始める。 */}
-        {tab === 'checkout' && <PracticePage key="checkout" mode="checkout" />}
-        {tab === 'setup' && <PracticePage key="setup" mode="setup" />}
+        {(tab === 'checkout' || tab === 'setup') && (
+          <PracticePage key={practiceSession} mode={tab} onModeChange={setTab} />
+        )}
         {tab === 'training' && <TrainingPage />}
         {tab === 'simulation' && <SimulationPage />}
         {tab === 'settings' && (
