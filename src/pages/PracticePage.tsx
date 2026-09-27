@@ -617,6 +617,9 @@ export function PracticePage({ mode, onModeChange }: PracticePageProps) {
           onCommit={(value) => {
             if (restoringUnknownBust) {
               setSelectedDarts(3);
+              setSelectedRoutePlan(null);
+              setFocusedDartId(null);
+              setVisibleCount(INITIAL_ROUTE_COUNT);
               setRecoveryOpen(false);
               reset(value);
               if ((value <= MAX_CHECKOUT ? 'checkout' : 'setup') !== mode) {

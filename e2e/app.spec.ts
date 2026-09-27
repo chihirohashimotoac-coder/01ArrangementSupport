@@ -210,7 +210,9 @@ test('39 / 2本の未知 BUST と既知の 60 の自動復帰を保つ', async (
   await expect(page.getByTestId('status-left')).toHaveText('—');
   await expect(page.getByTestId('recovery-next-message')).toContainText('ラウンド開始時の残り');
 
-  await openCheckout(page, 60);
+  await page.getByTestId('score-input').fill('60');
+  await page.getByTestId('score-input').press('Enter');
+  await expect(page.getByTestId('standard-route')).toBeVisible();
   await openRecovery(page);
   await page.getByTestId('segment-s12-outer').click();
   await page.getByTestId('segment-t16').click();
@@ -218,6 +220,29 @@ test('39 / 2本の未知 BUST と既知の 60 の自動復帰を保つ', async (
   await expect(page.getByTestId('status-left')).toHaveText('60');
   await page.getByTestId('next-visit-button').click();
   await expect(page.getByTestId('status-darts')).toHaveText('3');
+});
+
+test('未知 BUST を同じ残り点で復元しても、前の OTHER ROUTE を持ち越さない', async ({ page }) => {
+  await openCheckout(page, 39);
+  await page.getByRole('button', { name: '2本' }).click();
+  const other = page.getByTestId('route-S19-D10');
+  await other.getByRole('button', { name: /^1 投目 S19/ }).click();
+  await expect(page.getByTestId('segment-s19-outer')).toHaveAttribute('data-highlighted', 'true');
+
+  await page.getByTestId('segment-t17').click();
+  await expect(page.getByTestId('status-left')).toHaveText('—');
+  await page.getByTestId('score-input').fill('39');
+  await page.getByTestId('score-input').press('Enter');
+  await openRecovery(page);
+  await expect(page.getByTestId('status-left')).toHaveText('39');
+  await expect(page.getByTestId('status-darts')).toHaveText('3');
+  const standardDarts = await page.getByTestId('standard-route').locator('.route-card__dart').evaluateAll(
+    (buttons) => buttons.map((button) => button.getAttribute('data-dart')),
+  );
+  const highlighted = await page.getByTestId('dartboard').locator('[data-highlighted="true"]').evaluateAll(
+    (segments) => [...new Set(segments.map((segment) => segment.getAttribute('data-dart')))],
+  );
+  expect(highlighted.sort()).toEqual(standardDarts.sort());
 });
 
 test('Undo で 1 投戻せる', async ({ page }) => {
