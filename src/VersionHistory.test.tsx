@@ -49,16 +49,33 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴は v1.4.9（実戦推奨と振り返りの整合）', async () => {
+  it('最新の履歴は v1.5.0（画面デザインの全面刷新）', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('v1.4.9');
+    expect(latest).toHaveTextContent('v1.5.0');
     expect(latest).toHaveTextContent('現在');
-    expect(latest.textContent ?? '').toMatch(/実戦推奨 T18/);
-    expect(latest.textContent ?? '').toMatch(/残りダーツ数/);
+    expect(latest.textContent ?? '').toMatch(/画面デザインの全面刷新/);
+    // 見た目だけの更新で、判定や保存データは変わらないことを利用者へ伝える。
+    expect(latest.textContent ?? '').toMatch(/アレンジの計算・推奨度・判定・採点/);
+    expect(latest.textContent ?? '').toMatch(/学習履歴は変わりません/);
+  });
+
+  it('v1.4.9 の履歴は残り、現在版ではなくなっている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const previous = screen
+      .getAllByTestId('version-history-item')
+      .find((item) => (item.textContent ?? '').includes('v1.4.9'));
+    expect(previous).toBeDefined();
+    if (!previous) return;
+    expect(previous.querySelector('.version-history__badge')).toBeNull();
+    expect(previous.textContent ?? '').toMatch(/実戦推奨 T18/);
+    expect(previous.textContent ?? '').toMatch(/残りダーツ数/);
   });
 
   it('v1.4.7 の履歴は残り、現在版ではなくなっている', async () => {
