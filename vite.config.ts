@@ -39,8 +39,8 @@ export default defineConfig({
         scope: base,
         display: 'standalone',
         orientation: 'any',
-        background_color: '#07111f',
-        theme_color: '#07111f',
+        background_color: '#15181b',
+        theme_color: '#15181b',
         categories: ['sports', 'education', 'utilities'],
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
@@ -60,7 +60,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,woff2}'],
         cleanupOutdatedCaches: true,
         /*
          * clientsClaim は true のまま。これは「初回にインストールされた
