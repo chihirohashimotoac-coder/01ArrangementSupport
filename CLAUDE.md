@@ -4,6 +4,17 @@
 
 ---
 
+## 0. どのリポジトリを更新するか（オーナー指示 2026-10-16）
+
+- オーナーが **「01ArrangementSupport」** と言ったときは、このリポジトリ（Production、
+  `chihirohashimotoac-coder/01ArrangementSupport`、https://chihirohashimotoac-coder.github.io/01ArrangementSupport/）を更新する。
+- オーナーが **「01ArrangementSupport-beta」** と言ったときは Beta
+  （`chihirohashimotoac-coder/01ArrangementSupport-beta`、https://chihirohashimotoac-coder.github.io/01ArrangementSupport-beta/）を更新する。
+- 「本番」「アプリ」「デプロイ」など、どちらを指すか曖昧なときは、作業を始める前に**必ずオーナーへ確認する**。
+  推測で決めない。
+
+---
+
 ## 1. 担当範囲
 
 Claude Code はこのリポジトリの**主実装担当**です。
