@@ -29,6 +29,8 @@ describe('バージョン履歴', () => {
     const user = userEvent.setup();
     render(<App />);
     for (const id of ['nav-checkout', 'nav-setup', 'nav-training', 'nav-settings']) {
+      // 設定はハンバーガーメニューの中にある。
+      if (id === 'nav-settings') await user.click(screen.getByTestId('menu-toggle'));
       await user.click(screen.getByTestId(id));
       expect(screen.queryByTestId('home-version-history')).not.toBeInTheDocument();
     }
@@ -49,18 +51,34 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴は v1.5.0（画面デザインの全面刷新）', async () => {
+  it('最新の履歴は v1.6.0（メニュー・パンくず・例題カルーセルと動き）', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('v1.5.0');
+    expect(latest).toHaveTextContent('v1.6.0');
     expect(latest).toHaveTextContent('現在');
-    expect(latest.textContent ?? '').toMatch(/画面デザインの全面刷新/);
+    expect(latest.textContent ?? '').toMatch(/メニュー/);
+    expect(latest.textContent ?? '').toMatch(/例題で見る/);
+    // 計算・採点を変えていないことを利用者へ明示する。
+    expect(latest.textContent ?? '').toMatch(/推奨・採点・計算は変更していません/);
+  });
+
+  it('v1.5.0（画面デザインの全面刷新）の履歴は残り、現在版ではなくなっている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const previous = screen
+      .getAllByTestId('version-history-item')
+      .find((item) => (item.textContent ?? '').includes('v1.5.0'));
+    expect(previous).toBeDefined();
+    expect(previous!.querySelector('.version-history__badge')).toBeNull();
+    expect(previous!.textContent ?? '').toMatch(/画面デザインの全面刷新/);
     // 見た目だけの更新で、判定や保存データは変わらないことを利用者へ伝える。
-    expect(latest.textContent ?? '').toMatch(/アレンジの計算・推奨度・判定・採点/);
-    expect(latest.textContent ?? '').toMatch(/学習履歴は変わりません/);
+    expect(previous!.textContent ?? '').toMatch(/アレンジの計算・推奨度・判定・採点/);
+    expect(previous!.textContent ?? '').toMatch(/学習履歴は変わりません/);
   });
 
   it('v1.4.9 の履歴は残り、現在版ではなくなっている', async () => {
