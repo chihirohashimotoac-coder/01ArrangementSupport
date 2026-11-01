@@ -7,6 +7,7 @@ import { Accordion } from '../components/ui/Accordion';
 import { Meter, RingGauge, StackedBar } from '../components/ui/Infographic';
 import { RollingNumber } from '../components/ui/Kinetic';
 import { ConfirmDialog } from '../components/ui/Modal';
+import { announce } from '../components/liveAnnouncement';
 import { RadioGroup } from '../components/ui/RadioGroup';
 import { Select } from '../components/ui/Select';
 import { findDart, requireDart, type Dart } from '../domain/dart';
@@ -392,7 +393,10 @@ export function TrainingPage({ onContextChange, onSessionActiveChange }: Trainin
     stageRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
   }, [question]);
 
-  /* 回答したら判定へ移動する。 */
+  /* 回答したら判定へ移動し、判定を読み上げる（2026-11-01 監査 D-M5）。 */
+  useEffect(() => {
+    if (feedback !== null) announce(feedback.verdictJa);
+  }, [feedback]);
   useEffect(() => {
     if (result === null) return;
     resultRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
@@ -820,7 +824,6 @@ export function TrainingPage({ onContextChange, onSessionActiveChange }: Trainin
             <section
               className="training__result"
               data-testid="training-result"
-              aria-live="polite"
               ref={resultRef}
             >
               {/* 1. 判定 */}

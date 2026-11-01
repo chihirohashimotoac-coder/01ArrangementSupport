@@ -1,6 +1,8 @@
 import { nextVisitProposalNoteJa } from '../data/explanations';
 import type { NextVisitProposal } from '../engine/recovery/nextVisitSelection';
 import type { VisitStatus } from '../engine/recovery/visit';
+import { useEffect } from 'react';
+import { announce } from './liveAnnouncement';
 import './NextTarget.css';
 
 export interface NextTargetProps {
@@ -47,6 +49,21 @@ export function NextTarget({
         : dartsLeft === 0
           ? '残りのダーツを使い切りました。次の3投へ進んでください。'
           : null;
+
+  /*
+   * 着弾を入れて次の狙いが変わったら、短い 1 文で読み上げる（2026-11-01 監査 D-M5）。
+   */
+  const spoken =
+    !hasThrown || status !== 'in-progress' || dartsLeft === 0
+      ? null
+      : nextVisitProposals.length > 0
+        ? `残り ${remaining ?? ''}。次ラウンドへの残しは ${nextVisitProposals[0].route.routeText}`
+        : dartIds !== null && dartIds.length > 0
+          ? `残り ${remaining ?? ''}、${dartsLeft} 本。次の狙いは ${dartIds.join('、')}`
+          : null;
+  useEffect(() => {
+    if (spoken !== null) announce(spoken);
+  }, [spoken]);
 
   return (
     <div className="next-target" data-testid="recovery-next">
