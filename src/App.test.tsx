@@ -1947,3 +1947,45 @@ describe('動画ケース: 121 の OTHER ROUTE を選んで追従する', () => 
     expect(nextRoute()).toEqual(['T17', 'BULL']);
   });
 });
+
+describe('1-6 狙いどおりに入っているあいだは計画を続ける（A-32）', () => {
+  it('107 で T19 に入ったら、計画の S10 → D20 を推奨にし、再計算の S18 → D16 は別例として並べる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '107');
+    await openRecovery(user);
+    expect(screen.queryByTestId('plan-route')).toBeNull();
+
+    await user.click(screen.getByTestId('segment-t19'));
+    const plan = screen.getByTestId('plan-route');
+    expect(plan).toHaveTextContent('PLAN');
+    expect(plan).toHaveTextContent('T19 → S10 → D20 の続き');
+    expect(within(plan).getAllByRole('button').map((chip) => chip.getAttribute('data-dart')).filter(Boolean))
+      .toEqual(['S10', 'D20']);
+    expect(screen.getByTestId('recovery-next-route')).toHaveTextContent('S10');
+    expect(screen.getByTestId('standard-heading')).toHaveTextContent('別例（推奨ではありません）');
+    expect(screen.getByTestId('standard-route')).toHaveTextContent('別例');
+    // 計画の続きは、別例より前に置く。
+    expect(precedes(plan, screen.getByTestId('standard-route'))).toBe(true);
+  });
+
+  it('外したら計画をやめ、いつもの基準ルートへ戻る', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '107');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-s19-outer'));
+    expect(screen.queryByTestId('plan-route')).toBeNull();
+    expect(screen.getByTestId('standard-heading')).toHaveTextContent('残り 88 の基準ルート');
+  });
+
+  it('計画と再計算が同じなら表示は変えない（100 で T20 に入ったら D20）', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '100');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-t20'));
+    expect(screen.queryByTestId('plan-route')).toBeNull();
+    expect(screen.getByTestId('standard-heading')).toHaveTextContent('残り 40 の基準ルート');
+  });
+});

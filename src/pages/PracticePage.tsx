@@ -14,6 +14,7 @@ import { analyzeAimArea } from '../engine/aimArea/aimArea';
 import { selectMyRoute } from '../engine/ranking/checkoutRanking';
 import { practicalLastDartReasonViews } from '../engine/simulation/lastDartChoice';
 import type { VisitState } from '../engine/recovery/visit';
+import { followVisitPlan } from '../engine/recovery/visitPlan';
 import { useVisit } from '../hooks/useVisit';
 import { usePreferences } from '../hooks/usePreferences';
 import './PracticePage.css';
@@ -74,6 +75,10 @@ const COPY: Record<PracticeMode, ModeCopy> = {
     placeholder: '例 302',
   },
 };
+
+/** 計画の続き（A-32）と食い違うとき、再計算の答えに付ける見出しと札。 */
+const ALTERNATIVE_HEADING = '別例（推奨ではありません）';
+const ALTERNATIVE_BADGE = '別例';
 
 /** 初期表示するルート件数。 */
 const INITIAL_ROUTE_COUNT = 5;
@@ -315,6 +320,17 @@ export function PracticePage({
     [selectedRoutePlan, visit],
   );
 
+  /*
+   * 狙いどおりに入っているあいだは、ラウンド開始時の推奨（計画）を続ける（A-32）。
+   * ユーザーが自分でルートを選んでいるときは、その選択（上の selectedRoute）を優先する。
+   * 計画と再計算が食い違うときだけ、計画の続きを推奨にして再計算の答えを「別例」として並べる。
+   */
+  const planFollow = useMemo(
+    () => (selectedRoute !== null ? null : followVisitPlan(visit, suggestOptions, suggestion)),
+    [selectedRoute, visit, suggestOptions, suggestion],
+  );
+  const planDiverges = planFollow !== null && planFollow.alternativeDartIds !== null;
+
   /**
    * MY ROUTE は得意ダブルを優先し、基準ルート加点を外して並べ替える。
    * 通常評価で C のルート・ダブル→ダブル・1 本を繋ぎに使うルートは最上位にしない（A-28）。
@@ -371,6 +387,8 @@ export function PracticePage({
    */
   const nextDartIds = useMemo(() => {
     if (suggestion === null || visit?.status !== 'in-progress') return null;
+    // 計画どおりに入っているあいだは、計画の残り（再計算と同じならそのまま同じ並び）。
+    if (planFollow !== null) return planFollow.remainingDartIds;
 
     if (suggestion.mode === 'setup') {
       if (selectedRoute?.source === 'other-setup' && selectedRoute.remainingDartIds !== null) {
@@ -404,7 +422,18 @@ export function PracticePage({
     return practicalLastDart === null
       ? nextVisitRoute?.darts.map((dart) => dart.id) ?? null
       : [practicalLastDart.dartId];
-  }, [suggestion, visit?.status, bestSetup, standardRoute, nextVisitRoute, practicalLastDart, selectedRoute, myRoute]);
+  }, [suggestion, visit?.status, planFollow, bestSetup, standardRoute, nextVisitRoute, practicalLastDart, selectedRoute, myRoute]);
+
+  /** 計画の続きを、いまの候補一覧の中のルートとして引く（推奨度と理由を出すため）。 */
+  const planRoute = (() => {
+    if (!planDiverges || planFollow === null) return null;
+    const key = planFollow.remainingDartIds.join('-');
+    return (
+      (suggestion?.mode === 'setup' ? setupRoutes : checkoutRoutes).find((route) => route.key === key) ??
+      null
+    );
+  })();
+
 
   const highlightedDartIds = nextDartIds ?? [];
 
@@ -635,7 +664,7 @@ export function PracticePage({
             hasThrown={visit.thrown.length > 0}
             bustStartUnknown={visit.status === 'bust' && !visit.visitStartKnown}
             dartIds={nextDartIds}
-            nextVisitProposals={practicalLastDart ? [] : suggestion?.nextVisitProposals ?? []}
+            nextVisitProposals={practicalLastDart || planDiverges ? [] : suggestion?.nextVisitProposals ?? []}
             onUndo={handleUndo}
           />
           </div>
@@ -762,12 +791,38 @@ export function PracticePage({
             </p>
           )}
 
+          {/*
+            0. 計画の続き —— 狙いどおりに入っていて、再計算の答えが計画と違うときだけ出す（A-32）。
+            推奨はこちら。下の基準ルート / BEST などは「別例」として並べる。
+          */}
+          {planFollow !== null && planDiverges && (
+            <section className="practice__routes" aria-label="計画の続き">
+              <h2 className="practice__heading" data-testid="plan-heading">
+                計画の続き（推奨）
+              </h2>
+              <RouteCard
+                testId="plan-route"
+                badge="PLAN"
+                grade={planRoute?.grade}
+                dartIds={planFollow.remainingDartIds}
+                meta={`ラウンド開始時の推奨 ${planFollow.planDartIds.join(' → ')} の続き`}
+                reasons={planRoute === null ? [] : toReasonViews(planRoute.reasons)}
+                onDartFocus={focusDefaultDart}
+                focusedDartId={focusedDartId}
+              />
+            </section>
+          )}
+
           {/* 1. 答え —— 残り点のすぐ下に、基準ルートと理由を置く。 */}
           {suggestion.mode === 'checkout' && standardRoute && (
             <section className="practice__routes" aria-label="推奨ルート">
               <div className="practice__heading-row">
                 <h2 className="practice__heading" data-testid="standard-heading">
-                  {entering ? `残り ${visit.remaining} の基準ルート` : '基準ルート'}
+                  {planDiverges
+                    ? `残り ${visit.remaining} からの${ALTERNATIVE_HEADING}`
+                    : entering
+                      ? `残り ${visit.remaining} の基準ルート`
+                      : '基準ルート'}
                 </h2>
                 {recoveryOpen && (
                   <button
@@ -782,7 +837,7 @@ export function PracticePage({
               </div>
               <RouteCard
                 testId="standard-route"
-                badge="STANDARD"
+                badge={planDiverges ? ALTERNATIVE_BADGE : 'STANDARD'}
                 isStandard={standardRoute.isStandard}
                 grade={standardRoute.grade}
                 dartIds={standardRoute.darts.map((dart) => dart.id)}
@@ -812,10 +867,12 @@ export function PracticePage({
 
           {practicalLastDart && (
             <section className="practice__routes" aria-label="この条件での実戦推奨">
-              <h2 className="practice__heading">最後の1本の実戦推奨</h2>
+              <h2 className="practice__heading">
+                {planDiverges ? ALTERNATIVE_HEADING : '最後の1本の実戦推奨'}
+              </h2>
               <RouteCard
                 testId="practical-last-dart"
-                badge="実戦推奨"
+                badge={planDiverges ? ALTERNATIVE_BADGE : '実戦推奨'}
                 dartIds={[practicalLastDart.dartId]}
                 reasons={practicalLastDartReasonViews(
                   practicalLastDart,
@@ -831,11 +888,15 @@ export function PracticePage({
           {suggestion.mode === 'setup' && bestSetup && !practicalLastDart && (
             <section className="practice__routes" aria-label="推奨セットアップ">
               <h2 className="practice__heading">
-                {entering ? `残り ${visit.remaining} から次ラウンドの残しを作る` : '次ラウンドの残しを作る'}
+                {planDiverges
+                  ? `残り ${visit.remaining} からの${ALTERNATIVE_HEADING}`
+                  : entering
+                    ? `残り ${visit.remaining} から次ラウンドの残しを作る`
+                    : '次ラウンドの残しを作る'}
               </h2>
               <RouteCard
                 testId="standard-route"
-                badge="BEST"
+                badge={planDiverges ? ALTERNATIVE_BADGE : 'BEST'}
                 grade={bestSetup.grade}
                 dartIds={bestSetup.darts.map((dart) => dart.id)}
                 meta={`取得 ${bestSetup.scored} 点 → 残り ${bestSetup.leave}`}
@@ -858,10 +919,12 @@ export function PracticePage({
           */}
           {suggestion.mode === 'checkout' && nextVisitRoute && !practicalLastDart && (
             <section className="practice__routes" aria-label="次ラウンドへの残し">
-              <h2 className="practice__heading">次ラウンドへ整える</h2>
+              <h2 className="practice__heading">
+                {planDiverges ? ALTERNATIVE_HEADING : '次ラウンドへ整える'}
+              </h2>
               <RouteCard
                 testId="next-visit-route"
-                badge="NEXT VISIT"
+                badge={planDiverges ? ALTERNATIVE_BADGE : 'NEXT VISIT'}
                 dartIds={nextVisitRoute.darts.map((dart) => dart.id)}
                 meta={`取得 ${nextVisitRoute.scored} 点 → 残り ${nextVisitRoute.leave}`}
                 reasons={[]}
