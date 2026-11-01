@@ -128,6 +128,16 @@ describe('その他の固定ケース', () => {
     expect(ranked[0].reasons.map((r) => r.code)).toContain('FINISH_IN_ONE');
   });
 
+  it('FINISH_IN_ONE の説明は、残り本数で「外しても本数を残せる」かどうかを出し分ける', () => {
+    const detailOf = (darts: number) =>
+      rankCheckoutRoutes(40, darts)[0].reasons.find((r) => r.code === 'FINISH_IN_ONE')!.detail;
+    expect(detailOf(3)).toContain('外しても本数を残せます');
+    expect(detailOf(2)).toContain('外しても本数を残せます');
+    // 残り 1 本では外したら本数は残らない（2026-11-01 監査）。
+    expect(detailOf(1)).not.toContain('本数を残せます');
+    expect(detailOf(1)).toContain('最後の 1 本');
+  });
+
   it('繋ぎでダブルを狙うルートには NON_FINAL_DOUBLE が付く', () => {
     expect(codesOf(46, ['D11', 'D12'])).toContain('NON_FINAL_DOUBLE');
   });

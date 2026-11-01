@@ -142,7 +142,11 @@ const CHECKOUT_TEMPLATES: Record<CheckoutReasonCode, ReasonTemplate> = {
     label: '1本で上がれる',
     render: (ctx) => ({
       summary: `${ctx.finishDartId} 1本で上がれます。`,
-      detail: `残り ${ctx.remaining} はそのまま ${ctx.finishDartId} なので、外しても本数を残せます。`,
+      // 残り 1 本では「外しても本数を残せる」は成り立たない（2026-11-01 監査）。
+      detail:
+        ctx.dartsAvailable >= 2
+          ? `残り ${ctx.remaining} はそのまま ${ctx.finishDartId} なので、外しても本数を残せます。`
+          : `残り ${ctx.remaining} はそのまま ${ctx.finishDartId} です。最後の 1 本なので、ここで決めます。`,
     }),
   },
   FEWER_DARTS: {
