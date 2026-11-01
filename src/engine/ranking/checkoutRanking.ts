@@ -434,6 +434,64 @@ export function rankCheckoutRoutes(
   });
 }
 
+/** 基準ルートとの比較で「基準に無い弱点」として数える理由。 */
+const PEER_WEAKNESS_CODES: readonly string[] = [...DISCOURAGING_REASON_CODES, 'SPENDS_EXTRA_DART'];
+
+/**
+ * TRAINING の採点で、基準ルートと同等の別解を S にする（戦術 v2 / A-31）。
+ *
+ * 次をすべて満たすときだけ、推奨度を S にして `PEER_OF_STANDARD` を付けたルートを返す。
+ * 満たさなければ null（推奨度は変えない）。
+ *   - その状態の第 1 候補が基準ルートである
+ *   - 回答は基準ルートではなく、推奨度が B / C
+ *   - 戦術スコア（基準ルート加点を除く）が基準ルート以上
+ *   - 基準ルートに無い非推奨理由（DISCOURAGING_REASON_CODES と SPENDS_EXTRA_DART）を持たない
+ *
+ * Practice の OTHER ROUTES の推奨度はこの関数を通さないので変わらない。
+ * 点差だけで付いた BELOW_TOP_ROUTE は、C ではなくなるので外す。
+ */
+export function peerOfStandard(
+  remaining: number,
+  dartsAvailable: number,
+  route: RankedCheckoutRoute,
+  ranked: readonly RankedCheckoutRoute[],
+): RankedCheckoutRoute | null {
+  if (route.isStandard || (route.grade !== 'B' && route.grade !== 'C')) return null;
+  const standard = ranked.find((item) => item.isStandard);
+  if (standard === undefined || ranked[0]?.key !== standard.key) return null;
+  if (route.tacticalScore < standard.tacticalScore) return null;
+  const allowed = new Set(
+    standard.reasons
+      .map((reason) => reason.code)
+      .filter((code) => (DISCOURAGING_REASON_CODES as readonly string[]).includes(code)),
+  );
+  const ownWeaknesses = route.reasons
+    .map((reason) => reason.code)
+    .filter((code) => PEER_WEAKNESS_CODES.includes(code));
+  if (!ownWeaknesses.every((code) => allowed.has(code))) return null;
+
+  const rendered = renderCheckoutReason('PEER_OF_STANDARD', {
+    ...BELOW_TOP_CONTEXT,
+    remaining,
+    dartsAvailable,
+    routeText: route.routeText,
+    standardRouteText: standard.routeText,
+  });
+  const reason: RouteReason = {
+    code: 'PEER_OF_STANDARD',
+    weight: CHECKOUT_REASON_WEIGHTS.PEER_OF_STANDARD,
+    polarity: rendered.polarity,
+    label: rendered.label,
+    summary: rendered.summary,
+    detail: rendered.detail,
+  };
+  return {
+    ...route,
+    grade: 'S',
+    reasons: [reason, ...route.reasons.filter((item) => item.code !== 'BELOW_TOP_ROUTE')],
+  };
+}
+
 /** BELOW_TOP_ROUTE の文を組み立てるときの、使わない項目の既定値。 */
 const BELOW_TOP_CONTEXT: ReasonContext = {
   remaining: 0,

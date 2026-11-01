@@ -228,8 +228,13 @@ export function buildFeedback(
   const recommendedLeave = isSetup ? question.currentRemaining - recommendedScore : 0;
   const recommendedVerdict = isSetup ? leaveVerdictOf(recommendedLeave) : null;
 
+  // 基準ルートと同等の別解（A-31）は、S の理由が分かるように添える。
+  const isPeer =
+    result.checkoutEvaluation?.reasons.some((reason) => reason.code === 'PEER_OF_STANDARD') ?? false;
   const verdictJa = result.learningCorrect
-    ? `正解（推奨度 ${result.grade ?? '—'}）`
+    ? isPeer
+      ? `正解（推奨度 ${result.grade ?? '—'}・基準と同等の別解）`
+      : `正解（推奨度 ${result.grade ?? '—'}）`
     : result.ruleValid
       ? `ルール上は成立しますが、学習目的では不正解 — ${result.failureMessageJa ?? ''}`
       : `成立しません — ${result.failureMessageJa ?? ''}`;
