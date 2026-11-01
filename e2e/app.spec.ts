@@ -590,11 +590,11 @@ test('v1.2: 盤面が開いているときは、チップを押しても画面�
 test('v1.2: LEFT の blur で予約された移動は、実戦入力を開いた時点で取り消す', async ({ page }) => {
   await page.getByTestId('nav-checkout').click();
   await page.evaluate(() => {
-    const w = window as unknown as { __scrolls: number };
-    w.__scrolls = 0;
+    const w = window as unknown as { __scrolls: string[] };
+    w.__scrolls = [];
     const original = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = function patched(...args: unknown[]) {
-      w.__scrolls += 1;
+    Element.prototype.scrollIntoView = function patched(this: Element, ...args: unknown[]) {
+      w.__scrolls.push(this.id || this.className);
       return (original as (...a: unknown[]) => void).apply(this, args);
     };
   });
@@ -607,9 +607,12 @@ test('v1.2: LEFT の blur で予約された移動は、実戦入力を開いた
   await page.getByTestId('recovery-toggle').click();
   await expect(page.getByTestId('dartboard')).toBeVisible();
 
-  // 予約されていた 250ms 後の移動は起きない。
+  // 予約されていた 250ms 後の「答えへの移動」は起きない。
+  // 開いたときは盤面の先頭へ 1 回だけ移る（2026-11-01 監査 U-H1）。
   await page.waitForTimeout(500);
-  expect(await page.evaluate(() => (window as unknown as { __scrolls: number }).__scrolls)).toBe(0);
+  expect(await page.evaluate(() => (window as unknown as { __scrolls: string[] }).__scrolls)).toEqual([
+    'practice-recovery',
+  ]);
   await expect(page.getByTestId('dartboard')).toBeVisible();
 });
 
