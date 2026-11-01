@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { memo, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { SEGMENTS, type SegmentDefinition } from '../domain/segments';
 import {
   RADII,
@@ -134,6 +134,14 @@ function DartboardComponent({
   /** キーボードでフォーカスしている区画（最前面に輪郭を描く）。 */
   const [keyboardFocusId, setKeyboardFocusId] = useState<string | null>(null);
   const [activeWedge, setActiveWedge] = useState(20);
+  /*
+   * タッチで押しているあいだの拡大鏡（2026-11-01 監査 D-M2）。
+   * 指を離したところの区画で確定する。マウスのクリックはこれまでどおり。
+   */
+  const [loupe, setLoupe] = useState<{ x: number; y: number; left: number; top: number; segmentId: string | null } | null>(null);
+  /** 拡大鏡で確定した直後の click（同じ操作から来る）を無視する。 */
+  const suppressClick = useRef(false);
+  const contentId = `dartboard-content-${useId().replace(/:/g, '')}`;
   const wedgeMode = wedgeSelection !== undefined;
   const interactive = !disabled && !wedgeMode && typeof onSelect === 'function';
   const wedgeInteractive = !disabled && wedgeMode;
@@ -171,6 +179,56 @@ function DartboardComponent({
     });
   })();
 
+  /** 指の位置の区画と、盤面座標。 */
+  const probe = (event: PointerEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    if (svg === null) return null;
+    const matrix = svg.getScreenCTM();
+    if (matrix === null) return null;
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    const element = document.elementFromPoint(event.clientX, event.clientY);
+    const path = element instanceof Element ? element.closest<SVGPathElement>('path[data-testid^="segment-"]') : null;
+    const bounds = svg.getBoundingClientRect();
+    return {
+      x: point.x,
+      y: point.y,
+      left: event.clientX - bounds.left,
+      top: event.clientY - bounds.top,
+      segmentId: path !== null && svg.contains(path) ? path.dataset.testid ?? null : null,
+    };
+  };
+
+  const loupeEnabled = interactive;
+  const onPointerDown = (event: PointerEvent<SVGSVGElement>) => {
+    if (!loupeEnabled || event.pointerType === 'mouse') return;
+    suppressClick.current = false;
+    setLoupe(probe(event));
+  };
+  const onPointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    if (loupe === null) return;
+    setLoupe(probe(event));
+  };
+  const onPointerUp = (event: PointerEvent<SVGSVGElement>) => {
+    if (loupe === null) return;
+    const final = probe(event);
+    setLoupe(null);
+    // 同じ操作から続けて来る click で二重に入力しない。
+    suppressClick.current = true;
+    window.setTimeout(() => {
+      suppressClick.current = false;
+    }, 500);
+    const segment = final?.segmentId ? SEGMENT_BY_ID.get(final.segmentId) : undefined;
+    if (segment !== undefined) {
+      setActiveId(segment.id);
+      onSelect?.(segment);
+    }
+  };
+  /* 画面のスクロールが始まったなどで取り消されたら、何も入力しない。 */
+  const onPointerCancel = () => setLoupe(null);
+
+  const loupeSegment = loupe?.segmentId ? SEGMENT_BY_ID.get(loupe.segmentId) : undefined;
+  const LOUPE_SPAN = 56;
+
   const focusRingPath =
     keyboardFocusId === null
       ? null
@@ -181,6 +239,10 @@ function DartboardComponent({
       <svg
         viewBox={VIEWBOX}
         ref={svgRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
         className="dartboard__svg"
         role="group"
         aria-label={
@@ -195,6 +257,7 @@ function DartboardComponent({
             <line x1="0" y1="0" x2="0" y2="8" className="dartboard__hatch-line" />
           </pattern>
         </defs>
+        <g id={contentId}>
         <circle className="dartboard__backdrop" cx={0} cy={0} r={RADII.missOuter} />
 
         <g className="dartboard__segments" aria-hidden={wedgeMode ? true : undefined}>
@@ -220,6 +283,7 @@ function DartboardComponent({
               /* 入力は click のみで受ける。touchstart 併用は二重入力になるため使わない。 */
               onClick={() => {
                 if (!interactive) return;
+                if (suppressClick.current) return;
                 setActiveId(segment.id);
                 onSelect?.(segment);
               }}
@@ -325,6 +389,8 @@ function DartboardComponent({
           </g>
         )}
 
+        </g>
+
         {/*
           キーボードでフォーカスしている区画の輪郭は、最前面の別レイヤーに描く
           （区画自身の stroke は隣の区画に隠れてほぼ見えなかった。2026-11-01 監査 D-M4）。
@@ -364,6 +430,27 @@ function DartboardComponent({
           </g>
         )}
       </svg>
+
+      {loupe !== null && (
+        <div
+          className="dartboard__loupe"
+          data-testid="board-loupe"
+          aria-hidden="true"
+          style={{ left: loupe.left, top: loupe.top }}
+        >
+          <svg
+            viewBox={`${loupe.x - LOUPE_SPAN / 2} ${loupe.y - LOUPE_SPAN / 2} ${LOUPE_SPAN} ${LOUPE_SPAN}`}
+            className="dartboard__loupe-svg"
+          >
+            <use href={`#${contentId}`} />
+            <line x1={loupe.x - 4} y1={loupe.y} x2={loupe.x + 4} y2={loupe.y} className="dartboard__loupe-cross" />
+            <line x1={loupe.x} y1={loupe.y - 4} x2={loupe.x} y2={loupe.y + 4} className="dartboard__loupe-cross" />
+          </svg>
+          <span className="dartboard__loupe-label" data-testid="board-loupe-label">
+            {loupeSegment ? loupeSegment.ariaLabel.split('、')[0] : '盤の外'}
+          </span>
+        </div>
+      )}
 
       {disabled && disabledReason && (
         <p className="dartboard__disabled-reason" data-testid="board-disabled-reason">

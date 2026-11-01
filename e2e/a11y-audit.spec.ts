@@ -153,3 +153,68 @@ test('D-M3: 盤面の狙う的に投げる順番の番号札を置く', async ({
   await expect(page.getByTestId('board-order-T20')).toHaveText('1');
   await expect(page.getByTestId('board-order-D20')).toHaveText('2');
 });
+
+
+/** 盤面全体が、画面下に固定した NEXT のまとまりより上に見える位置へ移る。 */
+async function showWholeBoard(page: Page) {
+  await page.evaluate(() => {
+    document.querySelector('.dartboard__svg')!.scrollIntoView({ block: 'start' });
+    window.scrollBy(0, -8);
+  });
+}
+
+test.describe('D-M2: タッチの拡大鏡', () => {
+  // 動きを減らす設定でも使えること（盤面を開いたときの移動も即座になり、座標が安定する）。
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+
+  test('押しているあいだは拡大鏡を出し、指を離した区画で確定する', async ({ page }) => {
+    await page.getByTestId('nav-checkout').click();
+    await page.getByTestId('score-input').fill('103');
+    await page.getByTestId('recovery-toggle').click();
+    await showWholeBoard(page);
+    // 区画の中心を測るのと同じ瞬間に、その位置へポインターイベントを送る（途中のスクロールでずれないように）。
+    const pointer = (type: string, testId: string) =>
+      page.evaluate(
+        ([eventType, id]) => {
+          const target = document.querySelector(`.dartboard__svg [data-testid="${id}"]`)!.getBoundingClientRect();
+          document.querySelector('.dartboard__svg')!.dispatchEvent(
+            new PointerEvent(eventType, {
+              pointerType: 'touch',
+              pointerId: 7,
+              isPrimary: true,
+              clientX: target.left + target.width / 2,
+              clientY: target.top + target.height / 2,
+              bubbles: true,
+            }),
+          );
+        },
+        [type, testId],
+      );
+    const start = 'segment-s20-outer';
+    const end = 'segment-t19';
+
+    await pointer('pointerdown', start);
+    await expect(page.getByTestId('board-loupe')).toBeVisible();
+    await expect(page.getByTestId('board-loupe-label')).toHaveText('シングル20（外側）');
+    // まだ確定しない。
+    await expect(page.getByTestId('next-remaining')).toHaveText('103');
+
+    await pointer('pointermove', end);
+    await expect(page.getByTestId('board-loupe-label')).toHaveText('トリプル19');
+    await pointer('pointerup', end);
+    await expect(page.getByTestId('board-loupe')).toHaveCount(0);
+    // 指を離した T19 で確定（103 → 46）。
+    await expect(page.getByTestId('next-remaining')).toHaveText('46');
+  });
+
+  test('タップ（押してすぐ離す）でも 1 回だけ入力される', async ({ page }) => {
+    await page.getByTestId('nav-checkout').click();
+    await page.getByTestId('score-input').fill('103');
+    await page.getByTestId('recovery-toggle').click();
+    await showWholeBoard(page);
+    const box = (await page.getByTestId('segment-s19-outer').boundingBox())!;
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(page.getByTestId('next-remaining')).toHaveText('84');
+    await expect(page.getByTestId('next-darts')).toHaveText('2');
+  });
+});

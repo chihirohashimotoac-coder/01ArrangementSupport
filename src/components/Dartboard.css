@@ -1,4 +1,5 @@
 .dartboard {
+  position: relative;
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -252,4 +253,46 @@
   font-size: 12px;
   font-weight: 800;
   text-anchor: middle;
+}
+
+/*
+ * タッチで押しているあいだの拡大鏡（2026-11-01 監査 D-M2）。指で隠れないよう、指の上に出す。
+ * 動きは付けない（動きを減らす設定でもそのまま使える）。
+ */
+.dartboard__loupe {
+  position: absolute;
+  z-index: 5;
+  width: 7.5rem;
+  transform: translate(-50%, calc(-100% - 2.75rem));
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.dartboard__loupe-svg {
+  width: 7.5rem;
+  height: 7.5rem;
+  border-radius: 50%;
+  background: var(--board-surround, #111);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px #000, 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+.dartboard__loupe-cross {
+  stroke: #fff;
+  stroke-width: 0.8;
+  paint-order: stroke;
+  filter: drop-shadow(0 0 0.4px #000);
+}
+
+.dartboard__loupe-label {
+  padding: 0.15rem 0.5rem;
+  font-size: var(--text-sm);
+  font-weight: 800;
+  color: #fff;
+  background: #000;
+  border-radius: var(--radius-s);
+  white-space: nowrap;
 }
