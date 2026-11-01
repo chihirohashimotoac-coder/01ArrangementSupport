@@ -52,6 +52,14 @@ export const CHECKOUT_REASON_WEIGHTS: Readonly<Record<CheckoutReasonCode, number
   // 繋ぎのダートをダブルリングへ置くのは、細い的を無駄に増やす選択になる。
   // 実戦では大きなシングル面か、得点効率の高いトリプルを繋ぎに使う。
   NON_FINAL_DOUBLE: -38,
+
+  // 戦術 v2（2026-11-01 オーナー承認 / docs/APPROVALS.md A-28〜A-31）。
+  // 本数に余裕があるのに 1 投目のシングルで 1 本を繋ぎに使うルート。SAFE_SINGLE_START は付けない。
+  SPENDS_EXTRA_DART: -30,
+  // 点数の差だけで C になったことを示す表示用の理由。順位は変えない。
+  BELOW_TOP_ROUTE: 0,
+  // TRAINING の採点で付ける表示用の理由。順位は変えない。
+  PEER_OF_STANDARD: 0,
 };
 
 /** ダート数そのものへのペナルティ（本数が増えるほど不利）。 */
@@ -145,6 +153,11 @@ export const SETUP_REASON_WEIGHTS: Readonly<Record<SetupReasonCode, number>> = {
   // 明示的な戦術ふるいなので、スコアへは足さない（表示のみの 0）。
   SETUP_SINGLE_MISS_TENPAI_SAFE: 0,
   SETUP_SINGLE_MISS_DEAD_END: 0,
+
+  // 戦術 v2（2026-11-01 オーナー承認 / docs/APPROVALS.md A-29）。
+  // ビジット最後の 1 投が外れてもテンパイが残る狙い。192（1 本）で D-BULL が D16 を上回るのに
+  // 要る最小値 35.4 と、CHECKOUT の SINGLE_MISS_SAFE +45 を目安にした値。
+  SETUP_LAST_DART_MISS_KEEPS_TENPAI: 40,
 };
 
 /**

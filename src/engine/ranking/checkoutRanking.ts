@@ -22,7 +22,7 @@ import {
 } from '../../data/rankingRules';
 import { renderCheckoutReason, type ReasonContext } from '../../data/explanations';
 import { missVariantsOf } from '../../data/boardAdjacency';
-import { getStandardRoute } from '../../data/standardCheckoutRoutes';
+import { getStandardRouteFor } from '../../data/standardCheckoutRoutes';
 import { enumerateCheckoutRoutes, sampleCheckoutRoute, type CheckoutRoute } from '../checkout/enumerate';
 
 export interface RouteReason {
@@ -74,6 +74,30 @@ interface RouteFeatures {
   readonly singleMissSafe: boolean | null;
 }
 
+const minPlainCache = new Map<string, number>();
+
+/**
+ * BULL / S-BULL を使わずに上がれる最少本数（無ければ BULL を含めた最少本数）。
+ * 「本数に余裕があるのに 1 本を繋ぎに使う」（SPENDS_EXTRA_DART）と MY ROUTE の判定に使う。
+ * 50 のように 1 本で上がるには BULL が要る残りでは、S18 → D16 の 2 本を「余分」と見なさない。
+ */
+export function minPlainDartsOf(remaining: number, dartsAvailable: number): number {
+  const cacheKey = `${remaining}/${dartsAvailable}`;
+  const cached = minPlainCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  let plain = Infinity;
+  let any = Infinity;
+  for (const route of enumerateCheckoutRoutes(remaining, dartsAvailable)) {
+    any = Math.min(any, route.darts.length);
+    if (!route.darts.some((dart) => dart.baseNumber === null)) {
+      plain = Math.min(plain, route.darts.length);
+    }
+  }
+  const value = Number.isFinite(plain) ? plain : any;
+  minPlainCache.set(cacheKey, value);
+  return value;
+}
+
 function analyze(
   route: CheckoutRoute,
   remaining: number,
@@ -101,16 +125,27 @@ function analyze(
   let singleMissSafe: boolean | null = null;
   const dartsAfterMiss = dartsAvailable - 1;
 
-  /** 着弾 dart で残りがいくつになり、そこから上がりが残るか。 */
+  /**
+   * 着弾 dart で残りがいくつになり、そこから上がりが残るか。
+   * 隣のダブルへ外れてちょうど 0 になる場合は上がり（戦術 v2 / A-28）。
+   */
   const leaveIsSafe = (landed: Dart): { leave: number; safe: boolean } => {
     const leave = remaining - landed.score;
-    return { leave, safe: leave >= 2 && isCheckoutable(leave, dartsAfterMiss) };
+    const finishes = leave === 0 && isFinishingDart(landed);
+    return { leave, safe: finishes || (leave >= 2 && isCheckoutable(leave, dartsAfterMiss)) };
   };
 
   const verticalNotes: string[] = [];
 
-  if (dartsAfterMiss >= 1 && (first.kind === 'triple' || first.kind === 'double')) {
-    const missDart = findDart(`S${first.baseNumber}`);
+  /*
+   * 縦ズレ: トリプル / ダブル → 同じナンバーのシングル、BULL → S-BULL（戦術 v2 / A-28）。
+   * 以前は BULL 始動の外れを見ておらず、S-BULL へ外れると上がれない BULL 始動が S / A になっていた。
+   */
+  if (
+    dartsAfterMiss >= 1 &&
+    (first.kind === 'triple' || first.kind === 'double' || first.id === 'BULL')
+  ) {
+    const missDart = findDart(first.id === 'BULL' ? 'SB' : `S${first.baseNumber}`);
     if (missDart) {
       missDartId = missDart.id;
       const { leave, safe } = leaveIsSafe(missDart);
@@ -130,6 +165,14 @@ function analyze(
   // シングル狙いには「トリプルから落ちる」リスクがない代わりに、
   // 上下のリング（トリプル / ダブル）へ抜ける可能性がある。
   // それでも上がりが残るなら、太い的を狙える利点として加点する。
+  /*
+   * 本数に余裕があるのに、1 投目のシングルで 1 本を繋ぎに使うルート（戦術 v2 / A-28）。
+   * 例: 81（3 本）の S1 → T16 → D16。81 は T19 → D12 の 2 本で上がれる。
+   * このルートには SAFE_SINGLE_START を付けない。
+   */
+  const minPlainDarts = minPlainDartsOf(remaining, dartsAvailable);
+  const spendsExtraDart = first.kind === 'single' && darts.length > minPlainDarts;
+
   if (dartsAfterMiss >= 1 && first.kind === 'single' && first.baseNumber !== null) {
     const overshoots = [findDart(`T${first.baseNumber}`), findDart(`D${first.baseNumber}`)].filter(
       (dart): dart is Dart => dart !== undefined,
@@ -144,8 +187,9 @@ function analyze(
           : `${dart.id} だと ${Math.max(leave, 0)} 残りで上がれません`,
       );
     }
-    if (allSafe) codes.push('SAFE_SINGLE_START');
+    if (allSafe && !spendsExtraDart) codes.push('SAFE_SINGLE_START');
   }
+  if (spendsExtraDart) codes.push('SPENDS_EXTRA_DART');
 
   // --- 横ズレ（隣ナンバー）の安全性 ---------------------------------------
   const neighborNotes: string[] = [];
@@ -153,9 +197,11 @@ function analyze(
     const horizontal = missVariantsOf(first).filter((v) => v.direction === 'horizontal');
     let safeCount = 0;
     for (const variant of horizontal) {
-      const leave = remaining - variant.dart.score;
-      const safe = leave >= 2 && isCheckoutable(leave, dartsAfterMiss);
-      if (safe) {
+      const { leave, safe } = leaveIsSafe(variant.dart);
+      if (safe && leave === 0) {
+        safeCount += 1;
+        neighborNotes.push(`${variant.dart.id} ならそのまま上がりです`);
+      } else if (safe) {
         safeCount += 1;
         const sample = sampleCheckoutRoute(leave, dartsAfterMiss);
         neighborNotes.push(
@@ -237,6 +283,7 @@ function analyze(
     userPreferenceRank,
     switchCount,
     continuityTargetId,
+    minPlainDarts,
   };
 
   return {
@@ -296,7 +343,7 @@ export function rankCheckoutRoutes(
   const routes = enumerateCheckoutRoutes(remaining, dartsAvailable);
   if (routes.length === 0) return [];
 
-  const standard = getStandardRoute(remaining);
+  const standard = getStandardRouteFor(remaining, dartsAvailable);
   const standardKey = standard ? standard.darts.map((d) => d.id).join('-') : null;
 
   const analyzed = routes.map((route) =>
@@ -304,8 +351,10 @@ export function rankCheckoutRoutes(
   );
 
   // --- 比較によって決まる理由コード（第2パス） ----------------------------
+  // ダブル→ダブル（NON_FINAL_DOUBLE）は「トリプルを使わない代替」に数えない（戦術 v2 / A-28）。
   const minTripleFreeLength = analyzed.reduce((min, item) => {
     if (item.containsTriple || item.containsBull) return min;
+    if (item.codes.includes('NON_FINAL_DOUBLE')) return min;
     return Math.min(min, item.route.darts.length);
   }, Number.POSITIVE_INFINITY);
 
@@ -351,13 +400,90 @@ export function rankCheckoutRoutes(
     .filter((item) => item.tacticalScore === bestTactical)
     .every((item) => hasDiscouragingReason(item.reasons));
 
+  const topByTactical = scored.find((item) => item.tacticalScore === bestTactical) ?? scored[0];
   return scored.map((item) => {
     // 基準ルートは定義上つねに S。
     if (item.isStandard) return { ...item, grade: 'S' as const };
     const byScore = gradeOf(item.tacticalScore, bestTactical);
     const discouraged = !bestHasDiscouragingReason && hasDiscouragingReason(item.reasons);
-    return { ...item, grade: discouraged ? ('C' as const) : byScore };
+    const grade = discouraged ? ('C' as const) : byScore;
+    /*
+     * 点数の差だけで C になったルートには、その旨の理由を付ける（戦術 v2 / A-30）。
+     * 「C には必ず否定理由が 1 つ以上ある」を構造で保証する。推奨度は変えない。
+     */
+    if (grade === 'C' && !item.reasons.some((reason) => reason.polarity === 'negative')) {
+      const rendered = renderCheckoutReason('BELOW_TOP_ROUTE', {
+        ...BELOW_TOP_CONTEXT,
+        remaining,
+        dartsAvailable,
+        routeText: item.routeText,
+        topRouteText: topByTactical.routeText,
+        scoreGap: bestTactical - item.tacticalScore,
+      });
+      const reason: RouteReason = {
+        code: 'BELOW_TOP_ROUTE',
+        weight: CHECKOUT_REASON_WEIGHTS.BELOW_TOP_ROUTE,
+        polarity: rendered.polarity,
+        label: rendered.label,
+        summary: rendered.summary,
+        detail: rendered.detail,
+      };
+      return { ...item, reasons: [...item.reasons, reason], grade };
+    }
+    return { ...item, grade };
   });
+}
+
+/** BELOW_TOP_ROUTE の文を組み立てるときの、使わない項目の既定値。 */
+const BELOW_TOP_CONTEXT: ReasonContext = {
+  remaining: 0,
+  dartsAvailable: 0,
+  routeText: '',
+  firstDartId: '',
+  finishDartId: '',
+  missDartId: null,
+  missLeave: null,
+  dartsAfterMiss: 0,
+  missRecoveryText: null,
+  neighborNotes: [],
+  verticalNotes: [],
+  doubleReason: null,
+  userPreferenceRank: null,
+  switchCount: 0,
+  continuityTargetId: null,
+};
+
+/**
+ * MY ROUTE の最上位（戦術 v2 / A-28。ARRANGE_RULES §6）。
+ *
+ * 得意ダブルを加点し、基準ルート加点を外して並べたうえで、次のものは最上位にしない。
+ *   - 通常評価（STANDARD）で C のルート
+ *   - ダブル→ダブル（NON_FINAL_DOUBLE）と、本数を使う繋ぎのシングル（SPENDS_EXTRA_DART）
+ *   - BULL を使わずに上がれる最少本数より多い本数を使うルート
+ *     （得意ダブルへ持っていくのは、1 投目を外したあとの場面に限る）
+ * 該当しない候補が 1 つも無ければ、従来どおり並びの先頭を返す。
+ */
+export function selectMyRoute(
+  remaining: number,
+  dartsAvailable: number,
+  preferredDoubles: readonly string[],
+): RankedCheckoutRoute | null {
+  const mine = rankCheckoutRoutes(remaining, dartsAvailable, {
+    preferredDoubles,
+    applyStandardBonus: false,
+  });
+  if (mine.length === 0) return null;
+  const normalGrade = new Map(
+    rankCheckoutRoutes(remaining, dartsAvailable).map((route) => [route.key, route.grade]),
+  );
+  const minPlain = minPlainDartsOf(remaining, dartsAvailable);
+  const eligible = (route: RankedCheckoutRoute) =>
+    normalGrade.get(route.key) !== 'C' &&
+    !route.reasons.some(
+      (reason) => reason.code === 'NON_FINAL_DOUBLE' || reason.code === 'SPENDS_EXTRA_DART',
+    ) &&
+    route.darts.length <= minPlain;
+  return mine.find(eligible) ?? mine[0];
 }
 
 /** 指定ルートの評価だけを取り出す（TRAINING の採点で使う）。 */

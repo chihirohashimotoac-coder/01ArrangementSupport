@@ -1595,27 +1595,27 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     await openCheckoutWith(user, '122');
 
     const myCard = screen.getByTestId('my-route');
-    expect(cardDarts(myCard)).toEqual(['T18', 'D14', 'D20']);
+    expect(cardDarts(myCard)).toEqual(['T12', 'T18', 'D16']);
     expect(cardDarts(screen.getByTestId('standard-route'))).toEqual(['T18', 'S18', 'BULL']);
 
     await user.click(chipOf(myCard, 1));
 
     expect(screen.getByTestId('dartboard')).toBeInTheDocument();
-    expect(highlightedDarts()).toEqual(['D14', 'D20', 'T18'].sort());
+    expect(highlightedDarts()).toEqual(['D16', 'T12', 'T18'].sort());
   });
 
   it('MY ROUTE が予定どおり入っているあいだは、選んだルートの続きを案内する', async () => {
     const user = userEvent.setup();
     await selectMyRouteAt122(user);
 
-    await user.click(screen.getByTestId('segment-t18'));
-    expect(screen.getByTestId('status-left')).toHaveTextContent('68');
-    // STANDARD（T20 → D4）でも MY ROUTE 再計算（S18 → BULL）でもなく、選んだ続き。
-    expect(nextRoute()).toEqual(['D14', 'D20']);
+    await user.click(screen.getByTestId('segment-t12'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('86');
+    // MY ROUTE の再計算ではなく、選んだ続き（戦術 v2 / A-28 で 122 の MY ROUTE は T12 → T18 → D16）。
+    expect(nextRoute()).toEqual(['T18', 'D16']);
 
-    await user.click(screen.getByTestId('segment-d14'));
-    expect(screen.getByTestId('status-left')).toHaveTextContent('40');
-    expect(nextRoute()).toEqual(['D20']);
+    await user.click(screen.getByTestId('segment-t18'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('32');
+    expect(nextRoute()).toEqual(['D16']);
   });
 
   it('MY ROUTE で外したら、現在の残りから MY ROUTE を組み直す', async () => {
@@ -1725,9 +1725,11 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
   it('別のルートのチップを押したら、確認なしでそちらへ切り替わる', async () => {
     const user = userEvent.setup();
     await selectMyRouteAt122(user);
-    expect(highlightedDarts()).toEqual(['D14', 'D20', 'T18'].sort());
+    expect(highlightedDarts()).toEqual(['D16', 'T12', 'T18'].sort());
 
-    const other = screen.getByTestId('route-T12-T18-D16');
+    // MY ROUTE（T12 → T18 → D16）とは別の、OTHER ROUTES の先頭。
+    const other = within(screen.getByTestId('other-routes')).getAllByTestId(/^route-/)[0];
+    expect(other).not.toHaveAttribute('data-testid', 'route-T12-T18-D16');
     await user.click(chipOf(other, 1));
     expect(highlightedDarts()).toEqual([...new Set(cardDarts(other))].sort());
 
@@ -1780,8 +1782,8 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     const user = userEvent.setup();
     await selectMyRouteAt122(user);
 
-    await user.click(screen.getByTestId('segment-t18'));
-    expect(nextRoute()).toEqual(['D14', 'D20']);
+    await user.click(screen.getByTestId('segment-t12'));
+    expect(nextRoute()).toEqual(['T18', 'D16']);
 
     await user.click(screen.getByTestId('undo-button'));
     expect(screen.getByTestId('status-left')).toHaveTextContent('122');
@@ -1821,13 +1823,13 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     const user = userEvent.setup();
     await selectMyRouteAt122(user);
 
-    await user.click(screen.getByTestId('segment-t18'));
-    expect(nextRoute()).toEqual(['D14', 'D20']);
+    await user.click(screen.getByTestId('segment-t12'));
+    expect(nextRoute()).toEqual(['T18', 'D16']);
 
     await user.click(screen.getByTestId('recovery-toggle'));
     expect(screen.queryByTestId('dartboard')).toBeNull();
     await user.click(screen.getByTestId('recovery-toggle'));
-    expect(nextRoute()).toEqual(['D14', 'D20']);
+    expect(nextRoute()).toEqual(['T18', 'D16']);
   });
 
   it('ルートを選んでも、新しいボタンや確認は増えない', async () => {

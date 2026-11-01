@@ -11,7 +11,7 @@ import type { Dart } from '../domain/dart';
 import { CURATED_CHECKOUT_EXPLANATIONS, CURATED_SETUP_EXPLANATIONS } from '../data/explanations';
 import { otherRoutesGradeContext } from '../data/gradeLabels';
 import { analyzeAimArea } from '../engine/aimArea/aimArea';
-import { rankCheckoutRoutes } from '../engine/ranking/checkoutRanking';
+import { selectMyRoute } from '../engine/ranking/checkoutRanking';
 import { practicalLastDartReasonViews } from '../engine/simulation/lastDartChoice';
 import type { VisitState } from '../engine/recovery/visit';
 import { useVisit } from '../hooks/useVisit';
@@ -315,15 +315,14 @@ export function PracticePage({
     [selectedRoutePlan, visit],
   );
 
-  /** MY ROUTE は得意ダブルを優先し、基準ルート加点を外して並べ替える。 */
+  /**
+   * MY ROUTE は得意ダブルを優先し、基準ルート加点を外して並べ替える。
+   * 通常評価で C のルート・ダブル→ダブル・1 本を繋ぎに使うルートは最上位にしない（A-28）。
+   */
   const myRoute = useMemo(() => {
     if (visit === null || suggestion?.mode !== 'checkout') return null;
     if (preferences.preferredDoubles.length === 0) return null;
-    const ranked = rankCheckoutRoutes(visit.remaining, visit.dartsLeft, {
-      preferredDoubles: preferences.preferredDoubles,
-      applyStandardBonus: false,
-    });
-    return ranked.length > 0 ? ranked[0] : null;
+    return selectMyRoute(visit.remaining, visit.dartsLeft, preferences.preferredDoubles);
   }, [visit, suggestion?.mode, preferences.preferredDoubles]);
 
   /*
