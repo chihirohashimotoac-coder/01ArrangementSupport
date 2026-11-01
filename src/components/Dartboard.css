@@ -219,3 +219,20 @@
 @keyframes target-flash {
   from { fill: var(--highlight-stroke); }
 }
+
+/* キーボードのフォーカス枠（最前面・黒と白の 2 重で、どの区画の色の上でも見える）。 */
+.dartboard__focus-ring path {
+  fill: none;
+  pointer-events: none;
+  stroke-linejoin: round;
+}
+
+.dartboard__focus-ring-outer {
+  stroke: #000;
+  stroke-width: 8;
+}
+
+.dartboard__focus-ring-inner {
+  stroke: #fff;
+  stroke-width: 3.5;
+}

@@ -105,3 +105,35 @@ test('D-M1: ルートの T / D / S は数字と同じ大きさで、トリプル
   await expect(double).toHaveAttribute('data-dart', 'D20');
   expect(await double.evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe('4px');
 });
+
+test('D-M4: 盤面は Tab 1 か所で、中は矢印キーで移り、最前面にフォーカス枠を描く', async ({ page }) => {
+  await page.getByTestId('nav-checkout').click();
+  await page.getByTestId('score-input').fill('103');
+  await page.getByTestId('recovery-toggle').click();
+  const board = page.getByTestId('dartboard');
+  // Tab で止まる区画は 1 か所だけ。
+  expect(await board.locator('[role="button"][tabindex="0"]').count()).toBe(1);
+
+  await board.locator('[data-testid="segment-t20"]').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByTestId('segment-t1')).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(page.getByTestId('segment-s1-outer')).toBeFocused();
+  await expect(page.getByTestId('segment-s1-outer')).toHaveAttribute('aria-label', 'シングル1（外側）、1点');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByTestId('segment-s1-inner')).toHaveAttribute('aria-label', 'シングル1（内側）、1点');
+  await expect(page.getByTestId('segment-s1-inner')).toBeFocused();
+  await expect(page.getByTestId('board-focus-ring')).toHaveCount(1);
+  expect(await board.locator('[role="button"][tabindex="0"]').count()).toBe(1);
+
+  // 中心へ: 内側シングル → S-BULL → D-BULL。
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByTestId('segment-inner-bull')).toHaveAttribute('aria-label', 'D-BULL（インナーブル）、50点');
+  await expect(page.getByTestId('segment-inner-bull')).toBeFocused();
+
+  // Enter で入力される（D-BULL で 103 → 53）。
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('next-remaining')).toHaveText('53');
+});

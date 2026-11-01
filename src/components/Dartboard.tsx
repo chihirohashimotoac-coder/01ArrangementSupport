@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { SEGMENTS, type SegmentDefinition } from '../domain/segments';
 import {
   RADII,
@@ -64,6 +64,49 @@ const NUMBER_LABELS = buildNumberLabelPositions();
 const WIRE_LINES = buildWireLines();
 const WEDGE_AREAS = buildWedgeAreas();
 
+/*
+ * キーボード操作（2026-11-01 監査 D-M4）。
+ *
+ * 盤面全体を Tab 1 か所にまとめ（roving tabindex）、中は矢印キーで移る。
+ *   ← / → : 隣のナンバー（同じリング）。BULL では何もしない
+ *   ↑ / ↓ : 外側 / 内側のリング（D-BULL → S-BULL → 内側シングル → トリプル → 外側シングル → ダブル → MISS）
+ */
+const RING_ORDER = ['inner-bull', 'outer-bull', 'inner-single', 'triple', 'outer-single', 'double', 'miss'] as const;
+const SEGMENT_BY_ID = new Map(SEGMENTS.map((segment) => [segment.id, segment]));
+const RING_INDEX_NUMBER = new Map(
+  SEGMENTS.filter((segment) => segment.index !== null).map((segment) => [
+    `${segment.ring}/${segment.index}`,
+    segment.id,
+  ]),
+);
+const DEFAULT_SEGMENT_ID = 'segment-t20';
+
+function segmentAt(ring: (typeof RING_ORDER)[number], index: number): string {
+  if (ring === 'inner-bull') return 'segment-inner-bull';
+  if (ring === 'outer-bull') return 'segment-outer-bull';
+  if (ring === 'miss') return 'segment-miss';
+  return RING_INDEX_NUMBER.get(`${ring}/${index}`) ?? DEFAULT_SEGMENT_ID;
+}
+
+/** 矢印キーで移る先の区画。動かないキーなら null。 */
+function nextSegmentId(currentId: string, key: string, lastIndex: number): string | null {
+  const current = SEGMENT_BY_ID.get(currentId);
+  if (current === undefined) return null;
+  const ringIndex = RING_ORDER.indexOf(current.ring as (typeof RING_ORDER)[number]);
+  const index = current.index ?? lastIndex;
+  const count = 20;
+  if (key === 'ArrowRight' || key === 'ArrowLeft') {
+    if (current.index === null) return null;
+    const step = key === 'ArrowRight' ? 1 : -1;
+    return segmentAt(current.ring as (typeof RING_ORDER)[number], (index + step + count) % count);
+  }
+  if (key === 'ArrowUp' || key === 'ArrowDown') {
+    const nextRing = RING_ORDER[ringIndex + (key === 'ArrowUp' ? 1 : -1)];
+    return nextRing === undefined ? null : segmentAt(nextRing, index);
+  }
+  return null;
+}
+
 function DartboardComponent({
   onSelect,
   wedgeSelection,
@@ -75,14 +118,47 @@ function DartboardComponent({
   markers,
 }: DartboardProps) {
   const highlighted = useMemo(() => new Set(highlightedDartIds ?? []), [highlightedDartIds]);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  /** Tab で止まる 1 か所（roving tabindex）。 */
+  const [activeId, setActiveId] = useState(DEFAULT_SEGMENT_ID);
+  /** ナンバーの位置を覚えておき、BULL から外へ戻るときに元のナンバーへ戻る。 */
+  const lastIndex = useRef(0);
+  /** キーボードでフォーカスしている区画（最前面に輪郭を描く）。 */
+  const [keyboardFocusId, setKeyboardFocusId] = useState<string | null>(null);
+  const [activeWedge, setActiveWedge] = useState(20);
   const wedgeMode = wedgeSelection !== undefined;
   const interactive = !disabled && !wedgeMode && typeof onSelect === 'function';
   const wedgeInteractive = !disabled && wedgeMode;
+
+  const moveFocus = (event: KeyboardEvent<SVGPathElement>, currentId: string) => {
+    const next = nextSegmentId(currentId, event.key, lastIndex.current);
+    if (next === null) return;
+    event.preventDefault();
+    setActiveId(next);
+    svgRef.current?.querySelector<SVGPathElement>(`[data-testid="${next}"]`)?.focus();
+  };
+
+  const moveWedgeFocus = (event: KeyboardEvent<SVGPathElement>, current: number) => {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    event.preventDefault();
+    const order = WEDGE_AREAS.map((wedge) => wedge.value);
+    const position = order.indexOf(current);
+    const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1;
+    const next = order[(position + step + order.length) % order.length];
+    setActiveWedge(next);
+    svgRef.current?.querySelector<SVGPathElement>(`[data-wedge="${next}"]`)?.focus();
+  };
+
+  const focusRingPath =
+    keyboardFocusId === null
+      ? null
+      : (SEGMENT_PATHS.find(({ segment }) => segment.id === keyboardFocusId)?.d ?? null);
 
   return (
     <div className="dartboard" data-testid="dartboard" data-mode={wedgeMode ? 'wedge' : 'segment'}>
       <svg
         viewBox={VIEWBOX}
+        ref={svgRef}
         className="dartboard__svg"
         role="group"
         aria-label={
@@ -110,19 +186,29 @@ function DartboardComponent({
               d={d}
               fillRule={segment.ring === 'miss' ? 'evenodd' : undefined}
               role={interactive ? 'button' : 'presentation'}
-              tabIndex={interactive ? 0 : -1}
+              tabIndex={interactive && segment.id === activeId ? 0 : -1}
               aria-label={segment.ariaLabel}
               aria-disabled={disabled}
               /* 入力は click のみで受ける。touchstart 併用は二重入力になるため使わない。 */
               onClick={() => {
-                if (interactive) onSelect?.(segment);
+                if (!interactive) return;
+                setActiveId(segment.id);
+                onSelect?.(segment);
               }}
+              onFocus={(event) => {
+                setActiveId(segment.id);
+                if (segment.index !== null) lastIndex.current = segment.index;
+                setKeyboardFocusId(event.currentTarget.matches(':focus-visible') ? segment.id : null);
+              }}
+              onBlur={() => setKeyboardFocusId(null)}
               onKeyDown={(event) => {
                 if (!interactive) return;
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
                   onSelect?.(segment);
+                  return;
                 }
+                moveFocus(event, segment.id);
               }}
             />
           );
@@ -140,19 +226,22 @@ function DartboardComponent({
                 className="dartboard__wedge"
                 d={wedge.d}
                 role="button"
-                tabIndex={wedgeInteractive ? 0 : -1}
+                tabIndex={wedgeInteractive && wedge.value === activeWedge ? 0 : -1}
                 aria-label={wedgeSelection.ariaLabelOf?.(wedge.value) ?? `${wedge.value} のエリア`}
                 aria-pressed={wedgeSelection.selected === wedge.value}
                 aria-disabled={disabled}
                 onClick={() => {
                   if (wedgeInteractive) wedgeSelection.onSelect(wedge.value);
                 }}
+                onFocus={() => setActiveWedge(wedge.value)}
                 onKeyDown={(event) => {
                   if (!wedgeInteractive) return;
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
                     wedgeSelection.onSelect(wedge.value);
+                    return;
                   }
+                  moveWedgeFocus(event, wedge.value);
                 }}
               />
             ))}
@@ -178,6 +267,17 @@ function DartboardComponent({
             </text>
           ))}
         </g>
+
+        {/*
+          キーボードでフォーカスしている区画の輪郭は、最前面の別レイヤーに描く
+          （区画自身の stroke は隣の区画に隠れてほぼ見えなかった。2026-11-01 監査 D-M4）。
+        */}
+        {focusRingPath !== null && (
+          <g className="dartboard__focus-ring" aria-hidden="true" data-testid="board-focus-ring">
+            <path className="dartboard__focus-ring-outer" d={focusRingPath} />
+            <path className="dartboard__focus-ring-inner" d={focusRingPath} />
+          </g>
+        )}
 
         {markers !== undefined && markers.length > 0 && (
           <g className="dartboard__markers">

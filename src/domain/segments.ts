@@ -69,7 +69,13 @@ function wedgeSegment(
     baseNumber,
     index,
     colorGroup,
-    ariaLabel: `${dart.nameJa}、${dart.score}点`,
+    // 内側と外側のシングルを読み上げ名で区別する（2026-11-01 監査 D-M4）。
+    ariaLabel:
+      ring === 'inner-single'
+        ? `${dart.nameJa}（内側）、${dart.score}点`
+        : ring === 'outer-single'
+          ? `${dart.nameJa}（外側）、${dart.score}点`
+          : `${dart.nameJa}、${dart.score}点`,
   };
 }
 
@@ -90,7 +96,7 @@ const OUTER_BULL_SEGMENT: SegmentDefinition = {
   baseNumber: null,
   index: null,
   colorGroup: 'green',
-  ariaLabel: 'アウターブル、25点',
+  ariaLabel: 'S-BULL（アウターブル）、25点',
 };
 
 const INNER_BULL_SEGMENT: SegmentDefinition = {
@@ -100,7 +106,7 @@ const INNER_BULL_SEGMENT: SegmentDefinition = {
   baseNumber: null,
   index: null,
   colorGroup: 'red',
-  ariaLabel: 'ブル、50点',
+  ariaLabel: 'D-BULL（インナーブル）、50点',
 };
 
 /**
