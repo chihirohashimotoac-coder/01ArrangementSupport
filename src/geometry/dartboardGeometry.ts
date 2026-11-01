@@ -176,3 +176,24 @@ export function buildWedgeAreas(): WedgeArea[] {
     };
   });
 }
+
+/**
+ * 区画の中心（番号札を置く位置）。ウェッジはリングの中央・角度の中央、
+ * D-BULL は中心、S-BULL は中心の真上（2026-11-01 監査 D-M3）。
+ */
+export function segmentCenter(segment: SegmentDefinition): Point {
+  if (segment.ring === 'inner-bull') return { x: 0, y: 0 };
+  if (segment.ring === 'outer-bull') return { x: 0, y: -(RADII.innerBull + RADII.outerBull) / 2 };
+  if (segment.ring === 'miss' || segment.index === null) {
+    return { x: 0, y: -(RADII.doubleOuter + RADII.missOuter) / 2 };
+  }
+  const radius =
+    segment.ring === 'inner-single'
+      ? (RADII.outerBull + RADII.tripleInner) / 2
+      : segment.ring === 'triple'
+        ? (RADII.tripleInner + RADII.tripleOuter) / 2
+        : segment.ring === 'outer-single'
+          ? (RADII.tripleOuter + RADII.doubleInner) / 2
+          : (RADII.doubleInner + RADII.doubleOuter) / 2;
+  return polarToCartesian(radius, centerAngleOf(segment.index));
+}

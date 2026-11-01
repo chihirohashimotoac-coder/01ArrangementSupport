@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { HomePage, type HomeDestination } from './pages/HomePage';
 import { PracticePage } from './pages/PracticePage';
 import { TrainingPage } from './pages/TrainingPage';
@@ -7,24 +7,18 @@ import { SettingsPage } from './pages/SettingsPage';
 import { VersionHistoryPage } from './pages/VersionHistoryPage';
 import { ReferencesPage } from './pages/ReferencesPage';
 import { UpdateBanner } from './components/UpdateBanner';
+import { LiveAnnouncer } from './components/LiveAnnouncer';
 import { AppMenu, MenuToggle, type MenuDestination } from './components/AppMenu';
 import { Breadcrumbs, type BreadcrumbItem } from './components/ui/Breadcrumbs';
 import { scoringTripleFirstSequenceTables, sequenceTable } from './engine/setup/sequences';
 import { DEFAULT_SETUP_MAIN_TARGET } from './data/rankingRules';
 import { VERSION_HISTORY } from './data/versionHistory';
 import { usePreferences } from './hooks/usePreferences';
+import { MAX_CHECKOUT } from './domain/checkoutRules';
 import type { Theme } from './storage/preferences';
+import { hashOf, tabFromHash, type Tab } from './navigation';
 import './App.css';
 
-type Tab =
-  | 'home'
-  | 'checkout'
-  | 'setup'
-  | 'training'
-  | 'simulation'
-  | 'settings'
-  | 'history'
-  | 'references';
 
 type ModeTab = 'checkout' | 'setup' | 'training' | 'simulation';
 
@@ -62,10 +56,12 @@ const CURRENT_VERSION = (() => {
 const isPractice = (tab: Tab) => tab === 'checkout' || tab === 'setup';
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('home');
+  const [tab, setTab] = useState<Tab>(() => tabFromHash(window.location.hash));
   const [practiceSession, setPracticeSession] = useState(0);
-  /** ホームの例題から開いたときだけ、その残り点を入れた状態で CHECKOUT を始める。 */
+  /** ホームの例題・入力欄・範囲外の案内から開いたときだけ、その残り点を入れた状態で始める。 */
   const [practiceInitial, setPracticeInitial] = useState<number | null>(null);
+  /** TRAINING / SIMULATION が進行中か（更新バナーで確認を出すため）。 */
+  const [sessionActive, setSessionActive] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   /** パンくずの末尾に添える、画面の中の状況（「残り 103」「3 / 10 問目」など）。 */
   const [context, setContext] = useState<string | null>(null);
@@ -94,21 +90,62 @@ export default function App() {
     return () => window.clearTimeout(handle);
   }, []);
 
+  /*
+   * 「戻る」（Android の戻る・ブラウザの戻る）で前の画面へ戻す。
+   * 以前は画面の切り替えが state だけで、戻るとアプリそのものが閉じていた。
+   * 初回表示の履歴項目にも画面を書いておき、最初の画面へ戻れるようにする。
+   */
+  useEffect(() => {
+    if (window.location.hash !== hashOf(tab)) {
+      window.history.replaceState(window.history.state, '', hashOf(tab));
+    }
+    // 初回だけ。以降は navigate / popstate が URL と state をそろえる。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const tabRef = useRef(tab);
+  useEffect(() => {
+    tabRef.current = tab;
+  }, [tab]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const next = tabFromHash(window.location.hash);
+      const current = tabRef.current;
+      setMenuOpen(false);
+      if (current !== next && isPractice(current) && isPractice(next)) {
+        setPracticeSession((value) => value + 1);
+      }
+      setPracticeInitial(null);
+      setTab(next);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
   /**
    * 画面を移る。ヘッダーのモード切り替え・メニュー・パンくず・ホームの導線はすべてここを通る。
    *
    * CHECKOUT と SETUP のあいだを移るときは、別の場面として入力をやり直す（従来どおり）。
    * 同じ CHECKOUT / SETUP を選び直したときは何もしない。
+   * 移った画面は履歴に積むので、「戻る」で前の画面へ戻れる。
    */
+  const pushTab = useCallback((next: Tab) => {
+    if (window.location.hash !== hashOf(next)) {
+      window.history.pushState({ tab: next }, '', hashOf(next));
+    }
+  }, []);
+
   const navigate = useCallback(
     (next: Tab) => {
       setMenuOpen(false);
       if (next === tab) return;
       if (isPractice(tab) && isPractice(next)) setPracticeSession((value) => value + 1);
       setPracticeInitial(null);
+      pushTab(next);
       setTab(next);
     },
-    [tab],
+    [tab, pushTab],
   );
 
   // バージョン履歴・参考資料のスクロール位置をトップページへ持ち越さない。
@@ -118,11 +155,27 @@ export default function App() {
     document.body.scrollTop = 0;
   }, [navigate]);
 
-  const openCheckoutWith = useCallback((remaining: number) => {
-    setPracticeInitial(remaining);
-    setPracticeSession((value) => value + 1);
-    setTab('checkout');
-  }, []);
+  /** 残り点を入れた状態で CHECKOUT / SETUP を開く（例題・ホームの入力欄・範囲外の案内）。 */
+  const openPracticeWith = useCallback(
+    (mode: 'checkout' | 'setup', remaining: number) => {
+      setMenuOpen(false);
+      setPracticeInitial(remaining);
+      setPracticeSession((value) => value + 1);
+      pushTab(mode);
+      setTab(mode);
+    },
+    [pushTab],
+  );
+  const openCheckoutWith = useCallback(
+    (remaining: number) => openPracticeWith('checkout', remaining),
+    [openPracticeWith],
+  );
+
+  /** 残り点の帯から、CHECKOUT（2〜170）か SETUP（171〜350）かを決めて開く。 */
+  const openPracticeFor = useCallback(
+    (remaining: number) => openPracticeWith(remaining <= MAX_CHECKOUT ? 'checkout' : 'setup', remaining),
+    [openPracticeWith],
+  );
 
   const crumbs: BreadcrumbItem[] =
     tab === 'home'
@@ -154,7 +207,7 @@ export default function App() {
   return (
     <div className="app" data-theme={preferences.theme}>
       {/* 更新が待機しているときだけ出る。どの画面でも、いちばん上。 */}
-      <UpdateBanner />
+      <UpdateBanner sessionActive={sessionActive} />
 
       {/*
         ヘッダー = アプリ名 / モードの切り替え / メニュー。
@@ -185,6 +238,7 @@ export default function App() {
               type="button"
               data-testid={`nav-${item.id}`}
               aria-pressed={tab === item.id}
+              aria-current={tab === item.id ? 'page' : undefined}
               onClick={() => navigate(item.id)}
             >
               {item.label}
@@ -215,24 +269,37 @@ export default function App() {
               modes={TABS}
               onSelect={(destination: HomeDestination) => navigate(destination)}
               onOpenCheckout={openCheckoutWith}
+              onOpenRemaining={openPracticeFor}
             />
           )}
           {isPractice(tab) && (
             <PracticePage
               key={practiceSession}
               mode={tab as 'checkout' | 'setup'}
-              onModeChange={setTab}
+              onModeChange={(mode) => {
+                // 自動の切り替え（BUST からの復帰など）は同じ履歴項目のまま書き換える。
+                window.history.replaceState(window.history.state, '', hashOf(mode));
+                setTab(mode);
+              }}
+              onOpenOtherMode={openPracticeWith}
               initialRemaining={practiceInitial}
               onContextChange={setContext}
             />
           )}
-          {tab === 'training' && <TrainingPage onContextChange={setContext} />}
-          {tab === 'simulation' && <SimulationPage onContextChange={setContext} />}
+          {tab === 'training' && (
+            <TrainingPage onContextChange={setContext} onSessionActiveChange={setSessionActive} />
+          )}
+          {tab === 'simulation' && (
+            <SimulationPage onContextChange={setContext} onSessionActiveChange={setSessionActive} />
+          )}
           {tab === 'settings' && <SettingsPage theme={preferences.theme} onThemeChange={setTheme} />}
           {tab === 'history' && <VersionHistoryPage onBack={backToHome} />}
           {tab === 'references' && <ReferencesPage onBack={backToHome} />}
         </div>
       </main>
+
+      {/* 判定・BUST・CHECKOUT!・次の狙いを読み上げる、常に置いておく空の live 領域。 */}
+      <LiveAnnouncer />
 
       <footer className="app__footer">
         <p>&copy; 2026 Chihiro Hashimoto</p>

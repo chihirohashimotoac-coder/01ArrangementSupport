@@ -164,3 +164,31 @@
 .app__view { animation: view-in 420ms var(--ease-out-expo) both; }
 .app__footer { padding-top: var(--space-3); border-top: 1px solid var(--border); }
 .app__footer p { margin: 0; font-size: var(--text-2xs); line-height: 1.6; color: var(--text-dim); }
+
+/*
+ * 200% 拡大（幅 195px 相当）での崩れを防ぐ（2026-11-01 監査 D-M6）。
+ * - ナビは 2 × 2 に折り返し、モード名を省略しない
+ * - アプリ名は「01」の札だけにして、メニューボタンと重ねない
+ */
+@media (max-width: 17.5rem) {
+  .app__name { display: none; }
+  .app__nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app__nav-thumb { display: none; }
+  .app__nav button {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+  .app__nav button[aria-pressed='true'] {
+    background: var(--surface-highlight);
+  }
+}
+
+/* 320px 前後でも、モード名を「…」で省略しない（入りきらないときだけ折り返す）。 */
+@media (max-width: 22rem) {
+  .app__nav button {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+}

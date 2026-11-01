@@ -198,18 +198,31 @@ describe('PR #1 レビュー指摘の回帰テスト', () => {
     expect(screen.getByTestId('status-left')).toHaveTextContent('43');
   });
 
-  it('セッション開始後に出題数を変えても、進行中のセッションは影響を受けない', async () => {
+  it('出題中は設定を 1 行の要約にたたみ、やり直しは確認を経る（2026-11-01 監査 U-H4 / U-H5）', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByTestId('nav-training'));
     await user.click(screen.getByTestId('start-training'));
     expect(screen.getByTestId('training-progress')).toHaveTextContent('1 / 10 問目');
 
+    // 出題中は設定パネルを出さない（押し間違いでセッションを捨てる主ボタンも無い）。
+    expect(screen.queryByRole('button', { name: '詳細設定' })).toBeNull();
+    expect(screen.queryByTestId('start-training')).toBeNull();
+    expect(screen.getByTestId('training-settings-summary')).toHaveTextContent('CHECKOUT・2〜170・10問');
+
+    // 「やり直す」は確認を出し、キャンセルなら何も変わらない。
+    await user.click(screen.getByTestId('training-restart'));
+    await user.click(screen.getByTestId('training-restart-confirm-cancel'));
+    expect(screen.getByTestId('training-progress')).toHaveTextContent('1 / 10 問目');
+
+    // 確定したら設定へ戻り、30 問で始め直せる。
+    await user.click(screen.getByTestId('training-restart'));
+    await user.click(screen.getByTestId('training-restart-confirm-confirm'));
+    expect(screen.queryByTestId('training-progress')).toBeNull();
     await user.click(screen.getByRole('button', { name: '詳細設定' }));
     await user.click(screen.getByRole('radio', { name: '30問' }));
-
-    // 進行中のセッションは開始時の設定（10 問）のまま。
-    expect(screen.getByTestId('training-progress')).toHaveTextContent('1 / 10 問目');
+    await user.click(screen.getByTestId('start-training'));
+    expect(screen.getByTestId('training-progress')).toHaveTextContent('1 / 30 問目');
   });
 
   it('出題できない設定では開始できず、理由を表示する', async () => {
@@ -461,7 +474,34 @@ describe('v1.1 入力 UX（LEFT 即時反映）', () => {
     expect(screen.queryByTestId('standard-route')).toBeNull();
 
     await user.tab();
-    expect(screen.getByRole('alert').textContent).toContain('171〜350');
+    // 範囲外の値は、もう一方のモードへ案内する（2026-11-01 監査 U-M1）。
+    expect(screen.getByRole('alert').textContent).toContain('100 は CHECKOUT（2〜170）で見られます');
+    await user.click(screen.getByTestId('score-redirect-action'));
+    expect(screen.getByTestId('nav-checkout')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('score-input')).toHaveValue('100');
+    expect(screen.getByTestId('standard-route')).toBeInTheDocument();
+  });
+
+  it('CHECKOUT に 250 を入れたら SETUP へ案内し、その値で開く', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-checkout'));
+    await user.type(screen.getByTestId('score-input'), '250');
+    await user.tab();
+    expect(screen.getByTestId('score-redirect')).toHaveTextContent('250 は SETUP（171〜350）で見られます');
+    await user.click(screen.getByTestId('score-redirect-action'));
+    expect(screen.getByTestId('nav-setup')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('score-input')).toHaveValue('250');
+  });
+
+  it('範囲外でももう一方のモードにも無い値（351）は、範囲のエラーだけを出す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-checkout'));
+    await user.type(screen.getByTestId('score-input'), '351');
+    await user.tab();
+    expect(screen.queryByTestId('score-redirect')).toBeNull();
+    expect(screen.getByRole('alert').textContent).toContain('2〜170');
   });
 
   it('入力途中の一時的な無効値でも画面が壊れない', async () => {
@@ -755,10 +795,12 @@ describe('v1.2 UX（答えを先に見せる）', () => {
     expect(nextRoute.textContent).toContain('NEXT');
     expect(within(nextRoute).getByLabelText('次に狙うルート').childElementCount).toBeGreaterThan(0);
 
-    // 盤面の直後（スクロールせずに一緒に見える位置）にある。
+    // 盤面の直後にあり、着弾の入力中は画面下に固定するまとまり（entry-bar）に入る。
     const board = screen.getByTestId('dartboard');
     expect(precedes(board, next)).toBe(true);
-    expect(board.parentElement).toBe(next.parentElement);
+    const bar = screen.getByTestId('entry-bar');
+    expect(next.parentElement).toBe(bar);
+    expect(board.parentElement).toBe(bar.parentElement);
   });
 
   it('G: 盤面のそばの Undo が効く', async () => {
@@ -939,10 +981,10 @@ describe('v1.3 テーマとユーザー向け文言', () => {
     await user.click(screen.getByTestId('menu-toggle'));
     await user.click(screen.getByTestId('nav-settings'));
 
-    expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-dark')).toBeChecked();
     await user.click(screen.getByTestId('theme-light'));
 
-    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-light')).toBeChecked();
     expect(document.documentElement).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute(
       'content',
@@ -1084,9 +1126,11 @@ describe('v1.2 レビュー指摘の回帰テスト', () => {
     await user.click(screen.getByTestId('recovery-toggle'));
     expect(screen.getByTestId('dartboard')).toBeInTheDocument();
 
-    // 予約されていた 250ms 後の移動は起きない（開いた盤面から画面が動かない）。
+    // 予約されていた 250ms 後の「答えへの移動」は起きない。
+    // 開いたときは盤面の先頭（いまの残り）へ 1 回だけ移る（2026-11-01 監査 U-H1）。
     await new Promise((resolve) => setTimeout(resolve, 400));
-    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.contexts[0]).toBe(document.getElementById('practice-recovery'));
     expect(screen.getByTestId('dartboard')).toBeInTheDocument();
   });
 
@@ -1642,9 +1686,12 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     expect(practical).toHaveTextContent('T20');
     expect(practical).toHaveTextContent('残り 57');
     expect(practical).toHaveTextContent('残り 97');
+    // 答えは実戦推奨の 1 つ。狙い通りの残しだけで選んだ例は、たたんだ参考に入る（U-M4）。
     const baseline = screen.getByTestId('next-visit-route');
-    expect(baseline).toHaveTextContent('基準例');
+    expect(baseline).toHaveTextContent('参考');
     expect(baseline).toHaveTextContent('S19');
+    expect(baseline.closest('details')).toHaveAttribute('data-testid', 'practical-reference');
+    expect(precedes(screen.getByTestId('no-routes'), practical)).toBe(true);
     expect(nextRoute()).toEqual(['T20']);
     expect(nextVisitProposals()).toBeNull();
   });

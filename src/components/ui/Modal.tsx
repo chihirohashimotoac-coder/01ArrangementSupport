@@ -25,6 +25,28 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
+ * パネルの中で、Tab で実際に止まる要素だけを順に返す（2026-11-01 監査 D-H1）。
+ *
+ * 同じ name のラジオ群は「選択中の 1 つ」（未選択なら先頭）だけが Tab で止まる。
+ * 以前は querySelectorAll の末尾（Dark テーマでは未選択の「Light」）を終点にしていたため、
+ * 実際の終点で Tab を押すと閉じ込めが効かず背面へ抜けていた。
+ */
+function tabbableIn(panel: HTMLElement): HTMLElement[] {
+  const all = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+    (item) => item.offsetParent !== null || item === document.activeElement,
+  );
+  return all.filter((item) => {
+    if (!(item instanceof HTMLInputElement) || item.type !== 'radio' || item.name === '') return true;
+    const group = all.filter(
+      (other): other is HTMLInputElement =>
+        other instanceof HTMLInputElement && other.type === 'radio' && other.name === item.name,
+    );
+    const checked = group.find((radio) => radio.checked);
+    return checked !== undefined ? item === checked : item === group[0];
+  });
+}
+
+/**
  * モーダル（ダイアログ / ドロワー）。
  *
  * - `role="dialog"` + `aria-modal`。開いているあいだ Tab は中に閉じ込め、Esc と背景のタップで閉じる。
@@ -46,6 +68,10 @@ export function Modal({
 }: ModalProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
   const [mounted, setMounted] = useState(open);
   const [closing, setClosing] = useState(false);
 
@@ -71,6 +97,26 @@ export function Modal({
     return () => window.clearTimeout(timer);
   }, [closing]);
 
+  /*
+   * 開いているあいだは背面に inert を付け、Tab でもスクリーンリーダーでも
+   * 背面へ抜けないようにする。もともと inert だった要素には触れない。
+   * 閉じるときは、元の要素へフォーカスを戻す前に inert を外す必要があるので、
+   * フォーカスの effect より先に宣言する（cleanup は宣言順に走る）。
+   */
+  useEffect(() => {
+    if (!open || !mounted) return;
+    const container = panelRef.current?.closest('.modal');
+    if (!container) return;
+    const marked: Element[] = [];
+    for (const element of Array.from(document.body.children)) {
+      if (element === container || element.contains(container)) continue;
+      if (element.hasAttribute('inert')) continue;
+      element.setAttribute('inert', '');
+      marked.push(element);
+    }
+    return () => marked.forEach((element) => element.removeAttribute('inert'));
+  }, [open, mounted]);
+
   // 開いた瞬間: フォーカスを中へ移し、背面のスクロールを止める。閉じたら元へ戻す。
   useEffect(() => {
     if (!open) return;
@@ -88,20 +134,28 @@ export function Modal({
     };
   }, [open]);
 
+  /*
+   * Esc は document で受ける（2026-11-01 監査 D-H1）。パネルの外へフォーカスが
+   * 出てしまった場合でも閉じられるようにする。
+   */
+  useEffect(() => {
+    if (!open) return;
+    const onDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      onCloseRef.current();
+    };
+    document.addEventListener('keydown', onDocumentKeyDown);
+    return () => document.removeEventListener('keydown', onDocumentKeyDown);
+  }, [open]);
+
   if (!mounted) return null;
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
-      event.stopPropagation();
-      onClose();
-      return;
-    }
     if (event.key !== 'Tab') return;
     const panel = panelRef.current;
     if (panel === null) return;
-    const items = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-      (item) => item.offsetParent !== null || item === document.activeElement,
-    );
+    const items = tabbableIn(panel);
     if (items.length === 0) {
       event.preventDefault();
       return;

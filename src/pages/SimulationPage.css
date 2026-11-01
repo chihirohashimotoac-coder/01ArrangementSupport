@@ -1108,3 +1108,85 @@
   animation: meter-grow 900ms var(--ease-out-expo) 500ms both;
 }
 .simulation .stacked-bar { margin: var(--space-2) 0; }
+
+/* 前回の続き（一時保存からの再開）。 */
+.simulation__resume {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+}
+
+.simulation__resume-text {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.simulation__resume-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.simulation__resume-actions button {
+  min-height: var(--tap);
+  padding: 0 var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.simulation__resume-discard {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+}
+
+/* 計算ミスが続いたときの「答えを見る」。 */
+.simulation__entry-reveal-button {
+  align-self: flex-start;
+  min-height: var(--tap);
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.simulation__entry-reveal {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.simulation__resume-apply {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+/* 狭い幅では長い値を折り返す（2026-11-01 監査 D-M6）。 */
+@media (max-width: 17.5rem) {
+  .simulation dd { overflow-wrap: anywhere; min-width: 0; }
+}
+
+/* 設定画面の見出し（2026-11-01 監査 4-8）。 */
+.simulation__settings-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text);
+}

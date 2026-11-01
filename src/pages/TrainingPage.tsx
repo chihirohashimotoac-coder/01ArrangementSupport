@@ -7,9 +7,10 @@ import { Accordion } from '../components/ui/Accordion';
 import { Meter, RingGauge, StackedBar } from '../components/ui/Infographic';
 import { RollingNumber } from '../components/ui/Kinetic';
 import { ConfirmDialog } from '../components/ui/Modal';
+import { announce } from '../components/liveAnnouncement';
 import { RadioGroup } from '../components/ui/RadioGroup';
 import { Select } from '../components/ui/Select';
-import { requireDart, type Dart } from '../domain/dart';
+import { findDart, requireDart, type Dart } from '../domain/dart';
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
 import {
   DEFAULT_TRAINING_SETTINGS,
@@ -33,6 +34,13 @@ import {
   type TrainingHistory,
   type TrainingRecord,
 } from '../storage/trainingHistory';
+import {
+  clearTrainingSession,
+  loadTrainingSession,
+  saveTrainingSession,
+  type SavedTrainingSession,
+  type TrainingChunk,
+} from '../storage/sessionResume';
 import './TrainingPage.css';
 
 const MODE_LABEL: Record<TrainingMode, string> = {
@@ -118,14 +126,53 @@ interface SessionState {
    * （出題数・制限時間・追加生成のすべてでこちらを使う）。
    */
   readonly settings: TrainingSettings;
+  /** 出題を作り直すための生成条件（一時保存・再開に使う）。 */
+  readonly chunks: readonly TrainingChunk[];
 }
 
 export interface TrainingPageProps {
   /** パンくずリストへ、いまの状況（「3 / 10 問目」）を知らせる。表示専用。 */
   readonly onContextChange?: (label: string | null) => void;
+  /** 出題中かどうか（更新バナーが確認を出すため）。 */
+  readonly onSessionActiveChange?: (active: boolean) => void;
 }
 
-export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
+/** 生成条件から、保存前と同じ出題列を作り直す（同じ seed からは同じ並びになる）。 */
+function rebuildQuestions(
+  settings: TrainingSettings,
+  chunks: readonly TrainingChunk[],
+): TrainingQuestion[] {
+  let questions: TrainingQuestion[] = [];
+  chunks.forEach((chunk, index) => {
+    const more = generateQuestions({
+      settings,
+      seed: chunk.seed,
+      reviewTargets: chunk.reviewTargets,
+      count: chunk.count,
+      ...(index === 0 ? {} : { recentHistory: recentTailOf(questions, 5) }),
+    });
+    questions = [...questions, ...more];
+  });
+  return questions;
+}
+
+/** 出題中の設定の 1 行要約。 */
+function settingsSummaryOf(settings: TrainingSettings): string {
+  const range =
+    settings.mode === 'setup'
+      ? `${settings.setupRange.min}〜${settings.setupRange.max}`
+      : settings.mode === 'mixed'
+        ? `${settings.checkoutRange.min}〜${settings.checkoutRange.max} / ${settings.setupRange.min}〜${settings.setupRange.max}`
+        : `${settings.checkoutRange.min}〜${settings.checkoutRange.max}`;
+  const count = settings.questionCount === null ? '無限' : `${settings.questionCount}問`;
+  const time = settings.timeLimitSeconds === null ? '' : `・${settings.timeLimitSeconds}秒`;
+  return `${MODE_LABEL[settings.mode]}・${range}・${count}${time}`;
+}
+
+const scrollBehavior = (): ScrollBehavior =>
+  (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false) ? 'auto' : 'smooth';
+
+export function TrainingPage({ onContextChange, onSessionActiveChange }: TrainingPageProps = {}) {
   const [settings, setSettings] = useState<TrainingSettings>(DEFAULT_TRAINING_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [session, setSession] = useState<SessionState | null>(null);
@@ -135,7 +182,17 @@ export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
   const [history, setHistory] = useState<TrainingHistory>(() => loadHistory());
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  /** 出題中に「設定を変えてやり直す」を押したときの確認。 */
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  /** 前回の途中経過（開いたときに 1 度だけ読む）。 */
+  const [resumable, setResumable] = useState<SavedTrainingSession | null>(() =>
+    loadTrainingSession(),
+  );
   const startedAt = useRef<number>(0);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const resultRef = useRef<HTMLElement | null>(null);
+  /** 出題の先頭へ移動する予約（開始・次の問題・再開のとき）。 */
+  const scrollToStage = useRef(false);
 
   const stats = useMemo(() => computeStats(history), [history]);
   const question = session ? (session.questions[session.index] ?? null) : null;
@@ -161,13 +218,15 @@ export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
   const aimNumberPrefix = question?.format === 'setup-first-dart' ? 'T' : 'S';
 
   const startSession = useCallback((nextSettings: TrainingSettings) => {
-    const questions = generateQuestions({
-      settings: nextSettings,
+    const chunk: TrainingChunk = {
       seed: Date.now() % 2147483647,
       reviewTargets: reviewTargetsOf(computeStats(loadHistory())),
       count: nextSettings.questionCount ?? 10,
-    });
-    setSession({ questions, index: 0, settings: nextSettings });
+    };
+    const questions = generateQuestions({ settings: nextSettings, ...chunk });
+    setSession({ questions, index: 0, settings: nextSettings, chunks: [chunk] });
+    setResumable(null);
+    scrollToStage.current = true;
     setAnswer([]);
     setResult(null);
     setFeedback(null);
@@ -230,14 +289,22 @@ export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
       // 無限モードでは追加生成する（開始時の設定で生成する）。
       // 直前 chunk の末尾 5 問を渡し、chunk 境界で同じ問題が続かないようにする。
       if (current.settings.questionCount === null) {
-        const more = generateQuestions({
-          settings: current.settings,
+        const chunk: TrainingChunk = {
           seed: Date.now() % 2147483647,
           reviewTargets: reviewTargetsOf(computeStats(loadHistory())),
           count: 10,
+        };
+        const more = generateQuestions({
+          settings: current.settings,
+          ...chunk,
           recentHistory: recentTailOf(current.questions, 5),
         });
-        return { ...current, questions: [...current.questions, ...more], index: nextIndex };
+        return {
+          ...current,
+          questions: [...current.questions, ...more],
+          index: nextIndex,
+          chunks: [...current.chunks, chunk],
+        };
       }
       return { ...current, index: nextIndex };
     });
@@ -246,9 +313,94 @@ export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
     setFeedback(null);
     startedAt.current = performance.now();
     setRemainingSeconds(session?.settings.timeLimitSeconds ?? null);
+    scrollToStage.current = true;
   }, [session]);
 
+  /**
+   * 前回の途中経過から再開する。出題は保存した生成条件から作り直し、
+   * 採点済みだった問題は結果だけを出し直す（学習履歴へは二重に記録しない）。
+   * 作り直せないデータは捨てる。
+   */
+  const resumeSession = useCallback(() => {
+    const saved = resumable;
+    setResumable(null);
+    if (saved === null) return;
+    try {
+      const questions = rebuildQuestions(saved.settings, saved.chunks);
+      const current = questions[saved.index];
+      const darts = saved.answer.map((id) => findDart(id));
+      if (current === undefined || darts.some((dart) => dart === undefined)) {
+        clearTrainingSession();
+        return;
+      }
+      const answerDarts = darts as Dart[];
+      setSettings(saved.settings);
+      setSession({ questions, index: saved.index, settings: saved.settings, chunks: saved.chunks });
+      setAnswer(answerDarts);
+      if (saved.answered) {
+        const graded = gradeAnswer(current, answerDarts);
+        setResult(graded);
+        setFeedback(buildFeedback(current, answerDarts, graded));
+      } else {
+        setResult(null);
+        setFeedback(null);
+      }
+      startedAt.current = performance.now();
+      setRemainingSeconds(saved.remainingSeconds);
+      scrollToStage.current = true;
+    } catch {
+      clearTrainingSession();
+    }
+  }, [resumable]);
+
+  const discardResumable = useCallback(() => {
+    setResumable(null);
+    clearTrainingSession();
+  }, []);
+
   const finished = session !== null && question === null && session.questions.length > 0;
+
+  /*
+   * 出題中は途中経過を一時保存する（「戻る」や更新で消えないように）。
+   * 終わった・やめたセッションは保存から消す。
+   */
+  useEffect(() => {
+    if (session === null) return;
+    if (question === null) {
+      clearTrainingSession();
+      return;
+    }
+    saveTrainingSession({
+      settings: session.settings,
+      chunks: session.chunks,
+      index: session.index,
+      answer: answer.map((dart) => dart.id),
+      answered: result !== null,
+      remainingSeconds,
+    });
+  }, [session, question, answer, result, remainingSeconds]);
+
+  const active = question !== null;
+  useEffect(() => {
+    onSessionActiveChange?.(active);
+  }, [active, onSessionActiveChange]);
+  useEffect(() => () => onSessionActiveChange?.(false), [onSessionActiveChange]);
+
+  /* 出題の先頭（StatusBar）へ移動する。開始・次の問題・再開のとき。 */
+  useEffect(() => {
+    if (!scrollToStage.current || question === null) return;
+    scrollToStage.current = false;
+    stageRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+  }, [question]);
+
+  /* 回答したら判定へ移動し、判定を読み上げる（2026-11-01 監査 D-M5）。 */
+  useEffect(() => {
+    if (feedback !== null) announce(feedback.verdictJa);
+  }, [feedback]);
+  useEffect(() => {
+    if (result === null) return;
+    resultRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+  }, [result]);
   // 出題できない設定（例: RECOVERY で 2〜3 の範囲）を、開始前に伝える。
   const unusableSettings = !canGenerateQuestions(settings);
   const emptySession = session !== null && session.questions.length === 0;
@@ -268,6 +420,55 @@ export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
 
   return (
     <div className="training">
+      <h1 className="visually-hidden">TRAINING</h1>
+      {resumable !== null && session === null && (
+        <section className="training__resume" data-testid="training-resume" aria-label="前回の続き">
+          <p className="training__resume-text">
+            前回のトレーニングの続きがあります（{settingsSummaryOf(resumable.settings)}・
+            {resumable.index + 1} 問目）。
+          </p>
+          <div className="training__resume-actions">
+            <button
+              type="button"
+              className="training__resume-apply"
+              data-testid="training-resume-apply"
+              onClick={resumeSession}
+            >
+              続きから再開する
+            </button>
+            <button
+              type="button"
+              className="training__resume-discard"
+              data-testid="training-resume-discard"
+              onClick={discardResumable}
+            >
+              破棄する
+            </button>
+          </div>
+        </section>
+      )}
+
+      {active && session !== null ? (
+        /*
+         * 出題中は設定パネルを 1 行の要約にたたむ（360 × 780 で問題・盤面・回答欄を 1 画面に収める）。
+         * やり直しは控えめなボタンにし、押したら確認を出す（押し間違いでセッションを失わない）。
+         */
+        <section
+          className="training__summary"
+          data-testid="training-settings-summary"
+          aria-label="トレーニング設定"
+        >
+          <p className="training__summary-text">{settingsSummaryOf(session.settings)}</p>
+          <button
+            type="button"
+            className="training__summary-restart"
+            data-testid="training-restart"
+            onClick={() => setConfirmRestart(true)}
+          >
+            設定を変えてやり直す
+          </button>
+        </section>
+      ) : (
       <section className="training__setup" aria-label="トレーニング設定">
         <div className="training__modes" role="group" aria-label="モード">
           {(Object.keys(MODE_LABEL) as TrainingMode[]).map((mode) => (
@@ -439,28 +640,49 @@ export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
           onClick={() => startSession(settings)}
           disabled={unusableSettings}
         >
-          {session === null ? 'トレーニングを始める' : 'この設定でやり直す'}
+          {session === null ? 'トレーニングを始める' : 'この設定でもう一度始める'}
         </button>
       </section>
+      )}
+
+      <ConfirmDialog
+        open={confirmRestart}
+        title="いまのトレーニングを終了しますか？"
+        confirmLabel="終了して設定に戻る"
+        onConfirm={() => {
+          setConfirmRestart(false);
+          setSession(null);
+          setAnswer([]);
+          setResult(null);
+          setFeedback(null);
+          setRemainingSeconds(null);
+          clearTrainingSession();
+        }}
+        onCancel={() => setConfirmRestart(false)}
+        testId="training-restart-confirm"
+      >
+        <p>ここまでに回答した問題は、学習履歴に残っています。</p>
+      </ConfirmDialog>
 
       {question && (
         /*
          * 出題中のまとまり。狭い画面では上から順に、広い画面では盤面を左、
          * 状況・回答・採点を右に置く（TrainingPage.css）。DOM の順序は変えない。
          */
-        <div className="training__stage">
+        <div className="training__stage" ref={stageRef}>
           <StatusBar
             remaining={question.currentRemaining}
             dartsLeft={question.visitDartsAvailable}
             note={question.promptJa}
           />
 
+          <div className="training__meta-row">
           {question.format === 'setup-first-dart' && (
             <p
               className="training__format-note"
               data-testid="training-first-dart-note"
             >
-              SETUP / FIRST DART — このラウンドの 1 投目だけを選びます。
+              SETUP / FIRST DART — 1 投目のナンバー
             </p>
           )}
 
@@ -469,9 +691,16 @@ export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
               className="training__format-note"
               data-testid="training-adjustment-note"
             >
-              SETUP / LAST DART — 最後の 1 投で狙うナンバーを選びます。
+              SETUP / LAST DART — 最後の 1 投のナンバー
             </p>
           )}
+
+          <p className="training__progress" data-testid="training-progress">
+            {session!.settings.questionCount === null
+              ? `${session!.index + 1} 問目`
+              : `${session!.index + 1} / ${session!.settings.questionCount} 問目`}
+          </p>
+          </div>
 
           {question.contextualThrows.length > 0 && (
             <section
@@ -485,7 +714,7 @@ export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
                   <dd data-testid="training-context-start">{question.startRemaining}</dd>
                 </div>
                 <div>
-                  <dt>ここまで（実際に入った的）</dt>
+                  <dt>ここまで</dt>
                   <dd data-testid="training-context-throws">
                     {question.contextualThrows.map((item) => item.actualDartId).join(' → ')}
                   </dd>
@@ -511,19 +740,6 @@ export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
             </p>
           )}
 
-          <p className="training__progress" data-testid="training-progress">
-            {session!.settings.questionCount === null
-              ? `${session!.index + 1} 問目`
-              : `${session!.index + 1} / ${session!.settings.questionCount} 問目`}
-          </p>
-
-          <p className="training__hint">
-            {question.format === 'setup-first-dart'
-              ? '1 投目に狙うナンバーのエリアをタップしてください。狙いどおりトリプルに入った場合と、同じナンバーのシングルへ落ちた場合の両方で採点します。'
-              : question.format === 'setup-adjustment'
-                ? '最後の 1 投で狙うナンバーのエリアをタップしてください。トリプルに入った場合と、シングルに入った場合の両方で採点します。'
-                : '狙う場所を順にタップしてください（「そこへ刺さった」ではなく「そこを狙う」という回答です）。'}
-          </p>
 
           <div className="training__board">
             {usesNumberPicker ? (
@@ -547,7 +763,17 @@ export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
                   if (answer.length >= question.dartsAvailable) return;
                   setAnswer((current) => [...current, segment.dart]);
                 }}
-                highlightedDartIds={answer.map((dart) => dart.id)}
+                /*
+                  採点後は、おすすめのルートを番号札つきで描き、自分の回答を点線の枠で重ねる。
+                  盤面は薄くしない（見比べるため。2026-11-01 監査 4-8）。
+                */
+                highlightedDartIds={
+                  feedback !== null && feedback.recommendedDartIds.length > 0
+                    ? feedback.recommendedDartIds
+                    : answer.map((dart) => dart.id)
+                }
+                answerDartIds={feedback !== null ? answer.map((dart) => dart.id) : undefined}
+                dimWhenDisabled={result === null}
                 disabled={result !== null || answer.length >= question.dartsAvailable}
                 disabledReason={
                   result !== null ? '採点済みです。' : '本数を使い切りました。回答するか、戻してください。'
@@ -592,8 +818,25 @@ export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
             </button>
           </div>
 
+          {/*
+            答え方の説明は回答欄の下へ置く（360 × 780 で問題・盤面・回答欄を 1 画面に収めるため。
+            2026-11-01 監査 U-H4）。
+          */}
+          <p className="training__hint">
+            {question.format === 'setup-first-dart'
+              ? '1 投目に狙うナンバーのエリアをタップしてください。狙いどおりトリプルに入った場合と、同じナンバーのシングルへ落ちた場合の両方で採点します。'
+              : question.format === 'setup-adjustment'
+                ? '最後の 1 投で狙うナンバーのエリアをタップしてください。トリプルに入った場合と、シングルに入った場合の両方で採点します。'
+                : '狙う場所を順にタップしてください（「そこへ刺さった」ではなく「そこを狙う」という回答です）。'}
+          </p>
+
+
           {result && feedback && (
-            <section className="training__result" data-testid="training-result" aria-live="polite">
+            <section
+              className="training__result"
+              data-testid="training-result"
+              ref={resultRef}
+            >
               {/* 1. 判定 */}
               <p
                 className={`training__verdict training__verdict--${

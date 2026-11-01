@@ -15,9 +15,15 @@
     <link rel="icon" type="image/png" sizes="48x48" href="%BASE_URL%icons/favicon-48.png" />
     <link rel="apple-touch-icon" href="%BASE_URL%icons/apple-touch-icon-180.png" />
     <script>
+      // 保存済みのテーマを描画前に当てる。ブラウザのバー（theme-color）も合わせ、
+      // Light の利用者が起動時に暗いバーを見ないようにする（2026-11-01 監査 4-8）。
       try {
         const preferences = JSON.parse(localStorage.getItem('oas.preferences.v1') ?? '{}');
-        document.documentElement.dataset.theme = preferences.theme === 'light' ? 'light' : 'dark';
+        const theme = preferences.theme === 'light' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = theme;
+        document
+          .querySelector('meta[name="theme-color"]')
+          ?.setAttribute('content', theme === 'light' ? '#e7e9ec' : '#15181b');
       } catch {
         document.documentElement.dataset.theme = 'dark';
       }

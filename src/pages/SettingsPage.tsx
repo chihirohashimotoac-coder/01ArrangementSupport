@@ -1,8 +1,8 @@
 import { usePreferences } from '../hooks/usePreferences';
 import { SELECTABLE_FINISH_TARGETS } from '../storage/preferences';
 import { DOUBLE_QUALITY } from '../data/rankingRules';
-import type { KeyboardEvent } from 'react';
 import type { Theme } from '../storage/preferences';
+import { RadioGroup } from '../components/ui/RadioGroup';
 import './SettingsPage.css';
 
 /**
@@ -39,15 +39,6 @@ export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
     setPreferredDoubles(next);
   };
 
-  const moveTheme = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
-    event.preventDefault();
-    const delta = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1;
-    const next = THEMES[(index + delta + THEMES.length) % THEMES.length];
-    onThemeChange(next.id);
-    document.getElementById(`theme-${next.id}`)?.focus();
-  };
-
   return (
     <div className="settings">
       <section className="settings__section settings__section--theme">
@@ -55,26 +46,29 @@ export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
           <h2>テーマ</h2>
           <p className="settings__note">利用環境に合わせて画面の明るさを選べます。</p>
         </div>
-        <div className="settings__theme" role="radiogroup" aria-label="カラーテーマ">
-          {THEMES.map((option, index) => (
-            <button
-              key={option.id}
-              id={`theme-${option.id}`}
-              type="button"
-              role="radio"
-              aria-checked={theme === option.id}
-              data-testid={`theme-${option.id}`}
-              onClick={() => onThemeChange(option.id)}
-              onKeyDown={(event) => moveTheme(event, index)}
-            >
-              <span className={`settings__theme-swatch settings__theme-swatch--${option.id}`} />
-              <span>
+        {/*
+          テーマの切り替えは、メニューと同じ標準のラジオ（RadioGroup）にそろえる
+          （2026-11-01 監査 4-8。以前は独自の role="radio" ボタンで、方式が 2 つあった）。
+        */}
+        <RadioGroup<Theme>
+          legend="カラーテーマ"
+          hideLegend
+          variant="cards"
+          className="settings__theme"
+          value={theme}
+          onChange={onThemeChange}
+          options={THEMES.map((option) => ({
+            value: option.id,
+            testId: `theme-${option.id}`,
+            label: (
+              <span className="settings__theme-option">
+                <span className={`settings__theme-swatch settings__theme-swatch--${option.id}`} />
                 <strong>{option.label}</strong>
-                <small>{option.description}</small>
               </span>
-            </button>
-          ))}
-        </div>
+            ),
+            description: option.description,
+          }))}
+        />
       </section>
 
       <section className="settings__section">

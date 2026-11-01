@@ -112,7 +112,7 @@ test('129を2本から直接参照し、3本へ戻すと上がり候補へ切り
   await expect(page.getByTestId('next-visit-route')).toHaveCount(0);
 });
 
-test('最後の1本では実戦推奨を基準例より先に示し、残しを区別する', async ({ page }) => {
+test('最後の1本では答えを実戦推奨の1つに絞り、参考はたたむ', async ({ page }) => {
   await openSetup(page, 178);
   await page.getByRole('button', { name: '1本' }).click();
   const practical178 = page.getByTestId('practical-last-dart');
@@ -120,16 +120,23 @@ test('最後の1本では実戦推奨を基準例より先に示し、残しを�
   await expect(practical178).toContainText('124');
   await expect(practical178).toContainText('160');
   await expect(practical178).toContainText('次の3本で上がれる');
-  await expect(practical178).toContainText('基準例 S18 は通常のルート順位');
+  await expect(practical178).toContainText('参考の S18 は、狙い通りに入ったときの残しだけで選んだ例です');
+  await expect(practical178).not.toContainText('順位');
   await expect(practical178.locator('.route-card__reasons-inline li')).toHaveCount(2);
   await expect(page.getByTestId('setup-routes')).toContainText('基準評価');
   await expect(page.getByText(/基準評価は通常のSETUP順位/)).toBeVisible();
+  // 参考（S18）はたたんであり、開くと見える（2026-11-01 監査 U-M4）。
+  const reference178 = page.getByTestId('practical-reference');
+  await expect(reference178).not.toHaveAttribute('open', '');
+  await expect(page.getByTestId('standard-route')).toBeHidden();
+  await reference178.locator('summary').click();
   const baseline178 = page.getByTestId('standard-route');
-  await expect(baseline178).toContainText('基準例');
+  await expect(baseline178).toBeVisible();
+  await expect(baseline178).toContainText('参考');
   await expect(baseline178).toContainText('S18');
   expect(await practical178.evaluate((item, baseline) =>
     Boolean(item.compareDocumentPosition(document.querySelector(baseline)!) & Node.DOCUMENT_POSITION_FOLLOWING),
-  '[data-testid="standard-route"]')).toBe(true);
+  '[data-testid="practical-reference"]')).toBe(true);
 
   await openCheckout(page, 99);
   await page.getByRole('button', { name: '1本' }).click();
@@ -138,7 +145,14 @@ test('最後の1本では実戦推奨を基準例より先に示し、残しを�
   await expect(practical99).toContainText('残り 39');
   await expect(practical99).toContainText('残り 79');
   await expect(practical99.locator('.route-card__darts [data-dart="T20"]')).toHaveCount(1);
-  await expect(page.getByTestId('next-visit-route')).toContainText('基準例');
+  // 「上がれません」は答えより先に出す。
+  const cannot = page.getByTestId('no-routes');
+  await expect(cannot).toBeVisible();
+  expect(await cannot.evaluate((item) =>
+    Boolean(item.compareDocumentPosition(document.querySelector('[data-testid="practical-last-dart"]')!) & Node.DOCUMENT_POSITION_FOLLOWING),
+  )).toBe(true);
+  await page.getByTestId('practical-reference').locator('summary').click();
+  await expect(page.getByTestId('next-visit-route')).toContainText('参考');
 });
 
 test('320pxでも残りダーツ操作が収まり、押せる幅を保つ', async ({ page }) => {
@@ -353,7 +367,7 @@ test('MY ROUTE の設定がリロード後も残る', async ({ page }) => {
 test('Light / Dark テーマを切り替え、リロード後も復元する', async ({ page }) => {
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
-  await expect(page.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByTestId('theme-dark')).toBeChecked();
 
   await page.getByTestId('theme-light').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
@@ -368,7 +382,7 @@ test('Light / Dark テーマを切り替え、リロード後も復元する', a
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
-  await expect(page.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByTestId('theme-light')).toBeChecked();
 
   await page.getByTestId('theme-dark').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -576,11 +590,11 @@ test('v1.2: 盤面が開いているときは、チップを押しても画面�
 test('v1.2: LEFT の blur で予約された移動は、実戦入力を開いた時点で取り消す', async ({ page }) => {
   await page.getByTestId('nav-checkout').click();
   await page.evaluate(() => {
-    const w = window as unknown as { __scrolls: number };
-    w.__scrolls = 0;
+    const w = window as unknown as { __scrolls: string[] };
+    w.__scrolls = [];
     const original = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = function patched(...args: unknown[]) {
-      w.__scrolls += 1;
+    Element.prototype.scrollIntoView = function patched(this: Element, ...args: unknown[]) {
+      w.__scrolls.push(this.id || this.className);
       return (original as (...a: unknown[]) => void).apply(this, args);
     };
   });
@@ -593,9 +607,12 @@ test('v1.2: LEFT の blur で予約された移動は、実戦入力を開いた
   await page.getByTestId('recovery-toggle').click();
   await expect(page.getByTestId('dartboard')).toBeVisible();
 
-  // 予約されていた 250ms 後の移動は起きない。
+  // 予約されていた 250ms 後の「答えへの移動」は起きない。
+  // 開いたときは盤面の先頭へ 1 回だけ移る（2026-11-01 監査 U-H1）。
   await page.waitForTimeout(500);
-  expect(await page.evaluate(() => (window as unknown as { __scrolls: number }).__scrolls)).toBe(0);
+  expect(await page.evaluate(() => (window as unknown as { __scrolls: string[] }).__scrolls)).toEqual([
+    'practice-recovery',
+  ]);
   await expect(page.getByTestId('dartboard')).toBeVisible();
 });
 

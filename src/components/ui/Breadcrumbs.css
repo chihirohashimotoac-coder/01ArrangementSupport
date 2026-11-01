@@ -37,11 +37,14 @@
 .breadcrumbs__current {
   display: inline-flex;
   align-items: center;
-  min-height: 1.75rem;
+  /* 押せる大きさは 44px 以上（2026-11-01 監査 4-8）。 */
+  min-height: 2.75rem;
   padding: 0 0.3rem;
   border-radius: var(--radius-xs);
 }
 .breadcrumbs__link {
+  min-width: 2.75rem;
+  justify-content: center;
   position: relative;
   color: var(--text-secondary);
   background: none;
@@ -70,4 +73,10 @@
 @keyframes crumb-in {
   from { opacity: 0; transform: translateX(-6px); }
   to { opacity: 1; transform: none; }
+}
+
+/* 狭い幅（200% 拡大など）では、横へはみ出さずに折り返す（2026-11-01 監査 D-M6）。 */
+@media (max-width: 22rem) {
+  .breadcrumbs__list { flex-wrap: wrap; white-space: normal; row-gap: 0.15rem; }
+  .breadcrumbs__item { min-width: 0; overflow-wrap: anywhere; }
 }

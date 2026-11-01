@@ -1,4 +1,6 @@
+import { useEffect, useRef } from 'react';
 import { RollingNumber } from './ui/Kinetic';
+import { announce } from './liveAnnouncement';
 import './StatusBar.css';
 
 export interface StatusBarProps {
@@ -26,6 +28,19 @@ export function StatusBar({
   tone = 'default',
 }: StatusBarProps) {
   const statusLabel = STATUS_LABEL[status];
+
+  /*
+   * BUST / CHECKOUT! になった瞬間だけ読み上げる（2026-11-01 監査 D-M5）。
+   * 見出しは表示と同時に出現するので、それ自体には live 領域を付けない。
+   */
+  const previousStatus = useRef(status);
+  useEffect(() => {
+    if (previousStatus.current === status) return;
+    previousStatus.current = status;
+    if (status === 'bust') announce(`BUST。${note ?? ''}`);
+    else if (status === 'checkout') announce('CHECKOUT! 上がりました。');
+  }, [status, note]);
+
   return (
     <div className={`status-bar status-bar--${tone}`} data-testid="status-bar" data-status={status}>
       <div className="status-bar__main">

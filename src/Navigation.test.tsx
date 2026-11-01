@@ -73,7 +73,7 @@ describe('ハンバーガーメニュー', () => {
     expect(screen.getByTestId('menu-theme-light')).toBeChecked();
 
     await user.click(screen.getByTestId('nav-settings'));
-    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-light')).toBeChecked();
   });
 });
 

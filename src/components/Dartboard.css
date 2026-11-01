@@ -1,4 +1,5 @@
 .dartboard {
+  position: relative;
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -59,7 +60,7 @@
 
 .dartboard__segment[data-focused='true'] {
   fill: var(--focus-fill);
-  stroke: #ffe1a6;
+  stroke: var(--focus-stroke);
   stroke-width: 4;
   paint-order: stroke;
 }
@@ -82,7 +83,7 @@
   }
 }
 
-.dartboard__svg[aria-disabled='true'] .dartboard__segment {
+.dartboard:not([data-dim='false']) .dartboard__svg[aria-disabled='true'] .dartboard__segment {
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -218,4 +219,90 @@
 }
 @keyframes target-flash {
   from { fill: var(--highlight-stroke); }
+}
+
+/* キーボードのフォーカス枠（最前面・黒と白の 2 重で、どの区画の色の上でも見える）。 */
+.dartboard__focus-ring path {
+  fill: none;
+  pointer-events: none;
+  stroke-linejoin: round;
+}
+
+.dartboard__focus-ring-outer {
+  stroke: #000;
+  stroke-width: 8;
+}
+
+.dartboard__focus-ring-inner {
+  stroke: #fff;
+  stroke-width: 3.5;
+}
+
+/* 狙う的: 白黒 2 重の太い縁と斜線（2026-11-01 監査 D-M3）。 */
+.dartboard__targets path { pointer-events: none; }
+.dartboard__target-edge-outer { fill: none; stroke: #000; stroke-width: 4.5; stroke-linejoin: round; }
+.dartboard__target-edge-inner { fill: none; stroke: #fff; stroke-width: 2; stroke-linejoin: round; }
+.dartboard__hatch-line { stroke: rgba(0, 0, 0, 0.35); stroke-width: 2.5; }
+
+/* 投げる順番の番号札。 */
+.dartboard__badge { pointer-events: none; }
+.dartboard__badge circle { fill: #000; stroke: #fff; stroke-width: 2; }
+.dartboard__badge text {
+  fill: #fff;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 800;
+  text-anchor: middle;
+}
+
+/*
+ * タッチで押しているあいだの拡大鏡（2026-11-01 監査 D-M2）。指で隠れないよう、指の上に出す。
+ * 動きは付けない（動きを減らす設定でもそのまま使える）。
+ */
+.dartboard__loupe {
+  position: absolute;
+  z-index: 5;
+  width: 7.5rem;
+  transform: translate(-50%, calc(-100% - 2.75rem));
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.dartboard__loupe-svg {
+  width: 7.5rem;
+  height: 7.5rem;
+  border-radius: 50%;
+  background: var(--board-surround, #111);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px #000, 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+.dartboard__loupe-cross {
+  stroke: #fff;
+  stroke-width: 0.8;
+  paint-order: stroke;
+  filter: drop-shadow(0 0 0.4px #000);
+}
+
+.dartboard__loupe-label {
+  padding: 0.15rem 0.5rem;
+  font-size: var(--text-sm);
+  font-weight: 800;
+  color: #fff;
+  background: #000;
+  border-radius: var(--radius-s);
+  white-space: nowrap;
+}
+
+/* 採点後の「自分の回答」: 点線の白い枠（おすすめの斜線・番号札と見分ける）。 */
+.dartboard__answer {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+  filter: drop-shadow(0 0 1px #000);
 }

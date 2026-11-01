@@ -99,11 +99,11 @@
 .settings__theme button > span:last-child { min-width: 0; display: flex; flex-direction: column; }
 .settings__theme strong { font-size: var(--text-md); font-weight: 700; }
 .settings__theme small {
-  overflow: hidden;
   font-size: var(--text-2xs);
-  color: var(--text-dim);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--text-secondary);
+  /* 省略せず、文節で折り返す（2026-11-01 監査 4-8）。 */
+  word-break: auto-phrase;
+  line-break: strict;
 }
 
 /* テーマの見本。実際の面の色（本体＋文字色）をそのまま小さく見せる。 */
@@ -114,8 +114,9 @@
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-xs);
 }
-.settings__theme-swatch--light { background: linear-gradient(135deg, #f6f7f8 0 50%, #15181b 50% 100%); }
-.settings__theme-swatch--dark { background: linear-gradient(135deg, #1c2024 0 50%, #eeece7 50% 100%); }
+/* テーマの見本は、それぞれのテーマの面と文字の色（実際の値。テーマに依存しないので直書きのままにし、トークン名を添える）。 */
+.settings__theme-swatch--light { background: linear-gradient(135deg, #f6f7f8 0 50%, #15181b 50% 100%); } /* light --surface / --text */
+.settings__theme-swatch--dark { background: linear-gradient(135deg, #1c2024 0 50%, #eeece7 50% 100%); } /* dark --surface / --text */
 
 /* --- 得意ダブル ------------------------------------------------------------ */
 
@@ -223,4 +224,11 @@
   .settings__ranked li { grid-template-columns: 1.4rem 2.8rem 1fr; }
   .settings__reason { display: none; }
   .settings__move { grid-column: 1 / -1; justify-content: flex-end; }
+}
+
+/* テーマの選択肢（標準のラジオ + 見本）。 */
+.settings__theme-option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
 }

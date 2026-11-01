@@ -51,18 +51,32 @@ describe('バージョン履歴', () => {
     expect(items.length).toBeGreaterThan(1);
   });
 
-  it('最新の履歴は v1.6.0（メニュー・パンくず・例題カルーセルと動き）', async () => {
+  it('最新の履歴は v1.7.0（「戻る」と途中保存、実戦入力と TRAINING を 1 画面で）', async () => {
     const user = userEvent.setup();
     render(<App />);
     await openVersionHistory(user);
 
     const latest = screen.getAllByTestId('version-history-item')[0];
-    expect(latest).toHaveTextContent('v1.6.0');
+    expect(latest).toHaveTextContent('v1.7.0');
     expect(latest).toHaveTextContent('現在');
-    expect(latest.textContent ?? '').toMatch(/メニュー/);
-    expect(latest.textContent ?? '').toMatch(/例題で見る/);
+    expect(latest.textContent ?? '').toMatch(/戻る/);
+    expect(latest.textContent ?? '').toMatch(/続きから再開する/);
     // 計算・採点を変えていないことを利用者へ明示する。
     expect(latest.textContent ?? '').toMatch(/推奨・採点・計算は変更していません/);
+  });
+
+  it('v1.6.0（メニュー・パンくず・例題カルーセルと動き）の履歴は残り、現在版ではなくなっている', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openVersionHistory(user);
+
+    const item = screen
+      .getAllByTestId('version-history-item')
+      .find((element) => element.textContent?.includes('v1.6.0'));
+    expect(item).toBeDefined();
+    expect(item!.textContent ?? '').toMatch(/例題で見る/);
+    // 「現在」の札は付かない（本文の「現在地」とは別）。
+    expect(item!.querySelector('.version-history__badge')).toBeNull();
   });
 
   it('v1.5.0（画面デザインの全面刷新）の履歴は残り、現在版ではなくなっている', async () => {

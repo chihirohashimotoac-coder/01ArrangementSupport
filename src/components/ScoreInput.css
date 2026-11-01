@@ -94,3 +94,43 @@
   font-weight: 600;
   color: var(--negative);
 }
+
+/* 範囲外の値を、もう一方のモードへ案内する（250 を CHECKOUT に入れたら SETUP へ）。 */
+.score-input__redirect {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.score-input__redirect-text {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.score-input__redirect-action {
+  min-height: 2.75rem;
+  padding: 0 var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-s);
+}
+
+/*
+ * 着弾の入力中は、上部の入力欄を「ラウンド開始の残り」として控えめに見せる。
+ * 主役は盤面の上の「いまの残り・本数」と、画面下の NEXT。
+ */
+.score-input--compact .score-input__field {
+  min-height: 3rem;
+}
+
+.score-input--compact .score-input__input {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  text-align: left;
+}

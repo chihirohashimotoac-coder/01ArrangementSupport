@@ -556,8 +556,8 @@
 .training__context {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-m);
@@ -566,8 +566,9 @@
 .training__context dl {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
-  gap: var(--space-2) var(--space-3);
+  /* 開始・ここまで・現在・残りを 1 行に並べる（問題文と同じ内容なので高さを取らない）。 */
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: var(--space-1) var(--space-3);
 }
 
 .training__context dl div {
@@ -584,7 +585,7 @@
 
 .training__context dd {
   margin: 0;
-  font-size: var(--text-lg);
+  font-size: var(--text-md);
   font-weight: 800;
   font-stretch: var(--stretch-numeral);
   font-variant-numeric: tabular-nums;
@@ -713,4 +714,82 @@
 @media (max-width: 47.99rem) {
   .training__overview { grid-template-columns: minmax(0, 1fr); justify-items: center; }
   .training__overview dl { width: 100%; }
+}
+
+/* 前回の続き（一時保存からの再開）。 */
+.training__resume,
+.training__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+}
+
+.training__resume-text,
+.training__summary-text {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.training__resume-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.training__resume-apply {
+  min-height: var(--tap);
+  padding: 0 var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+/* 出題中の「やり直す」は枠だけの控えめなボタン（押したら確認を出す）。 */
+.training__resume-discard,
+.training__summary-restart {
+  min-height: var(--tap);
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+/* 出題形式と問題番号を 1 行にまとめる。 */
+.training__meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+}
+
+/* 1 行に収める（狭い幅で形式名が折り返して盤面を押し下げないように）。 */
+.training__meta-row .training__format-note,
+.training__meta-row .training__progress {
+  white-space: nowrap;
+}
+
+/* 狭い画面では、問題・盤面・回答欄を 1 画面に収めるため間隔を詰める（360 × 780 で確認）。 */
+@media (max-width: 30rem) {
+  .training__stage {
+    gap: var(--space-2);
+  }
 }

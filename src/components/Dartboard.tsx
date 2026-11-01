@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { SEGMENTS, type SegmentDefinition } from '../domain/segments';
 import {
   RADII,
@@ -6,6 +6,7 @@ import {
   buildNumberLabelPositions,
   buildSegmentPath,
   buildWedgeAreas,
+  segmentCenter,
   buildWireLines,
 } from '../geometry/dartboardGeometry';
 import './Dartboard.css';
@@ -54,6 +55,13 @@ export interface DartboardProps {
   ariaLabel?: string;
   /** 盤面へ重ねる印（狙い・着弾）。 */
   markers?: readonly BoardMarker[];
+  /**
+   * 採点後に重ねる「自分の回答」（点線の枠）。highlightedDartIds（おすすめ・番号札つき）と
+   * 見分けられるように別の表現で描く（2026-11-01 監査 4-8）。
+   */
+  answerDartIds?: readonly string[];
+  /** 操作できないときに盤面を薄くするか（採点後に見比べる場面では薄くしない）。 */
+  dimWhenDisabled?: boolean;
 }
 
 const SEGMENT_PATHS: ReadonlyArray<{ segment: SegmentDefinition; d: string }> = SEGMENTS.map(
@@ -64,6 +72,56 @@ const NUMBER_LABELS = buildNumberLabelPositions();
 const WIRE_LINES = buildWireLines();
 const WEDGE_AREAS = buildWedgeAreas();
 
+/*
+ * キーボード操作（2026-11-01 監査 D-M4）。
+ *
+ * 盤面全体を Tab 1 か所にまとめ（roving tabindex）、中は矢印キーで移る。
+ *   ← / → : 隣のナンバー（同じリング）。BULL では何もしない
+ *   ↑ / ↓ : 外側 / 内側のリング（D-BULL → S-BULL → 内側シングル → トリプル → 外側シングル → ダブル → MISS）
+ */
+const RING_ORDER = ['inner-bull', 'outer-bull', 'inner-single', 'triple', 'outer-single', 'double', 'miss'] as const;
+const SEGMENT_BY_ID = new Map(SEGMENTS.map((segment) => [segment.id, segment]));
+const RING_INDEX_NUMBER = new Map(
+  SEGMENTS.filter((segment) => segment.index !== null).map((segment) => [
+    `${segment.ring}/${segment.index}`,
+    segment.id,
+  ]),
+);
+const DEFAULT_SEGMENT_ID = 'segment-t20';
+
+/** 番号札を置く区画（シングルは外側のシングルを代表にする）。 */
+const BADGE_SEGMENT_BY_DART = new Map(
+  SEGMENTS.filter((segment) => segment.ring !== 'inner-single' && segment.ring !== 'miss').map(
+    (segment) => [segment.dart.id, segment],
+  ),
+);
+
+function segmentAt(ring: (typeof RING_ORDER)[number], index: number): string {
+  if (ring === 'inner-bull') return 'segment-inner-bull';
+  if (ring === 'outer-bull') return 'segment-outer-bull';
+  if (ring === 'miss') return 'segment-miss';
+  return RING_INDEX_NUMBER.get(`${ring}/${index}`) ?? DEFAULT_SEGMENT_ID;
+}
+
+/** 矢印キーで移る先の区画。動かないキーなら null。 */
+function nextSegmentId(currentId: string, key: string, lastIndex: number): string | null {
+  const current = SEGMENT_BY_ID.get(currentId);
+  if (current === undefined) return null;
+  const ringIndex = RING_ORDER.indexOf(current.ring as (typeof RING_ORDER)[number]);
+  const index = current.index ?? lastIndex;
+  const count = 20;
+  if (key === 'ArrowRight' || key === 'ArrowLeft') {
+    if (current.index === null) return null;
+    const step = key === 'ArrowRight' ? 1 : -1;
+    return segmentAt(current.ring as (typeof RING_ORDER)[number], (index + step + count) % count);
+  }
+  if (key === 'ArrowUp' || key === 'ArrowDown') {
+    const nextRing = RING_ORDER[ringIndex + (key === 'ArrowUp' ? 1 : -1)];
+    return nextRing === undefined ? null : segmentAt(nextRing, index);
+  }
+  return null;
+}
+
 function DartboardComponent({
   onSelect,
   wedgeSelection,
@@ -73,16 +131,131 @@ function DartboardComponent({
   disabledReason,
   ariaLabel,
   markers,
+  answerDartIds,
+  dimWhenDisabled = true,
 }: DartboardProps) {
   const highlighted = useMemo(() => new Set(highlightedDartIds ?? []), [highlightedDartIds]);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  /** Tab で止まる 1 か所（roving tabindex）。 */
+  const [activeId, setActiveId] = useState(DEFAULT_SEGMENT_ID);
+  /** ナンバーの位置を覚えておき、BULL から外へ戻るときに元のナンバーへ戻る。 */
+  const lastIndex = useRef(0);
+  /** キーボードでフォーカスしている区画（最前面に輪郭を描く）。 */
+  const [keyboardFocusId, setKeyboardFocusId] = useState<string | null>(null);
+  const [activeWedge, setActiveWedge] = useState(20);
+  /*
+   * タッチで押しているあいだの拡大鏡（2026-11-01 監査 D-M2）。
+   * 指を離したところの区画で確定する。マウスのクリックはこれまでどおり。
+   */
+  const [loupe, setLoupe] = useState<{ x: number; y: number; left: number; top: number; segmentId: string | null } | null>(null);
+  /** 拡大鏡で確定した直後の click（同じ操作から来る）を無視する。 */
+  const suppressClick = useRef(false);
+  const contentId = `dartboard-content-${useId().replace(/:/g, '')}`;
   const wedgeMode = wedgeSelection !== undefined;
   const interactive = !disabled && !wedgeMode && typeof onSelect === 'function';
   const wedgeInteractive = !disabled && wedgeMode;
 
+  const moveFocus = (event: KeyboardEvent<SVGPathElement>, currentId: string) => {
+    const next = nextSegmentId(currentId, event.key, lastIndex.current);
+    if (next === null) return;
+    event.preventDefault();
+    setActiveId(next);
+    svgRef.current?.querySelector<SVGPathElement>(`[data-testid="${next}"]`)?.focus();
+  };
+
+  const moveWedgeFocus = (event: KeyboardEvent<SVGPathElement>, current: number) => {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    event.preventDefault();
+    const order = WEDGE_AREAS.map((wedge) => wedge.value);
+    const position = order.indexOf(current);
+    const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1;
+    const next = order[(position + step + order.length) % order.length];
+    setActiveWedge(next);
+    svgRef.current?.querySelector<SVGPathElement>(`[data-wedge="${next}"]`)?.focus();
+  };
+
+  /*
+   * 投げる順番の番号札（2026-11-01 監査 D-M3）。同じ的を続けて狙うときは「1·2」のように並べる。
+   */
+  const orderBadges = (() => {
+    const ids = highlightedDartIds ?? [];
+    const byDart = new Map<string, number[]>();
+    ids.forEach((id, index) => byDart.set(id, [...(byDart.get(id) ?? []), index + 1]));
+    return [...byDart.entries()].flatMap(([dartId, orders]) => {
+      const segment = BADGE_SEGMENT_BY_DART.get(dartId);
+      if (segment === undefined) return [];
+      return [{ dartId, label: orders.join('·'), center: segmentCenter(segment) }];
+    });
+  })();
+
+  /** 指の位置の区画と、盤面座標。 */
+  const probe = (event: PointerEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    if (svg === null) return null;
+    const matrix = svg.getScreenCTM();
+    if (matrix === null) return null;
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    const element = document.elementFromPoint(event.clientX, event.clientY);
+    const path = element instanceof Element ? element.closest<SVGPathElement>('path[data-testid^="segment-"]') : null;
+    const bounds = svg.getBoundingClientRect();
+    return {
+      x: point.x,
+      y: point.y,
+      left: event.clientX - bounds.left,
+      top: event.clientY - bounds.top,
+      segmentId: path !== null && svg.contains(path) ? path.dataset.testid ?? null : null,
+    };
+  };
+
+  const loupeEnabled = interactive;
+  const onPointerDown = (event: PointerEvent<SVGSVGElement>) => {
+    if (!loupeEnabled || event.pointerType === 'mouse') return;
+    suppressClick.current = false;
+    setLoupe(probe(event));
+  };
+  const onPointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    if (loupe === null) return;
+    setLoupe(probe(event));
+  };
+  const onPointerUp = (event: PointerEvent<SVGSVGElement>) => {
+    if (loupe === null) return;
+    const final = probe(event);
+    setLoupe(null);
+    // 同じ操作から続けて来る click で二重に入力しない。
+    suppressClick.current = true;
+    window.setTimeout(() => {
+      suppressClick.current = false;
+    }, 500);
+    const segment = final?.segmentId ? SEGMENT_BY_ID.get(final.segmentId) : undefined;
+    if (segment !== undefined) {
+      setActiveId(segment.id);
+      onSelect?.(segment);
+    }
+  };
+  /* 画面のスクロールが始まったなどで取り消されたら、何も入力しない。 */
+  const onPointerCancel = () => setLoupe(null);
+
+  const loupeSegment = loupe?.segmentId ? SEGMENT_BY_ID.get(loupe.segmentId) : undefined;
+  const LOUPE_SPAN = 56;
+
+  const focusRingPath =
+    keyboardFocusId === null
+      ? null
+      : (SEGMENT_PATHS.find(({ segment }) => segment.id === keyboardFocusId)?.d ?? null);
+
   return (
-    <div className="dartboard" data-testid="dartboard" data-mode={wedgeMode ? 'wedge' : 'segment'}>
+    <div
+      className="dartboard"
+      data-dim={dimWhenDisabled ? undefined : 'false'}
+      data-testid="dartboard"
+      data-mode={wedgeMode ? 'wedge' : 'segment'}>
       <svg
         viewBox={VIEWBOX}
+        ref={svgRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
         className="dartboard__svg"
         role="group"
         aria-label={
@@ -91,6 +264,13 @@ function DartboardComponent({
         aria-disabled={disabled}
         xmlns="http://www.w3.org/2000/svg"
       >
+        <defs>
+          {/* 狙う的の斜線（色だけに頼らない印。2026-11-01 監査 D-M3）。 */}
+          <pattern id="dartboard-target-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="8" className="dartboard__hatch-line" />
+          </pattern>
+        </defs>
+        <g id={contentId}>
         <circle className="dartboard__backdrop" cx={0} cy={0} r={RADII.missOuter} />
 
         <g className="dartboard__segments" aria-hidden={wedgeMode ? true : undefined}>
@@ -110,19 +290,30 @@ function DartboardComponent({
               d={d}
               fillRule={segment.ring === 'miss' ? 'evenodd' : undefined}
               role={interactive ? 'button' : 'presentation'}
-              tabIndex={interactive ? 0 : -1}
+              tabIndex={interactive && segment.id === activeId ? 0 : -1}
               aria-label={segment.ariaLabel}
               aria-disabled={disabled}
               /* 入力は click のみで受ける。touchstart 併用は二重入力になるため使わない。 */
               onClick={() => {
-                if (interactive) onSelect?.(segment);
+                if (!interactive) return;
+                if (suppressClick.current) return;
+                setActiveId(segment.id);
+                onSelect?.(segment);
               }}
+              onFocus={(event) => {
+                setActiveId(segment.id);
+                if (segment.index !== null) lastIndex.current = segment.index;
+                setKeyboardFocusId(event.currentTarget.matches(':focus-visible') ? segment.id : null);
+              }}
+              onBlur={() => setKeyboardFocusId(null)}
               onKeyDown={(event) => {
                 if (!interactive) return;
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
                   onSelect?.(segment);
+                  return;
                 }
+                moveFocus(event, segment.id);
               }}
             />
           );
@@ -140,19 +331,22 @@ function DartboardComponent({
                 className="dartboard__wedge"
                 d={wedge.d}
                 role="button"
-                tabIndex={wedgeInteractive ? 0 : -1}
+                tabIndex={wedgeInteractive && wedge.value === activeWedge ? 0 : -1}
                 aria-label={wedgeSelection.ariaLabelOf?.(wedge.value) ?? `${wedge.value} のエリア`}
                 aria-pressed={wedgeSelection.selected === wedge.value}
                 aria-disabled={disabled}
                 onClick={() => {
                   if (wedgeInteractive) wedgeSelection.onSelect(wedge.value);
                 }}
+                onFocus={() => setActiveWedge(wedge.value)}
                 onKeyDown={(event) => {
                   if (!wedgeInteractive) return;
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
                     wedgeSelection.onSelect(wedge.value);
+                    return;
                   }
+                  moveWedgeFocus(event, wedge.value);
                 }}
               />
             ))}
@@ -178,6 +372,56 @@ function DartboardComponent({
             </text>
           ))}
         </g>
+
+        {/* 狙う的の斜線と、白黒 2 重の縁（色覚の違いがあっても見分けられるように）。 */}
+        {highlighted.size > 0 && (
+          <g className="dartboard__targets" aria-hidden="true">
+            {SEGMENT_PATHS.filter(({ segment }) => highlighted.has(segment.dart.id)).map(({ segment, d }) => (
+              <g key={segment.id}>
+                <path className="dartboard__target-edge-outer" d={d} />
+                <path className="dartboard__target-edge-inner" d={d} />
+                <path className="dartboard__target-hatch" d={d} fill="url(#dartboard-target-hatch)" />
+              </g>
+            ))}
+          </g>
+        )}
+
+        {answerDartIds !== undefined && answerDartIds.length > 0 && (
+          <g className="dartboard__answers" aria-hidden="true" data-testid="board-answers">
+            {SEGMENT_PATHS.filter(({ segment }) => answerDartIds.includes(segment.dart.id)).map(({ segment, d }) => (
+              <path key={segment.id} className="dartboard__answer" d={d} data-dart={segment.dart.id} />
+            ))}
+          </g>
+        )}
+
+        {orderBadges.length > 0 && (
+          <g className="dartboard__badges" aria-hidden="true">
+            {orderBadges.map((badge) => (
+              <g
+                key={badge.dartId}
+                className="dartboard__badge"
+                data-testid={`board-order-${badge.dartId}`}
+                transform={`translate(${badge.center.x} ${badge.center.y})`}
+              >
+                <circle r={badge.label.length > 1 ? 13 : 10} />
+                <text dy="0.35em">{badge.label}</text>
+              </g>
+            ))}
+          </g>
+        )}
+
+        </g>
+
+        {/*
+          キーボードでフォーカスしている区画の輪郭は、最前面の別レイヤーに描く
+          （区画自身の stroke は隣の区画に隠れてほぼ見えなかった。2026-11-01 監査 D-M4）。
+        */}
+        {focusRingPath !== null && (
+          <g className="dartboard__focus-ring" aria-hidden="true" data-testid="board-focus-ring">
+            <path className="dartboard__focus-ring-outer" d={focusRingPath} />
+            <path className="dartboard__focus-ring-inner" d={focusRingPath} />
+          </g>
+        )}
 
         {markers !== undefined && markers.length > 0 && (
           <g className="dartboard__markers">
@@ -207,6 +451,27 @@ function DartboardComponent({
           </g>
         )}
       </svg>
+
+      {loupe !== null && (
+        <div
+          className="dartboard__loupe"
+          data-testid="board-loupe"
+          aria-hidden="true"
+          style={{ left: loupe.left, top: loupe.top }}
+        >
+          <svg
+            viewBox={`${loupe.x - LOUPE_SPAN / 2} ${loupe.y - LOUPE_SPAN / 2} ${LOUPE_SPAN} ${LOUPE_SPAN}`}
+            className="dartboard__loupe-svg"
+          >
+            <use href={`#${contentId}`} />
+            <line x1={loupe.x - 4} y1={loupe.y} x2={loupe.x + 4} y2={loupe.y} className="dartboard__loupe-cross" />
+            <line x1={loupe.x} y1={loupe.y - 4} x2={loupe.x} y2={loupe.y + 4} className="dartboard__loupe-cross" />
+          </svg>
+          <span className="dartboard__loupe-label" data-testid="board-loupe-label">
+            {loupeSegment ? loupeSegment.ariaLabel.split('、')[0] : '盤の外'}
+          </span>
+        </div>
+      )}
 
       {disabled && disabledReason && (
         <p className="dartboard__disabled-reason" data-testid="board-disabled-reason">
