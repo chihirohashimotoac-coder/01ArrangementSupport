@@ -103,7 +103,9 @@
   color: var(--text-secondary);
 }
 .stacked-bar__legend li { display: inline-flex; align-items: baseline; gap: 0.35rem; }
-.stacked-bar__legend li[data-empty='true'] { opacity: 0.55; }
+/* 0 件は薄くせず、件数の色だけを落とす（文字のコントラストは 4.5:1 以上を保つ。2026-11-01 監査 4-8）。 */
+.stacked-bar__legend li[data-empty='true'] .stacked-bar__count { color: var(--text-secondary); }
+.stacked-bar__legend li[data-empty='true'] .stacked-bar__swatch { opacity: 0.4; }
 .stacked-bar__swatch { width: 0.55rem; height: 0.55rem; border-radius: 2px; background: var(--tone); align-self: center; }
 .stacked-bar__count { font-weight: 800; font-stretch: 80%; font-variant-numeric: tabular-nums; color: var(--text); }
 .stacked-bar__share { font-variant-numeric: tabular-nums; color: var(--text-dim); }

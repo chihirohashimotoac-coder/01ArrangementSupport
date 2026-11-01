@@ -55,6 +55,13 @@ export interface DartboardProps {
   ariaLabel?: string;
   /** 盤面へ重ねる印（狙い・着弾）。 */
   markers?: readonly BoardMarker[];
+  /**
+   * 採点後に重ねる「自分の回答」（点線の枠）。highlightedDartIds（おすすめ・番号札つき）と
+   * 見分けられるように別の表現で描く（2026-11-01 監査 4-8）。
+   */
+  answerDartIds?: readonly string[];
+  /** 操作できないときに盤面を薄くするか（採点後に見比べる場面では薄くしない）。 */
+  dimWhenDisabled?: boolean;
 }
 
 const SEGMENT_PATHS: ReadonlyArray<{ segment: SegmentDefinition; d: string }> = SEGMENTS.map(
@@ -124,6 +131,8 @@ function DartboardComponent({
   disabledReason,
   ariaLabel,
   markers,
+  answerDartIds,
+  dimWhenDisabled = true,
 }: DartboardProps) {
   const highlighted = useMemo(() => new Set(highlightedDartIds ?? []), [highlightedDartIds]);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -235,7 +244,11 @@ function DartboardComponent({
       : (SEGMENT_PATHS.find(({ segment }) => segment.id === keyboardFocusId)?.d ?? null);
 
   return (
-    <div className="dartboard" data-testid="dartboard" data-mode={wedgeMode ? 'wedge' : 'segment'}>
+    <div
+      className="dartboard"
+      data-dim={dimWhenDisabled ? undefined : 'false'}
+      data-testid="dartboard"
+      data-mode={wedgeMode ? 'wedge' : 'segment'}>
       <svg
         viewBox={VIEWBOX}
         ref={svgRef}
@@ -369,6 +382,14 @@ function DartboardComponent({
                 <path className="dartboard__target-edge-inner" d={d} />
                 <path className="dartboard__target-hatch" d={d} fill="url(#dartboard-target-hatch)" />
               </g>
+            ))}
+          </g>
+        )}
+
+        {answerDartIds !== undefined && answerDartIds.length > 0 && (
+          <g className="dartboard__answers" aria-hidden="true" data-testid="board-answers">
+            {SEGMENT_PATHS.filter(({ segment }) => answerDartIds.includes(segment.dart.id)).map(({ segment, d }) => (
+              <path key={segment.id} className="dartboard__answer" d={d} data-dart={segment.dart.id} />
             ))}
           </g>
         )}

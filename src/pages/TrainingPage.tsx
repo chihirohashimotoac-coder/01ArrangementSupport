@@ -420,6 +420,7 @@ export function TrainingPage({ onContextChange, onSessionActiveChange }: Trainin
 
   return (
     <div className="training">
+      <h1 className="visually-hidden">TRAINING</h1>
       {resumable !== null && session === null && (
         <section className="training__resume" data-testid="training-resume" aria-label="前回の続き">
           <p className="training__resume-text">
@@ -762,7 +763,17 @@ export function TrainingPage({ onContextChange, onSessionActiveChange }: Trainin
                   if (answer.length >= question.dartsAvailable) return;
                   setAnswer((current) => [...current, segment.dart]);
                 }}
-                highlightedDartIds={answer.map((dart) => dart.id)}
+                /*
+                  採点後は、おすすめのルートを番号札つきで描き、自分の回答を点線の枠で重ねる。
+                  盤面は薄くしない（見比べるため。2026-11-01 監査 4-8）。
+                */
+                highlightedDartIds={
+                  feedback !== null && feedback.recommendedDartIds.length > 0
+                    ? feedback.recommendedDartIds
+                    : answer.map((dart) => dart.id)
+                }
+                answerDartIds={feedback !== null ? answer.map((dart) => dart.id) : undefined}
+                dimWhenDisabled={result === null}
                 disabled={result !== null || answer.length >= question.dartsAvailable}
                 disabledReason={
                   result !== null ? '採点済みです。' : '本数を使い切りました。回答するか、戻してください。'

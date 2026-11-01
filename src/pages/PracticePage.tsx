@@ -660,6 +660,10 @@ export function PracticePage({
 
   return (
     <div className="practice">
+      {/* 見出し構造（2026-11-01 監査 4-8）。見た目はナビ・パンくずが担うので隠す。 */}
+      <h1 className="visually-hidden">
+        {mode === 'checkout' ? 'CHECKOUT（残り 2〜170）' : 'SETUP（残り 171〜350）'}
+      </h1>
       <section className="practice__controls" aria-label="残り点の設定">
         <ScoreInput
           label={entering ? 'ラウンド開始' : '残り点 LEFT'}

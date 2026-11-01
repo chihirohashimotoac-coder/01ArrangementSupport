@@ -238,6 +238,7 @@ export default function App() {
               type="button"
               data-testid={`nav-${item.id}`}
               aria-pressed={tab === item.id}
+              aria-current={tab === item.id ? 'page' : undefined}
               onClick={() => navigate(item.id)}
             >
               {item.label}

@@ -84,3 +84,34 @@ describe('D-M3 狙う的の明るさ', () => {
     expect(violations).toEqual([]);
   });
 });
+
+describe('4-8 見出し・現在地・採点後の盤面', () => {
+  it('CHECKOUT / TRAINING / SIMULATION に h1 があり、ナビの現在地に aria-current を付ける', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    for (const [nav, heading] of [
+      ['nav-checkout', /CHECKOUT/],
+      ['nav-training', /TRAINING/],
+      ['nav-simulation', /SIMULATION/],
+    ] as const) {
+      await user.click(screen.getByTestId(nav));
+      expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
+      expect(screen.getByTestId(nav)).toHaveAttribute('aria-current', 'page');
+    }
+    expect(screen.getByRole('heading', { level: 2, name: 'ゲームの設定' })).toBeInTheDocument();
+    expect(screen.getByTestId('nav-checkout')).not.toHaveAttribute('aria-current');
+  });
+
+  it('TRAINING の採点後は、おすすめを番号札つきで、自分の回答を点線の枠で描き、盤面を薄くしない', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-training'));
+    await user.click(screen.getByTestId('start-training'));
+    await user.click(screen.getByTestId('segment-miss'));
+    await user.click(screen.getByTestId('training-submit'));
+    const board = screen.getByTestId('dartboard');
+    expect(board).toHaveAttribute('data-dim', 'false');
+    expect(board.querySelectorAll('.dartboard__badge').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('board-answers').querySelector('[data-dart="MISS"]')).not.toBeNull();
+  });
+});

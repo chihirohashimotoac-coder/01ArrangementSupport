@@ -40,8 +40,9 @@
 .carousel__dot {
   display: inline-grid;
   place-items: center;
-  width: 2rem;
-  height: 2rem;
+  /* 押せる大きさは 44px 以上（2026-11-01 監査 4-8）。見た目の点の大きさは変えない。 */
+  width: 2.75rem;
+  height: 2.75rem;
   padding: 0;
   background: none;
   border: 0;

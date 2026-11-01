@@ -60,7 +60,7 @@
 
 .dartboard__segment[data-focused='true'] {
   fill: var(--focus-fill);
-  stroke: #ffe1a6;
+  stroke: var(--focus-stroke);
   stroke-width: 4;
   paint-order: stroke;
 }
@@ -83,7 +83,7 @@
   }
 }
 
-.dartboard__svg[aria-disabled='true'] .dartboard__segment {
+.dartboard:not([data-dim='false']) .dartboard__svg[aria-disabled='true'] .dartboard__segment {
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -295,4 +295,14 @@
   background: #000;
   border-radius: var(--radius-s);
   white-space: nowrap;
+}
+
+/* 採点後の「自分の回答」: 点線の白い枠（おすすめの斜線・番号札と見分ける）。 */
+.dartboard__answer {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+  filter: drop-shadow(0 0 1px #000);
 }

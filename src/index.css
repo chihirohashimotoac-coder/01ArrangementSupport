@@ -105,6 +105,7 @@
   --danger-soft: rgba(242, 139, 133, 0.12);
   /* 取り消せない操作の主ボタン（白文字で 4.5:1 以上）。 */
   --danger-solid: #b3261e;
+  --danger-contrast: #ffffff;
   /* モーダルの背面を沈める幕。 */
   --scrim: rgba(5, 7, 9, 0.62);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -143,6 +144,7 @@
   --highlight-fill: #9be3ff;
   --highlight-stroke: #8fd8fb;
   --focus-fill: #ffd75e;
+  --focus-stroke: #ffe1a6;
 }
 
 /* Light: Aluminum + ink. */
@@ -171,6 +173,7 @@
   --danger: #b0271f;
   --danger-soft: rgba(176, 39, 31, 0.08);
   --danger-solid: #a3231c;
+  --danger-contrast: #ffffff;
   --scrim: rgba(21, 24, 27, 0.42);
   --shadow-sm: 0 1px 2px rgba(21, 24, 27, 0.08);
   --shadow-md: 0 6px 18px rgba(21, 24, 27, 0.08);
@@ -206,6 +209,7 @@
   --highlight-fill: #9be3ff;
   --highlight-stroke: #b9ebff;
   --focus-fill: #ffd75e;
+  --focus-stroke: #ffe1a6;
 }
 
 * { box-sizing: border-box; }
@@ -275,4 +279,10 @@ p { text-wrap: pretty; }
     transition-duration: 0.01ms !important;
     transition-delay: 0s !important;
   }
+}
+
+/* 日本語は文節で折り返し、1 文字だけが次の行へ落ちないようにする（2026-11-01 監査 4-8）。 */
+body {
+  word-break: auto-phrase;
+  line-break: strict;
 }

@@ -1182,3 +1182,11 @@
 @media (max-width: 17.5rem) {
   .simulation dd { overflow-wrap: anywhere; min-width: 0; }
 }
+
+/* 設定画面の見出し（2026-11-01 監査 4-8）。 */
+.simulation__settings-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text);
+}

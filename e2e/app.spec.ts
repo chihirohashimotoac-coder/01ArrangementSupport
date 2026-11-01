@@ -367,7 +367,7 @@ test('MY ROUTE の設定がリロード後も残る', async ({ page }) => {
 test('Light / Dark テーマを切り替え、リロード後も復元する', async ({ page }) => {
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
-  await expect(page.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByTestId('theme-dark')).toBeChecked();
 
   await page.getByTestId('theme-light').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
@@ -382,7 +382,7 @@ test('Light / Dark テーマを切り替え、リロード後も復元する', a
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
-  await expect(page.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByTestId('theme-light')).toBeChecked();
 
   await page.getByTestId('theme-dark').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');

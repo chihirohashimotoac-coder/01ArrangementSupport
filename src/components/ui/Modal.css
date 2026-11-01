@@ -129,7 +129,7 @@
   border-color: var(--accent);
 }
 .modal__button--danger {
-  color: #fff;
+  color: var(--danger-contrast, #fff);
   background: var(--danger-solid);
   border-color: var(--danger-solid);
 }

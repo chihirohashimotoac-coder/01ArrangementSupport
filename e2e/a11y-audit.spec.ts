@@ -218,3 +218,24 @@ test.describe('D-M2: タッチの拡大鏡', () => {
     await expect(page.getByTestId('next-darts')).toHaveText('2');
   });
 });
+
+test('4-8: パンくず・カルーセルの点・参考資料のリンクは 44px 以上で押せる', async ({ page }) => {
+  const heightOf = (selector: string) =>
+    page.locator(selector).first().evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    });
+  const dot = await heightOf('.carousel__dot');
+  expect(dot.height).toBeGreaterThanOrEqual(44);
+  expect(dot.width).toBeGreaterThanOrEqual(44);
+
+  await page.getByTestId('nav-checkout').click();
+  await page.getByTestId('score-input').fill('103');
+  const crumb = await heightOf('[data-testid="crumb-home"]');
+  expect(crumb.height).toBeGreaterThanOrEqual(44);
+  expect(crumb.width).toBeGreaterThanOrEqual(44);
+
+  await page.goto('/#/references');
+  const link = await heightOf('.references__link');
+  expect(link.height).toBeGreaterThanOrEqual(44);
+});
