@@ -102,4 +102,49 @@ export function isSingleMissTenpaiSafe(
 /** テスト用にキャッシュを空にする。 */
 export function clearTenpaiCache(): void {
   reachCache.clear();
+  lastMissCache.clear();
+}
+
+/** その残りが次のラウンドのテンパイ（3 本以内で上がれる 170 以下）か。 */
+function isTenpaiLeave(leave: number): boolean {
+  return leave >= MIN_CHECKOUT && leave <= 170 && evaluateLeave(leave).checkoutable;
+}
+
+/**
+ * 狙い `dart` の縦ズレで入りうる点数（戦術 v2 / docs/APPROVALS.md A-29）。
+ * CHECKOUT の外れ判定と同じ boardAdjacency の考え方で、
+ *   T → 同じナンバーの S、D → 同じナンバーの S または盤外（0 点）、
+ *   S → 同じナンバーの T / D（抜け）、D-BULL → S-BULL。S-BULL は対象外。
+ */
+function verticalMissScoresOf(dart: Dart): readonly number[] {
+  if (dart.id === 'BULL') return [25];
+  if (dart.id === 'SB' || dart.baseNumber === null) return [];
+  const n = dart.baseNumber;
+  if (dart.kind === 'triple') return [n];
+  if (dart.kind === 'double') return [n, 0];
+  return [3 * n, 2 * n];
+}
+
+/** 最後の的ごとに、直前の残り（添字）→ 0 未計算 / 1 残らない / 2 残る。 */
+const lastMissCache = new Map<string, Uint8Array>();
+const LAST_MISS_CACHE_SIZE = 512;
+
+/**
+ * ビジット最後の 1 投が縦ズレしても、次のラウンドのテンパイが残るか（戦術 v2 / A-29）。
+ *
+ * @param before 最後の 1 投を投げる直前の残り
+ * @param dart 最後の 1 投で狙う的
+ */
+export function lastDartMissKeepsTenpai(before: number, dart: Dart): boolean {
+  let byBefore = lastMissCache.get(dart.id);
+  if (byBefore === undefined) {
+    byBefore = new Uint8Array(LAST_MISS_CACHE_SIZE);
+    lastMissCache.set(dart.id, byBefore);
+  }
+  const inRange = Number.isInteger(before) && before >= 0 && before < LAST_MISS_CACHE_SIZE;
+  if (inRange && byBefore[before] !== 0) return byBefore[before] === 2;
+  const misses = verticalMissScoresOf(dart);
+  const keeps = misses.length > 0 && misses.every((score) => isTenpaiLeave(before - score));
+  if (inRange) byBefore[before] = keeps ? 2 : 1;
+  return keeps;
 }

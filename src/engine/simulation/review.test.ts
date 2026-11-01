@@ -61,8 +61,9 @@ describe('最後の1本の実戦推奨とレビュー', () => {
     expect(checkout.checkoutRoutes[0].routeText).toBe('S9 → D16');
     expect(checkout.practicalLastDart).toBeNull();
 
+    // 戦術 v2（A-29）: 最後の 1 投の縦ズレでもテンパイが残る T18 → T20 → S18 が先頭。
     const setup = suggestFor(302, 3);
-    expect(setup.setupRoutes[0].routeText).toBe('T18 → S18 → T20');
+    expect(setup.setupRoutes[0].routeText).toBe('T18 → T20 → S18');
     expect(setup.practicalLastDart).toBeNull();
   });
 });
