@@ -3,6 +3,7 @@ import { Carousel, type CarouselSlide } from '../components/ui/Carousel';
 import { KineticText } from '../components/ui/Kinetic';
 import { ScoreMap } from '../components/ui/Infographic';
 import { Accordion } from '../components/ui/Accordion';
+import { ScoreInput } from '../components/ScoreInput';
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
 import { ROUTE_GRADE_LABEL_JA } from '../data/gradeLabels';
 import type { RouteGrade } from '../data/rankingRules';
@@ -29,6 +30,11 @@ export interface HomePageProps {
   readonly onSelect: (destination: HomeDestination) => void;
   /** 例題から、その残り点を入れた状態で CHECKOUT を開く。 */
   readonly onOpenCheckout: (remaining: number) => void;
+  /**
+   * ホーム先頭の入力欄から、残り点に応じて CHECKOUT（2〜170）/ SETUP（171〜350）を開く。
+   * 入力を終えた（Enter / Done・書き換えたあとの blur）ときだけ呼ぶ。
+   */
+  readonly onOpenRemaining?: (remaining: number) => void;
 }
 
 /**
@@ -126,8 +132,10 @@ const FAQ = [
   },
 ];
 
-export function HomePage({ modes, onSelect, onOpenCheckout }: HomePageProps) {
+export function HomePage({ modes, onSelect, onOpenCheckout, onOpenRemaining }: HomePageProps) {
   const examples = useIdleExamples();
+  /** 入力欄は親の値に追従する作りなので、打ち込み中の値はここで持つ。 */
+  const [quickValue, setQuickValue] = useState<number | null>(null);
 
   const slides: CarouselSlide[] = (examples ?? []).map((example) => ({
     id: String(example.left),
@@ -169,6 +177,21 @@ export function HomePage({ modes, onSelect, onOpenCheckout }: HomePageProps) {
 
   return (
     <div className="home">
+      {onOpenRemaining && (
+        <section className="home__quick" aria-label="残り点から開く" data-testid="home-quick">
+          <ScoreInput
+            label="残り点から開く"
+            hint={`2〜${MAX_CHECKOUT} は CHECKOUT・171〜${MAX_SETUP_REMAINING} は SETUP`}
+            placeholder="例 103"
+            min={2}
+            max={MAX_SETUP_REMAINING}
+            value={quickValue}
+            onChange={setQuickValue}
+            onCommit={onOpenRemaining}
+          />
+        </section>
+      )}
+
       <section className="home__hero" aria-labelledby="home-headline">
         <p className="home__eyebrow" aria-hidden="true">
           <span>STEEL DARTS</span>

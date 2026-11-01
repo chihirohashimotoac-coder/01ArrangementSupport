@@ -188,6 +188,11 @@ export interface PracticePageProps {
   readonly initialRemaining?: number | null;
   /** パンくずリストへ、いまの状況（「残り 103」）を知らせる。表示専用。 */
   readonly onContextChange?: (label: string | null) => void;
+  /**
+   * 範囲外の残り点を、もう一方のモードで開く（250 を CHECKOUT に入れたら SETUP へ）。
+   * モードごとに状態を持つ仕様はそのままで、その値を入れた状態で始め直す。
+   */
+  readonly onOpenOtherMode?: (mode: PracticeMode, remaining: number) => void;
 }
 
 export function PracticePage({
@@ -195,6 +200,7 @@ export function PracticePage({
   onModeChange,
   initialRemaining = null,
   onContextChange,
+  onOpenOtherMode,
 }: PracticePageProps) {
   const { preferences } = usePreferences();
   const [selectedDarts, setSelectedDarts] = useState<1 | 2 | 3>(3);
@@ -247,6 +253,7 @@ export function PracticePage({
   useEffect(() => () => onContextChange?.(null), [onContextChange]);
 
   const resultRef = useRef<HTMLDivElement | null>(null);
+  const scoreInputRef = useRef<HTMLInputElement | null>(null);
   const recoveryRef = useRef<HTMLElement | null>(null);
   const scrollTimer = useRef<number | null>(null);
   /** 実戦入力を開いたあと、描画が済んでから盤面まで移動するか。 */
@@ -516,6 +523,35 @@ export function PracticePage({
   }, [undo]);
 
   const copy = COPY[mode];
+  /** 着弾を入力している最中か（上部の入力欄を「ラウンド開始」として控えめに見せる）。 */
+  const entering = visit !== null && visit.status === 'in-progress' && visit.thrown.length > 0;
+  /** 範囲外の値を、もう一方のモードへ案内する。BUST の開始点入力（2〜350）では使わない。 */
+  const redirectOf = (value: number) => {
+    if (onOpenOtherMode === undefined) return null;
+    if (mode === 'checkout' && value > MAX_CHECKOUT && value <= MAX_SETUP_REMAINING) {
+      return {
+        message: `${value} は SETUP（171〜${MAX_SETUP_REMAINING}）で見られます。`,
+        actionLabel: 'SETUP で見る',
+        onSelect: () => onOpenOtherMode('setup', value),
+      };
+    }
+    if (mode === 'setup' && value >= 2 && value <= MAX_CHECKOUT) {
+      return {
+        message: `${value} は CHECKOUT（2〜${MAX_CHECKOUT}）で見られます。`,
+        actionLabel: 'CHECKOUT で見る',
+        onSelect: () => onOpenOtherMode('checkout', value),
+      };
+    }
+    return null;
+  };
+  /** 答えの近くから、上の入力欄へ戻る（残り点を変える）。 */
+  const focusScoreInput = () => {
+    cancelPendingScroll();
+    const input = scoreInputRef.current;
+    if (input === null) return;
+    input.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
+    input.focus({ preventScroll: true });
+  };
   const otherRoutesContext = otherRoutesGradeContext(mode, visit?.dartsLeft ?? 3);
   const restoringUnknownBust = visit?.status === 'bust' && !visit.visitStartKnown;
   const inputCopy: ModeCopy = restoringUnknownBust
@@ -534,7 +570,11 @@ export function PracticePage({
         onClick={() => {
           // ユーザー自身が行き先を決めたので、予約されている移動は捨てる。
           cancelPendingScroll();
-          setRecoveryOpen((open) => !open);
+          setRecoveryOpen((open) => {
+            // 開いたら盤面の先頭（いまの残り）へ移動する。閉じるときは動かさない。
+            if (!open) scrollToRecovery.current = true;
+            return !open;
+          });
         }}
       >
         <span className="practice__recovery-toggle-label">
@@ -584,6 +624,11 @@ export function PracticePage({
             }
             ariaLabel="ダーツボード。実際に刺さった区画を選んでください。"
           />
+          {/*
+            いまの残り・本数・次の狙い・「1投戻す」は、親指の届く画面下に固定する（2026-11-01 監査）。
+            盤面を見ながら、次に狙う的と訂正の操作を探さずに済むように。
+          */}
+          <div className="practice__entry-bar" data-testid="entry-bar">
           <NextTarget
             remaining={visit.status === 'bust' && !visit.visitStartKnown ? null : visit.remaining}
             dartsLeft={visit.dartsLeft}
@@ -594,6 +639,7 @@ export function PracticePage({
             nextVisitProposals={practicalLastDart ? [] : suggestion?.nextVisitProposals ?? []}
             onUndo={handleUndo}
           />
+          </div>
           <VisitTrail
             visit={visit}
             onNextVisit={() => {
@@ -616,8 +662,11 @@ export function PracticePage({
     <div className="practice">
       <section className="practice__controls" aria-label="残り点の設定">
         <ScoreInput
-          label="残り点 LEFT"
-          hint={inputCopy.hint}
+          label={entering ? 'ラウンド開始' : '残り点 LEFT'}
+          hint={entering && visit !== null ? `いまの残り ${visit.remaining}・${visit.dartsLeft} 本` : inputCopy.hint}
+          compact={entering}
+          inputRef={scoreInputRef}
+          redirect={restoringUnknownBust ? undefined : redirectOf}
           placeholder={inputCopy.placeholder}
           min={inputCopy.min}
           max={inputCopy.max}
@@ -713,7 +762,21 @@ export function PracticePage({
           {/* 1. 答え —— 残り点のすぐ下に、基準ルートと理由を置く。 */}
           {suggestion.mode === 'checkout' && standardRoute && (
             <section className="practice__routes" aria-label="推奨ルート">
-              <h2 className="practice__heading">基準ルート</h2>
+              <div className="practice__heading-row">
+                <h2 className="practice__heading" data-testid="standard-heading">
+                  {entering ? `残り ${visit.remaining} の基準ルート` : '基準ルート'}
+                </h2>
+                {recoveryOpen && (
+                  <button
+                    type="button"
+                    className="practice__change-left"
+                    data-testid="change-left"
+                    onClick={focusScoreInput}
+                  >
+                    残り点を変える
+                  </button>
+                )}
+              </div>
               <RouteCard
                 testId="standard-route"
                 badge="STANDARD"
@@ -737,6 +800,13 @@ export function PracticePage({
             </section>
           )}
 
+          {/* 上がれないことは、答え（実戦推奨・NEXT VISIT）より先に伝える。 */}
+          {emptyNotice && (
+            <p className="practice__empty" data-testid="no-routes">
+              {emptyNotice}
+            </p>
+          )}
+
           {practicalLastDart && (
             <section className="practice__routes" aria-label="この条件での実戦推奨">
               <h2 className="practice__heading">最後の1本の実戦推奨</h2>
@@ -755,15 +825,15 @@ export function PracticePage({
             </section>
           )}
 
-          {suggestion.mode === 'setup' && bestSetup && (
+          {suggestion.mode === 'setup' && bestSetup && !practicalLastDart && (
             <section className="practice__routes" aria-label="推奨セットアップ">
               <h2 className="practice__heading">
-                {practicalLastDart ? '基準例（従来の SETUP 順位）' : '次ラウンドの残しを作る'}
+                {entering ? `残り ${visit.remaining} から次ラウンドの残しを作る` : '次ラウンドの残しを作る'}
               </h2>
               <RouteCard
                 testId="standard-route"
-                badge={practicalLastDart ? '基準例' : 'BEST'}
-                grade={practicalLastDart ? undefined : bestSetup.grade}
+                badge="BEST"
+                grade={bestSetup.grade}
                 dartIds={bestSetup.darts.map((dart) => dart.id)}
                 meta={`取得 ${bestSetup.scored} 点 → 残り ${bestSetup.leave}`}
                 reasons={toReasonViews(bestSetup.reasons)}
@@ -779,24 +849,16 @@ export function PracticePage({
             </section>
           )}
 
-          {emptyNotice && (
-            <p className="practice__empty" data-testid="no-routes">
-              {emptyNotice}
-            </p>
-          )}
-
           {/*
             1.5. 上がれないときの答え —— 盤面より前に置く。
             判断を増やさないよう最適候補 1 件だけを出し、理由の展開もしない。
           */}
-          {suggestion.mode === 'checkout' && nextVisitRoute && (
+          {suggestion.mode === 'checkout' && nextVisitRoute && !practicalLastDart && (
             <section className="practice__routes" aria-label="次ラウンドへの残し">
-              <h2 className="practice__heading">
-                {practicalLastDart ? '基準例（従来の NEXT VISIT 順位）' : '次ラウンドへ整える'}
-              </h2>
+              <h2 className="practice__heading">次ラウンドへ整える</h2>
               <RouteCard
                 testId="next-visit-route"
-                badge={practicalLastDart ? '基準例' : 'NEXT VISIT'}
+                badge="NEXT VISIT"
                 dartIds={nextVisitRoute.darts.map((dart) => dart.id)}
                 meta={`取得 ${nextVisitRoute.scored} 点 → 残り ${nextVisitRoute.leave}`}
                 reasons={[]}
@@ -805,6 +867,41 @@ export function PracticePage({
               />
             </section>
           )}
+
+          {/*
+            最後の 1 本では答えを実戦推奨の 1 つに絞る（2026-11-01 監査 U-M4）。
+            狙い通りに入ったときの残しだけで選んだ例は、たたんだ参考として残す。
+          */}
+          {practicalLastDart &&
+            ((suggestion.mode === 'setup' && bestSetup) ||
+              (suggestion.mode === 'checkout' && nextVisitRoute)) && (
+              <details className="practice__aside" data-testid="practical-reference">
+                <summary>参考：狙い通りに入ったときの残しだけで選んだ例</summary>
+                {suggestion.mode === 'setup' && bestSetup ? (
+                  <RouteCard
+                    testId="standard-route"
+                    badge="参考"
+                    dartIds={bestSetup.darts.map((dart) => dart.id)}
+                    meta={`取得 ${bestSetup.scored} 点 → 残り ${bestSetup.leave}`}
+                    reasons={toReasonViews(bestSetup.reasons)}
+                    onDartFocus={focusDefaultDart}
+                    focusedDartId={focusedDartId}
+                  />
+                ) : (
+                  nextVisitRoute && (
+                    <RouteCard
+                      testId="next-visit-route"
+                      badge="参考"
+                      dartIds={nextVisitRoute.darts.map((dart) => dart.id)}
+                      meta={`取得 ${nextVisitRoute.scored} 点 → 残り ${nextVisitRoute.leave}`}
+                      reasons={[]}
+                      onDartFocus={focusDefaultDart}
+                      focusedDartId={focusedDartId}
+                    />
+                  )
+                )}
+              </details>
+            )}
 
           {/*
             残り 1 本では、エリアへの 1 投で上がれることはない。

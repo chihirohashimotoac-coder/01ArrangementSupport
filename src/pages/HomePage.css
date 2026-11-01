@@ -421,3 +421,8 @@
   .home > .home__section:nth-of-type(2),
   .home > .home__section:nth-of-type(3) { grid-column: auto; }
 }
+
+/* ホーム先頭の残り点入力（入れて Enter / Done で、帯に合ったモードを開く）。 */
+.home__quick {
+  margin-bottom: var(--space-6);
+}

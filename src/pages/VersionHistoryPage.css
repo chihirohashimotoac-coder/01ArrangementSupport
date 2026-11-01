@@ -175,3 +175,23 @@
 @media (max-width: 22rem) {
   .version-history__list .accordion__trigger { padding: 0.75rem; }
 }
+
+.version-history__player-summary {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.version-history__dev > summary {
+  display: flex;
+  align-items: center;
+  min-height: 2.75rem;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}

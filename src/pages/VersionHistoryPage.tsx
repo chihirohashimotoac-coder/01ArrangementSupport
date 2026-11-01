@@ -22,6 +22,12 @@ export interface VersionHistoryPageProps {
  * 初回リリースから現在の版までを新しい順に並べる。
  * 内容は `src/data/versionHistory.ts`（merge 済み PR と commit 履歴から作成）。
  */
+/** PR 番号・CI・Source of Truth など、プレイヤーが読まなくてよい記録か。 */
+const DEVELOPER_NOTE_PATTERN = /PR ?#?\d|\bCI\b|Source of Truth|GitHub|E2E|lint|typecheck|監査スクリプト|npm run/;
+function isDeveloperNote(change: string): boolean {
+  return DEVELOPER_NOTE_PATTERN.test(change);
+}
+
 export function VersionHistoryPage({ onBack }: VersionHistoryPageProps) {
   const [openIds, setOpenIds] = useState<readonly string[]>(() =>
     VERSION_HISTORY.filter((entry) => entry.current).map((entry) => entry.label),
@@ -78,6 +84,15 @@ export function VersionHistoryPage({ onBack }: VersionHistoryPageProps) {
         </p>
       </div>
 
+      {/* プレイヤー向けの 3 行要約（2026-11-01 監査 3-8）。 */}
+      <ul className="version-history__player-summary" data-testid="version-history-summary">
+        <li>
+          いまの版では、CHECKOUT（2〜170）と SETUP（171〜350）のアレンジと理由、TRAINING、SIMULATION が使えます。
+        </li>
+        <li>推奨や採点の考え方が変わった版には、そのことを各版の説明に書いています。</li>
+        <li>PR 番号・CI・データの管理などの開発者向けの記録は、各版の中にたたんであります。</li>
+      </ul>
+
       {/*
         版ごとのアコーディオン。現在の版だけを開いておき、古い版は見出しと日付だけを並べる。
         プルダウンで版を選ぶと、その版を開いて位置まで移動する。
@@ -118,10 +133,20 @@ export function VersionHistoryPage({ onBack }: VersionHistoryPageProps) {
             <>
               <p className="version-history__summary">{entry.summary}</p>
               <ul className="version-history__changes">
-                {entry.changes.map((change) => (
+                {entry.changes.filter((change) => !isDeveloperNote(change)).map((change) => (
                   <li key={change}>{change}</li>
                 ))}
               </ul>
+              {entry.changes.some(isDeveloperNote) && (
+                <details className="version-history__dev" data-testid="version-history-dev">
+                  <summary>開発者向けの記録</summary>
+                  <ul className="version-history__changes">
+                    {entry.changes.filter(isDeveloperNote).map((change) => (
+                      <li key={change}>{change}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </>
           ),
         }))}

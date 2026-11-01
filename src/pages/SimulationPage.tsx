@@ -27,6 +27,7 @@ import {
   describeThrow,
   hasWrongEntry,
   needsScoreEntry,
+  roundScoreOf,
   submitScore,
   throwAt,
   totalDarts,
@@ -58,7 +59,16 @@ import {
   type SimulationPreferences,
 } from '../storage/simulationSettings';
 import { usePreferences } from '../hooks/usePreferences';
+import {
+  clearSimulationSession,
+  loadSimulationSession,
+  saveSimulationSession,
+  type SavedSimulationSession,
+} from '../storage/sessionResume';
 import './SimulationPage.css';
+
+/** 計算ミスがこの回数に達したら、答えを見られるようにする（ミスの記録は残す）。 */
+const REVEAL_AFTER_WRONG = 3;
 
 
 /** 判断の分類ごとの見た目（既存の推奨度バッジと同じ配色体系に合わせる）。 */
@@ -81,9 +91,11 @@ function pprLabel(value: number): string {
 export interface SimulationPageProps {
   /** パンくずリストへ、いまの状況（「501 ゲーム中」「振り返り」）を知らせる。表示専用。 */
   readonly onContextChange?: (label: string | null) => void;
+  /** ゲーム中かどうか（更新バナーが確認を出すため）。 */
+  readonly onSessionActiveChange?: (active: boolean) => void;
 }
 
-export function SimulationPage({ onContextChange }: SimulationPageProps = {}) {
+export function SimulationPage({ onContextChange, onSessionActiveChange }: SimulationPageProps = {}) {
   const { preferences } = usePreferences();
   const [form, setForm] = useState<SimulationPreferences>(() => loadSimulationPreferences());
   const [startMode, setStartMode] = useState<StartMode>(() =>
@@ -96,6 +108,28 @@ export function SimulationPage({ onContextChange }: SimulationPageProps = {}) {
   const [scoreDraft, setScoreDraft] = useState('');
   /** 「中断する」の確認ダイアログ。押し間違いで進行中のゲームを失わないため。 */
   const [confirmQuit, setConfirmQuit] = useState(false);
+  /** 前回の途中のゲーム（開いたときに 1 度だけ読む）。 */
+  const [resumable, setResumable] = useState<SavedSimulationSession | null>(() =>
+    loadSimulationSession(),
+  );
+  /** 答えを表示したラウンド（計算ミスが続いたとき）。 */
+  const [revealedRound, setRevealedRound] = useState<number | null>(null);
+
+  /*
+   * ゲーム中は途中経過を一時保存する（「戻る」や更新で消えないように）。
+   * 上がった・中断したゲームは保存から消す。
+   */
+  useEffect(() => {
+    if (game === null) return;
+    if (game.phase === 'finished') clearSimulationSession();
+    else saveSimulationSession(game);
+  }, [game]);
+
+  const active = game !== null && game.phase !== 'finished';
+  useEffect(() => {
+    onSessionActiveChange?.(active);
+  }, [active, onSessionActiveChange]);
+  useEffect(() => () => onSessionActiveChange?.(false), [onSessionActiveChange]);
 
   const contextLabel =
     game === null ? null : game.phase === 'finished' ? '振り返り' : `${game.settings.startScore} ゲーム中`;
@@ -123,6 +157,7 @@ export function SimulationPage({ onContextChange }: SimulationPageProps = {}) {
       ),
     );
     setScoreDraft('');
+    setResumable(null);
   }, [form]);
 
   /** 終わったゲームと同じ設定で、新しい seed のゲームを始める（別の着弾列になる）。 */
@@ -262,6 +297,41 @@ export function SimulationPage({ onContextChange }: SimulationPageProps = {}) {
 
   return (
     <div className="simulation">
+      {game === null && resumable !== null && (
+        <section className="simulation__resume" data-testid="sim-resume" aria-label="前回の続き">
+          <p className="simulation__resume-text">
+            前回のゲームの続きがあります（{resumable.game.settings.startScore}・ラウンド{' '}
+            {resumable.game.current?.round ?? resumable.game.rounds.length}・残り{' '}
+            {resumable.game.current?.leftBefore ?? resumable.game.left}）。
+          </p>
+          <div className="simulation__resume-actions">
+            <button
+              type="button"
+              className="simulation__resume-apply"
+              data-testid="sim-resume-apply"
+              onClick={() => {
+                setGame(resumable.game);
+                setResumable(null);
+                setScoreDraft('');
+              }}
+            >
+              続きから再開する
+            </button>
+            <button
+              type="button"
+              className="simulation__resume-discard"
+              data-testid="sim-resume-discard"
+              onClick={() => {
+                setResumable(null);
+                clearSimulationSession();
+              }}
+            >
+              破棄する
+            </button>
+          </div>
+        </section>
+      )}
+
       {game === null && (
         <section className="simulation__settings" aria-label="SIMULATION の設定">
           <p className="simulation__lead">
@@ -567,6 +637,7 @@ export function SimulationPage({ onContextChange }: SimulationPageProps = {}) {
               setConfirmQuit(false);
               setGame(null);
               setScoreDraft('');
+              clearSimulationSession();
             }}
           >
             <p>ここまでの投球は振り返りに残らず、設定の画面へ戻ります。</p>
@@ -613,6 +684,22 @@ export function SimulationPage({ onContextChange }: SimulationPageProps = {}) {
                         計算してください（入力 {round.wrongEntries.join(' / ')}）。
                         正しい合計を入れるまで次のラウンドへは進みません。
                       </p>
+                      {round.wrongEntries.length >= REVEAL_AFTER_WRONG &&
+                        (revealedRound === round.round ? (
+                          <p className="simulation__entry-reveal" data-testid="sim-entry-answer">
+                            正しい合計は {roundScoreOf(round)} 点です。入力して確定してください
+                            （計算ミスの記録は振り返りに残ります）。
+                          </p>
+                        ) : (
+                          <button
+                            type="button"
+                            className="simulation__entry-reveal-button"
+                            data-testid="sim-entry-reveal"
+                            onClick={() => setRevealedRound(round.round)}
+                          >
+                            答えを見る
+                          </button>
+                        ))}
                     </>
                   ) : (
                     <>

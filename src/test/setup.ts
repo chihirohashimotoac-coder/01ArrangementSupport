@@ -14,4 +14,6 @@ if (typeof Element.prototype.scrollIntoView !== 'function') {
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  // 画面の切り替えは URL の hash に積む（App.tsx）。次のテストへ持ち越さない。
+  window.history.replaceState(null, '', '/');
 });
