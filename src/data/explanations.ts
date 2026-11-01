@@ -46,7 +46,8 @@ export function practicalLastDartReasonsJa(input: {
     },
     {
       code: 'PRACTICAL_LAST_DART_CONTEXT', polarity: 'positive', label: '判断の基準', detail: null,
-      summary: `基準例 ${input.baselineDartId ?? ''} は通常のルート順位です。今の残り1本では、狙い通りと外れた後の残しを比べます。`,
+      // 「従来の」「順位」など開発者向けの言葉は使わない（2026-11-01 監査 U-M4）。
+      summary: `参考の ${input.baselineDartId ?? ''} は、狙い通りに入ったときの残しだけで選んだ例です。最後の1本なので、狙い通りと外れたあとの両方の残しで比べています。`,
     },
   ];
 }

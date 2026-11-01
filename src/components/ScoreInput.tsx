@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useId, useRef, useState, type Ref } from 'react';
 import './ScoreInput.css';
 
 export interface ScoreInputProps {
@@ -21,6 +21,23 @@ export interface ScoreInputProps {
   readonly onCommit?: (value: number) => void;
   /** BUST の未知の開始点では、入力確定まで親の状態を保つ。 */
   readonly commitOnly?: boolean;
+  /**
+   * 範囲外の値を、もう一方のモードへ案内する（250 を CHECKOUT に入れたら SETUP へ）。
+   * null を返したときは、これまでどおり範囲のエラーだけを出す。
+   */
+  readonly redirect?: (value: number) => ScoreRedirect | null;
+  /** 着弾の入力中など、主役ではないときの控えめな見た目。 */
+  readonly compact?: boolean;
+  /** 「残り点を変える」から入力欄へ移るための参照。 */
+  readonly inputRef?: Ref<HTMLInputElement>;
+}
+
+export interface ScoreRedirect {
+  /** 例: 「250 は SETUP（171〜350）で見られます。」 */
+  readonly message: string;
+  /** 例: 「SETUP で見る」 */
+  readonly actionLabel: string;
+  readonly onSelect: () => void;
 }
 
 const toDraft = (value: number | null) => (value === null ? '' : String(value));
@@ -48,11 +65,15 @@ export function ScoreInput({
   onChange,
   onCommit,
   commitOnly = false,
+  redirect,
+  compact = false,
+  inputRef,
 }: ScoreInputProps) {
   const inputId = useId();
   const errorId = `${inputId}-error`;
   const [draft, setDraft] = useState(() => toDraft(value));
   const [error, setError] = useState<string | null>(null);
+  const [redirectInfo, setRedirectInfo] = useState<ScoreRedirect | null>(null);
   const [lastValue, setLastValue] = useState(value);
   /** 最後の commit 以降にユーザーが値を書き換えたか。 */
   const editedRef = useRef(false);
@@ -66,6 +87,7 @@ export function ScoreInput({
     setLastValue(value);
     setDraft(toDraft(value));
     setError(null);
+    setRedirectInfo(null);
   }
 
   const parse = (raw: string): number | null => {
@@ -80,6 +102,7 @@ export function ScoreInput({
   const handleInput = (raw: string) => {
     setDraft(raw);
     setError(null); // エラーは入力を終えた（blur した）ときだけ出す。
+    setRedirectInfo(null);
     editedRef.current = true;
     /*
      * 空欄も範囲外も、候補を出さない「未入力」として親へ伝える。
@@ -97,8 +120,17 @@ export function ScoreInput({
   const validate = (raw: string) => {
     if (raw.trim() === '' || parse(raw) !== null) {
       setError(null);
+      setRedirectInfo(null);
       return;
     }
+    const trimmed = raw.trim();
+    const other = /^\d+$/.test(trimmed) && redirect ? redirect(Number(trimmed)) : null;
+    if (other !== null) {
+      setError(null);
+      setRedirectInfo(other);
+      return;
+    }
+    setRedirectInfo(null);
     setError(`${min}〜${max} の整数を入力してください。`);
   };
 
@@ -118,7 +150,7 @@ export function ScoreInput({
   };
 
   return (
-    <div className="score-input">
+    <div className={`score-input${compact ? ' score-input--compact' : ''}`}>
       <label className="score-input__labels" htmlFor={inputId}>
         <span className="score-input__label">{label}</span>
         {hint && <span className="score-input__hint">{hint}</span>}
@@ -126,6 +158,7 @@ export function ScoreInput({
       <div className="score-input__field">
         <input
           id={inputId}
+          ref={inputRef}
           className="score-input__input"
           type="text"
           inputMode="numeric"
@@ -156,14 +189,29 @@ export function ScoreInput({
             commit(input.value, true);
             input.blur();
           }}
-          aria-describedby={error ? errorId : undefined}
-          aria-invalid={error !== null}
+          aria-describedby={error || redirectInfo ? errorId : undefined}
+          aria-invalid={error !== null || redirectInfo !== null}
         />
       </div>
       {error && (
         <p className="score-input__error" id={errorId} role="alert">
           {error}
         </p>
+      )}
+      {redirectInfo && (
+        <div className="score-input__redirect" id={errorId} role="alert" data-testid="score-redirect">
+          <p className="score-input__redirect-text">{redirectInfo.message}</p>
+          <button
+            type="button"
+            className="score-input__redirect-action"
+            data-testid="score-redirect-action"
+            // blur → click の順に起きても押せるよう、押下時にフォーカスを奪わない。
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={redirectInfo.onSelect}
+          >
+            {redirectInfo.actionLabel}
+          </button>
+        </div>
       )}
     </div>
   );

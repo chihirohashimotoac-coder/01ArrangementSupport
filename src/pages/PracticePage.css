@@ -342,3 +342,63 @@
     width: 100%;
   }
 }
+
+/* 見出しの右に「残り点を変える」（着弾の入力中だけ）。 */
+.practice__heading-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.practice__change-left {
+  min-height: var(--tap);
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+/*
+ * 着弾の入力中は、いまの残り・本数・次の狙い・「1投戻す」を画面下に固定する。
+ * 盤面のまとまり（practice__board）の中だけで止まるので、その外へははみ出さない。
+ * iPhone のホームバーに重ならないよう、safe-area のぶん下に余白を足す。
+ */
+.practice__entry-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--background);
+}
+
+/* 次に狙う的は、このまとまりでいちばん大きく見せる（以前は 24px で盤面の下に埋もれていた）。 */
+.practice__entry-bar .next-target__darts li {
+  font-size: var(--text-2xl);
+}
+
+/* 最後の 1 本の「参考」はたたんでおく。答えは実戦推奨の 1 つだけ。 */
+.practice__aside {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: var(--space-2) var(--space-3);
+}
+
+.practice__aside > summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.practice__aside[open] > summary {
+  margin-bottom: var(--space-2);
+}
