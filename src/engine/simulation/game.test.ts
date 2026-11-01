@@ -298,6 +298,51 @@ describe('UNDO（直前の 1 投だけ）', () => {
     expect(again.current?.throws[0].actualDartId).toBe(first.current?.throws[0].actualDartId);
   });
 
+  /*
+   * 2026-11-01 監査: UNDO のあとに別の的を狙っても同じ乱数を使っていたため、
+   * ズレ量と向きが同一になり、外れ方を先に知って投げ直せた
+   * （seed 12345 で T20 → S5 を戻して T5 を狙うと、同じズレで S12）。
+   */
+  it('UNDO のあとに別の的を狙ったら、新しい乱数を使う', () => {
+    const start = createGame(human(501), 12345);
+    const first = throwAt(start, 'segment-t20');
+    const offset = (game: typeof first) => {
+      const record = game.current!.throws[0];
+      return {
+        x: record.actualPoint.x - record.intendedPoint.x,
+        y: record.actualPoint.y - record.intendedPoint.y,
+      };
+    };
+    const other = throwAt(undoLastThrow(first), 'segment-t5');
+    expect(offset(other)).not.toEqual(offset(first));
+    expect(other.current?.throws[0].drawsBefore).toBe(first.draws);
+  });
+
+  it('別の的で投げたあとに元の的へ戻しても、最初の結果は引き直せない', () => {
+    const start = createGame(human(501), 12345);
+    const first = throwAt(start, 'segment-t20');
+    const other = throwAt(undoLastThrow(first), 'segment-t5');
+    const back = throwAt(undoLastThrow(other), 'segment-t20');
+    // 直前に戻したのは T5 なので、T20 は新しい乱数で投げる。
+    expect(back.current?.throws[0].actualPoint).not.toEqual(first.current?.throws[0].actualPoint);
+    // 同じ seed・同じ操作なら、結果は毎回同じ（決定論的）。
+    const replayAgain = throwAt(
+      undoLastThrow(throwAt(undoLastThrow(throwAt(start, 'segment-t20')), 'segment-t5')),
+      'segment-t20',
+    );
+    expect(replayAgain.current?.throws[0].actualPoint).toEqual(back.current?.throws[0].actualPoint);
+  });
+
+  it('UNDO しても消費済みの乱数の位置は戻らない', () => {
+    const first = throwAt(createGame(human(501), 12345), 'segment-t20');
+    const undone = undoLastThrow(first);
+    expect(undone.draws).toBe(first.draws);
+    expect(undone.replay).toEqual({ segmentId: 'segment-t20', drawsBefore: 0 });
+    const again = throwAt(undone, 'segment-t20');
+    expect(again.replay).toBeNull();
+    expect(again.draws).toBe(first.draws);
+  });
+
   it('3 投そろったあとでも、暗算入力の前なら戻せる', () => {
     let game = throwMany(createGame(human(501), 3), [
       'segment-t20',

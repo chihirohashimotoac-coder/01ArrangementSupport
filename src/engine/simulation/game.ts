@@ -118,8 +118,18 @@ export type SimulationPhase = 'aiming' | 'score-entry' | 'finished';
 export interface SimulationGame {
   readonly settings: SimulationSettings;
   readonly seed: number;
-  /** これまでに消費した乱数の回数。UNDO で巻き戻す。 */
+  /**
+   * これまでに消費した乱数の回数（いちばん先まで進んだ位置）。
+   * UNDO しても巻き戻さない。巻き戻すと、別の的を狙い直しても同じズレ量・向きが
+   * 出てしまい、外れ方を先に知って投げ直せるため（2026-11-01 監査）。
+   */
   readonly draws: number;
+  /**
+   * 直前に UNDO した 1 投。**同じ区画を狙い直したときだけ**、その 1 投と同じ乱数を
+   * 使う（UNDO を結果の引き直しにしないため）。別の区画を狙ったら新しい乱数を使う。
+   * 投げた時点で null に戻す。古い保存データには無いので省略可能にしてある。
+   */
+  readonly replay?: { readonly segmentId: string; readonly drawsBefore: number } | null;
   readonly phase: SimulationPhase;
   readonly left: number;
   readonly rounds: readonly RoundRecord[];
@@ -206,6 +216,7 @@ export function createGame(settings: SimulationSettings, seed: number): Simulati
     rounds: [],
     current: newRound(1, normalized.startScore),
     abandoned: false,
+    replay: null,
   };
 }
 
@@ -253,7 +264,11 @@ function throwAtSegment(game: SimulationGame, segment: SegmentDefinition): Simul
   const round = game.current;
   if (round === null) return game;
 
-  const { source, used } = resumeRandom(game.seed, game.draws);
+  // UNDO した 1 投と同じ区画を狙い直したときだけ、同じ乱数から投げる。
+  const replay = game.replay ?? null;
+  const startDraws =
+    replay !== null && replay.segmentId === segment.id ? replay.drawsBefore : game.draws;
+  const { source, used } = resumeRandom(game.seed, startDraws);
   const dartIndex = totalDarts(game) + 1;
   const leftBefore = currentLeft(game);
   const simulated = simulateThrow(segment, abilityOf(game.settings), dartIndex, source);
@@ -274,7 +289,7 @@ function throwAtSegment(game: SimulationGame, segment: SegmentDefinition): Simul
     bust: result.outcome === 'bust',
     bustReason: result.bustReason,
     checkout: result.outcome === 'checkout',
-    drawsBefore: game.draws,
+    drawsBefore: startDraws,
   };
 
   const throws = [...round.throws, record];
@@ -295,9 +310,10 @@ function throwAtSegment(game: SimulationGame, segment: SegmentDefinition): Simul
 
   return {
     ...game,
-    draws: game.draws + used(),
+    draws: Math.max(game.draws, startDraws + used()),
     phase: complete ? 'score-entry' : 'aiming',
     current: nextRound,
+    replay: null,
   };
 }
 
@@ -308,8 +324,8 @@ export function undoLastThrow(game: SimulationGame): SimulationGame {
   const last = game.current.throws[game.current.throws.length - 1];
   return {
     ...game,
-    // その 1 投で消費した乱数だけを戻す。
-    draws: last.drawsBefore,
+    // 乱数の位置は戻さない。同じ区画を狙い直したときだけ replay で同じ乱数を使う。
+    replay: { segmentId: last.intendedSegmentId, drawsBefore: last.drawsBefore },
     phase: 'aiming',
     current: {
       ...game.current,
