@@ -1,11 +1,20 @@
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import {
   applyPendingUpdate,
   dismissUpdate,
   getUpdateState,
   subscribeUpdateState,
 } from '../pwa/updateStore';
+import { ConfirmDialog } from './ui/Modal';
 import './UpdateBanner.css';
+
+export interface UpdateBannerProps {
+  /**
+   * TRAINING / SIMULATION が進行中か。進行中に「更新」を押したら確認を出す。
+   * 進行中の内容は一時保存してあるので、更新後に再開できることも伝える。
+   */
+  readonly sessionActive?: boolean;
+}
 
 /**
  * 新しいバージョンが待機しているときのお知らせ。
@@ -14,8 +23,9 @@ import './UpdateBanner.css';
  * TRAINING の回答中や SIMULATION のゲーム中でも表示するが、
  * 勝手にリロードしないので進行の邪魔にはならない。
  */
-export function UpdateBanner() {
+export function UpdateBanner({ sessionActive = false }: UpdateBannerProps = {}) {
   const state = useSyncExternalStore(subscribeUpdateState, getUpdateState, getUpdateState);
+  const [confirming, setConfirming] = useState(false);
   if (state !== 'available') return null;
 
   return (
@@ -26,7 +36,7 @@ export function UpdateBanner() {
           type="button"
           className="update-banner__apply"
           data-testid="update-banner-apply"
-          onClick={applyPendingUpdate}
+          onClick={() => (sessionActive ? setConfirming(true) : applyPendingUpdate())}
         >
           更新
         </button>
@@ -39,6 +49,22 @@ export function UpdateBanner() {
           閉じる
         </button>
       </div>
+      <ConfirmDialog
+        open={confirming}
+        title="いま更新しますか？"
+        confirmLabel="更新する"
+        onConfirm={() => {
+          setConfirming(false);
+          applyPendingUpdate();
+        }}
+        onCancel={() => setConfirming(false)}
+        testId="update-confirm"
+      >
+        <p>
+          更新すると画面を読み込み直します。進行中の内容は一時保存してあるので、
+          更新したあと同じ画面を開けば続きから再開できます。
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }

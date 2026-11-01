@@ -21,8 +21,8 @@ https://01-arrangement-support-git-<branch>-<owner>.vercel.app
 
 Vite のプリセットで `npm run build` → `dist` が配信されます。
 `vite.config.ts` の `base` は既定 `/` なので、プレビュー用の追加設定は不要です。
-アプリは URL ルーティングを持たない（画面の切り替えは内部 state）ため、
-SPA fallback の設定も要りません。
+画面の切り替えは URL の **hash**（`#/checkout` など）だけを使う（2026-11-01 監査 U-H3）ため、
+パスは常にトップのままで、SPA fallback の設定も要りません。
 
 ---
 
