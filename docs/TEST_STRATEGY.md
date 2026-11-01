@@ -276,7 +276,11 @@ CHECKOUT・RECOVERY の不成立回答への推奨解答 / MIXED 10 問完走 / 
 履歴 V2 と legacy 移行 /
 学習履歴保存 / reload 後の復元 / MY ROUTE の永続化 /
 PWA（manifest・Service Worker・SPA フォールバック・オフライン表示）/
-アクセシビリティ（aria-label・キーボード操作）/ Safe Area（通常ブラウザで余白が変わらないこと）
+アクセシビリティ（aria-label・キーボード操作）/ Safe Area（通常ブラウザで余白が変わらないこと）/
+「戻る」での画面の戻り・再読み込み後の TRAINING / SIMULATION の再開 /
+TRAINING を 360 × 780 の 1 画面で回せること（問題・盤面・回答欄、回答後と次の問題の自動移動）/
+実戦入力を開いたときの移動と、入力中の NEXT の画面下固定 / 範囲外の残り点の案内 / ホームの残り点入力
+（`e2e/ux-audit.spec.ts`。2026-11-01 監査フェーズ 3）
 
 ## 6. テストを書くときの注意
 
