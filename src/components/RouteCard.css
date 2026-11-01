@@ -131,13 +131,18 @@
 }
 
 /*
- * T19 の「T」（リング）を小さく、ナンバーを大きく組む。文字列は T19 のまま
- * （SB / BULL / MISS はそのまま）。
+ * T / D / S の記号は数字と同じ大きさ・濃さで出す（2026-11-01 監査 D-M1。以前は 0.72em・淡色で
+ * 読みにくかった）。そのうえで、色に頼らず**形**でも区別する。
+ *   - トリプル: 二重の枠
+ *   - ダブル: 上辺に外周の帯の印
+ *   - シングル・BULL: 印なし（一重の枠）
  */
-.route-card__dart:is([data-dart^='S'], [data-dart^='D'], [data-dart^='T']):not([data-dart='SB'])::first-letter {
-  font-size: 0.72em;
-  font-weight: 600;
-  color: var(--text-secondary);
+.route-card__dart[data-dart^='T'] {
+  box-shadow: var(--inset-well), inset 0 0 0 2px var(--surface-alt), inset 0 0 0 3.5px var(--text-secondary);
+}
+
+.route-card__dart[data-dart^='D'] {
+  border-top: 4px solid var(--text-secondary);
 }
 
 .route-card--primary .route-card__darts { gap: var(--space-1); }
@@ -159,7 +164,6 @@
   border-color: var(--target);
   box-shadow: none;
 }
-.route-card__dart[data-active='true'][data-dart]:not([data-dart='SB'])::first-letter { color: inherit; }
 
 @media (hover: hover) {
   .route-card__dart:not([data-active='true']):hover { border-color: var(--border-strong); }

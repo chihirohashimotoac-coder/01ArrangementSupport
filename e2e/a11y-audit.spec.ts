@@ -76,3 +76,32 @@ for (const width of [195, 320]) {
     });
   });
 }
+
+test('D-M1: ルートの T / D / S は数字と同じ大きさで、トリプルとダブルは形でも区別する', async ({ page }) => {
+  await page.getByTestId('nav-checkout').click();
+  await page.getByTestId('score-input').fill('121');
+  const chips = page.getByTestId('standard-route').locator('.route-card__dart');
+  await expect(chips.first()).toBeVisible();
+  const styles = await chips.evaluateAll((elements) =>
+    elements.map((element) => {
+      const own = getComputedStyle(element);
+      const letter = getComputedStyle(element, '::first-letter');
+      return {
+        id: element.getAttribute('data-dart'),
+        sameSize: letter.fontSize === own.fontSize,
+        boxShadow: own.boxShadow,
+        borderTop: own.borderTopWidth,
+      };
+    }),
+  );
+  // 121 の基準ルートは T20 → S11 → BULL。
+  expect(styles.map((style) => style.id)).toEqual(['T20', 'S11', 'BULL']);
+  expect(styles.every((style) => style.sameSize)).toBe(true);
+  expect(styles[0].boxShadow).toContain('3.5px');
+  expect(styles[1].boxShadow).not.toContain('3.5px');
+
+  await page.getByTestId('score-input').fill('40');
+  const double = page.getByTestId('standard-route').locator('.route-card__dart').first();
+  await expect(double).toHaveAttribute('data-dart', 'D20');
+  expect(await double.evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe('4px');
+});
