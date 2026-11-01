@@ -301,3 +301,30 @@
     padding: 0.75rem;
   }
 }
+
+/* プレイヤー向けの 3 行要約（一覧より先に読む）。 */
+.references__summary ul {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  line-height: 1.6;
+  color: var(--text);
+}
+
+/* PR・CI・Source of Truth などの開発者向けの記録はたたむ。 */
+.references__dev {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.references__dev > summary {
+  display: flex;
+  align-items: center;
+  min-height: 2.75rem;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
