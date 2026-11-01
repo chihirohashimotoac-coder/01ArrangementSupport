@@ -97,6 +97,26 @@ export function Modal({
     return () => window.clearTimeout(timer);
   }, [closing]);
 
+  /*
+   * 開いているあいだは背面に inert を付け、Tab でもスクリーンリーダーでも
+   * 背面へ抜けないようにする。もともと inert だった要素には触れない。
+   * 閉じるときは、元の要素へフォーカスを戻す前に inert を外す必要があるので、
+   * フォーカスの effect より先に宣言する（cleanup は宣言順に走る）。
+   */
+  useEffect(() => {
+    if (!open || !mounted) return;
+    const container = panelRef.current?.closest('.modal');
+    if (!container) return;
+    const marked: Element[] = [];
+    for (const element of Array.from(document.body.children)) {
+      if (element === container || element.contains(container)) continue;
+      if (element.hasAttribute('inert')) continue;
+      element.setAttribute('inert', '');
+      marked.push(element);
+    }
+    return () => marked.forEach((element) => element.removeAttribute('inert'));
+  }, [open, mounted]);
+
   // 開いた瞬間: フォーカスを中へ移し、背面のスクロールを止める。閉じたら元へ戻す。
   useEffect(() => {
     if (!open) return;
@@ -128,24 +148,6 @@ export function Modal({
     document.addEventListener('keydown', onDocumentKeyDown);
     return () => document.removeEventListener('keydown', onDocumentKeyDown);
   }, [open]);
-
-  /*
-   * 開いているあいだは背面に inert を付け、Tab でもスクリーンリーダーでも
-   * 背面へ抜けないようにする。もともと inert だった要素には触れない。
-   */
-  useEffect(() => {
-    if (!open || !mounted) return;
-    const container = panelRef.current?.closest('.modal');
-    if (!container) return;
-    const marked: Element[] = [];
-    for (const element of Array.from(document.body.children)) {
-      if (element === container || element.contains(container)) continue;
-      if (element.hasAttribute('inert')) continue;
-      element.setAttribute('inert', '');
-      marked.push(element);
-    }
-    return () => marked.forEach((element) => element.removeAttribute('inert'));
-  }, [open, mounted]);
 
   if (!mounted) return null;
 

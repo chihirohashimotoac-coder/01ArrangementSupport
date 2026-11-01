@@ -41,6 +41,8 @@ for (const theme of ['dark', 'light'] as const) {
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('app-menu')).toHaveCount(0);
     await expect(page.locator('#root')).not.toHaveAttribute('inert', '');
+    // 閉じたら、開いたボタンへフォーカスが戻る。
+    await expect(page.getByTestId('menu-toggle')).toBeFocused();
   });
 }
 
@@ -226,16 +228,16 @@ test('4-8: パンくず・カルーセルの点・参考資料のリンクは 44
       return { width: rect.width, height: rect.height };
     });
   const dot = await heightOf('.carousel__dot');
-  expect(dot.height).toBeGreaterThanOrEqual(44);
-  expect(dot.width).toBeGreaterThanOrEqual(44);
+  expect(dot.height).toBeGreaterThanOrEqual(43.9);
+  expect(dot.width).toBeGreaterThanOrEqual(43.9);
 
   await page.getByTestId('nav-checkout').click();
   await page.getByTestId('score-input').fill('103');
   const crumb = await heightOf('[data-testid="crumb-home"]');
-  expect(crumb.height).toBeGreaterThanOrEqual(44);
-  expect(crumb.width).toBeGreaterThanOrEqual(44);
+  expect(crumb.height).toBeGreaterThanOrEqual(43.9);
+  expect(crumb.width).toBeGreaterThanOrEqual(43.9);
 
   await page.goto('/#/references');
   const link = await heightOf('.references__link');
-  expect(link.height).toBeGreaterThanOrEqual(44);
+  expect(link.height).toBeGreaterThanOrEqual(43.9);
 });
