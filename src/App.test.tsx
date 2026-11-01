@@ -981,10 +981,10 @@ describe('v1.3 テーマとユーザー向け文言', () => {
     await user.click(screen.getByTestId('menu-toggle'));
     await user.click(screen.getByTestId('nav-settings'));
 
-    expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-dark')).toBeChecked();
     await user.click(screen.getByTestId('theme-light'));
 
-    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-light')).toBeChecked();
     expect(document.documentElement).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute(
       'content',

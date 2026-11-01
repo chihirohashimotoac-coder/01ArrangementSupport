@@ -7,6 +7,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { VersionHistoryPage } from './pages/VersionHistoryPage';
 import { ReferencesPage } from './pages/ReferencesPage';
 import { UpdateBanner } from './components/UpdateBanner';
+import { LiveAnnouncer } from './components/LiveAnnouncer';
 import { AppMenu, MenuToggle, type MenuDestination } from './components/AppMenu';
 import { Breadcrumbs, type BreadcrumbItem } from './components/ui/Breadcrumbs';
 import { scoringTripleFirstSequenceTables, sequenceTable } from './engine/setup/sequences';
@@ -237,6 +238,7 @@ export default function App() {
               type="button"
               data-testid={`nav-${item.id}`}
               aria-pressed={tab === item.id}
+              aria-current={tab === item.id ? 'page' : undefined}
               onClick={() => navigate(item.id)}
             >
               {item.label}
@@ -295,6 +297,9 @@ export default function App() {
           {tab === 'references' && <ReferencesPage onBack={backToHome} />}
         </div>
       </main>
+
+      {/* 判定・BUST・CHECKOUT!・次の狙いを読み上げる、常に置いておく空の live 領域。 */}
+      <LiveAnnouncer />
 
       <footer className="app__footer">
         <p>&copy; 2026 Chihiro Hashimoto</p>

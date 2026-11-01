@@ -297,6 +297,7 @@ export function SimulationPage({ onContextChange, onSessionActiveChange }: Simul
 
   return (
     <div className="simulation">
+      <h1 className="visually-hidden">SIMULATION</h1>
       {game === null && resumable !== null && (
         <section className="simulation__resume" data-testid="sim-resume" aria-label="前回の続き">
           <p className="simulation__resume-text">
@@ -333,7 +334,8 @@ export function SimulationPage({ onContextChange, onSessionActiveChange }: Simul
       )}
 
       {game === null && (
-        <section className="simulation__settings" aria-label="SIMULATION の設定">
+        <section className="simulation__settings" aria-labelledby="simulation-settings-title">
+          <h2 id="simulation-settings-title" className="simulation__settings-title">ゲームの設定</h2>
           <p className="simulation__lead">
             301 / 501 / 701 を、1 投ずつ自分で狙って上がりきるモードです。
             ゲーム中はアレンジの答えを一切出しません。3 投ごとの得点も自分で暗算して入力します。

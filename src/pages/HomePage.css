@@ -426,3 +426,9 @@
 .home__quick {
   margin-bottom: var(--space-6);
 }
+
+/* 200% 拡大（幅 195px 相当）では例題を縦に積む（2026-11-01 監査 D-M6）。 */
+@media (max-width: 17.5rem) {
+  .home-example { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'left' 'route' 'open'; }
+  .home-example__darts { flex-wrap: wrap; }
+}

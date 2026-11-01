@@ -402,3 +402,6 @@
 .practice__aside[open] > summary {
   margin-bottom: var(--space-2);
 }
+
+/* 「1本」が縦に改行されないように（2026-11-01 監査 D-M6）。 */
+.practice__darts-buttons button { white-space: nowrap; }

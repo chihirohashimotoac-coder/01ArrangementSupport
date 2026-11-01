@@ -194,8 +194,8 @@ export function HomePage({ modes, onSelect, onOpenCheckout, onOpenRemaining }: H
 
       <section className="home__hero" aria-labelledby="home-headline">
         <p className="home__eyebrow" aria-hidden="true">
-          <span>STEEL DARTS</span>
-          <span>01 ARRANGEMENT</span>
+          <span>スティールダーツ</span>
+          <span>01 のアレンジ</span>
         </p>
         <KineticText
           as="h1"

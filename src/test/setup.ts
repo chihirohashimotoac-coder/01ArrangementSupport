@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
+import { resetAnnouncement } from '../components/liveAnnouncement';
 
 /*
  * jsdom は scrollIntoView を実装していない。
@@ -16,4 +17,5 @@ afterEach(() => {
   window.localStorage.clear();
   // 画面の切り替えは URL の hash に積む（App.tsx）。次のテストへ持ち越さない。
   window.history.replaceState(null, '', '/');
+  resetAnnouncement();
 });

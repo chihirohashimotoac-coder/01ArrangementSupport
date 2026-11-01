@@ -45,7 +45,7 @@ export function MenuToggle({ open, onClick }: MenuToggleProps) {
         <span />
       </span>
       <span className="menu-toggle__label" aria-hidden="true">
-        MENU
+        メニュー
       </span>
     </button>
   );
@@ -94,7 +94,7 @@ export function AppMenu({
   const moreStart = 3 + modes.length;
 
   return (
-    <Modal open={open} onClose={onClose} title="メニュー" eyebrow="MENU" variant="drawer" testId="app-menu">
+    <Modal open={open} onClose={onClose} title="メニュー" variant="drawer" testId="app-menu">
       <nav className="app-menu" aria-label="メニュー">
         <button
           type="button"

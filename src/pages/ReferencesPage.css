@@ -26,7 +26,7 @@
   min-height: 2.75rem;
   padding: 0 0.95rem;
   font-family: inherit;
-  font-size: 0.76rem;
+  font-size: var(--text-sm);
   font-weight: 740;
   color: var(--text-secondary);
   background: var(--surface);
@@ -68,7 +68,7 @@
 
 .references__lead {
   margin: 0.15rem 0 0;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   line-height: 1.7;
   color: var(--text-secondary);
 }
@@ -88,7 +88,7 @@
 .references__legend-title,
 .references__note-title {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: var(--text-md);
   font-weight: 800;
   color: var(--text);
 }
@@ -117,7 +117,7 @@
   flex: 1 1 14rem;
   margin: 0;
   min-width: 0;
-  font-size: 0.74rem;
+  font-size: var(--text-xs);
   line-height: 1.6;
   color: var(--text-dim);
   overflow-wrap: anywhere;
@@ -125,7 +125,7 @@
 
 .references__note p {
   margin: 0;
-  font-size: 0.77rem;
+  font-size: var(--text-sm);
   line-height: 1.75;
   color: var(--text-secondary);
   overflow-wrap: anywhere;
@@ -141,7 +141,7 @@
 .references__section-title {
   margin: 0.35rem 0 0;
   padding: 0 0.25rem;
-  font-size: 0.95rem;
+  font-size: var(--text-base);
   font-weight: 820;
   color: var(--text);
 }
@@ -149,7 +149,7 @@
 .references__section-lead {
   margin: 0;
   padding: 0 0.25rem;
-  font-size: 0.74rem;
+  font-size: var(--text-xs);
   line-height: 1.65;
   color: var(--text-dim);
 }
@@ -185,7 +185,7 @@
 .references__role {
   flex: 0 0 auto;
   padding: 0.1rem 0.5rem;
-  font-size: 0.6rem;
+  font-size: var(--text-2xs);
   font-weight: 800;
   letter-spacing: 0.06em;
   border-radius: var(--radius-xs);
@@ -212,7 +212,7 @@
 
 .references__origin {
   flex: 0 0 auto;
-  font-size: 0.62rem;
+  font-size: var(--text-2xs);
   font-weight: 700;
   color: var(--text-dim);
 }
@@ -220,7 +220,7 @@
 .references__item-title {
   margin: 0;
   min-width: 0;
-  font-size: 0.9rem;
+  font-size: var(--text-md);
   font-weight: 800;
   line-height: 1.45;
   color: var(--text);
@@ -229,10 +229,13 @@
 
 /* 長い URL でも画面外へはみ出さないよう、どこでも折り返す。 */
 .references__link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  /* 押せる大きさは 44px 以上（2026-11-01 監査 4-8）。 */
+  min-height: 2.75rem;
   min-width: 0;
   max-width: 100%;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   line-height: 1.55;
   color: var(--text);
   text-decoration: underline;
@@ -270,7 +273,7 @@
 
 .references__fields dt {
   margin: 0;
-  font-size: 0.63rem;
+  font-size: var(--text-2xs);
   font-weight: 800;
   letter-spacing: 0.06em;
   color: var(--text-dim);
@@ -279,7 +282,7 @@
 .references__fields dd {
   margin: 0;
   min-width: 0;
-  font-size: 0.77rem;
+  font-size: var(--text-sm);
   line-height: 1.7;
   color: var(--text-secondary);
   overflow-wrap: anywhere;
@@ -288,7 +291,7 @@
 .references__footnote {
   margin: 0;
   padding: 0 0.25rem 0.25rem;
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   line-height: 1.65;
   color: var(--text-dim);
   overflow-wrap: anywhere;
