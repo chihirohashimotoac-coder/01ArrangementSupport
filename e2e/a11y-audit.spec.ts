@@ -43,3 +43,36 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(page.locator('#root')).not.toHaveAttribute('inert', '');
   });
 }
+
+for (const width of [195, 320]) {
+  test.describe(`D-M6: 幅 ${width}px（200% 拡大相当を含む）`, () => {
+    test.use({ viewport: { width, height: 700 } });
+
+    test('どの画面でも横スクロールが出ず、ナビのモード名を省略しない', async ({ page }) => {
+      for (const hash of ['#/', '#/checkout', '#/setup', '#/training', '#/simulation', '#/settings', '#/history', '#/references']) {
+        await page.goto(`/${hash}`);
+        if (hash === '#/checkout') {
+          await page.getByTestId('score-input').fill('103');
+          await page.getByTestId('recovery-toggle').click();
+        }
+        if (hash === '#/setup') await page.getByTestId('score-input').fill('302');
+        // フォントの読み込み前は代替フォントの幅で測ってしまうので待つ。
+        await page.evaluate(() => document.fonts.ready);
+        const metrics = await page.evaluate(() => {
+          const title = document.querySelector('.app__title')!.getBoundingClientRect();
+          const menu = document.querySelector('[data-testid="menu-toggle"]')!.getBoundingClientRect();
+          return {
+            scrollWidth: document.documentElement.scrollWidth,
+            truncated: [...document.querySelectorAll<HTMLElement>('.app__nav button')].filter(
+              (button) => button.scrollWidth > button.clientWidth + 1,
+            ).length,
+            titleOverlapsMenu: title.right > menu.left + 0.5 && title.bottom > menu.top && title.top < menu.bottom,
+          };
+        });
+        expect(metrics.scrollWidth, hash).toBeLessThanOrEqual(width);
+        expect(metrics.truncated, hash).toBe(0);
+        expect(metrics.titleOverlapsMenu, hash).toBe(false);
+      }
+    });
+  });
+}

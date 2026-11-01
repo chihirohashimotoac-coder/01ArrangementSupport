@@ -71,3 +71,9 @@
   from { opacity: 0; transform: translateX(-6px); }
   to { opacity: 1; transform: none; }
 }
+
+/* 狭い幅（200% 拡大など）では、横へはみ出さずに折り返す（2026-11-01 監査 D-M6）。 */
+@media (max-width: 22rem) {
+  .breadcrumbs__list { flex-wrap: wrap; white-space: normal; row-gap: 0.15rem; }
+  .breadcrumbs__item { min-width: 0; overflow-wrap: anywhere; }
+}
