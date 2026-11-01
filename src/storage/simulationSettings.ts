@@ -34,8 +34,13 @@ export interface SimulationPreferences {
 export const DEFAULT_SIMULATION_PREFERENCES: SimulationPreferences = {
   version: 1,
   startScore: DEFAULT_START_SCORE,
-  first9Ppr: 60,
-  averagePpr: 55,
+  /*
+   * 着弾モデル v2（案 2）では、上がりの場面の精度を得点の場面より高くしないため、
+   * Average に上限（First9 の精度のまま投げ切ったときの値）がある。以前の既定 60 / 55 は
+   * 上限（約 44〜49）を超えて丸められるので、どのブレ方向でも丸めない 70 / 50 にする。
+   */
+  first9Ppr: 70,
+  averagePpr: 50,
   missDirection: 'even',
   maxMiss: 'medium',
 };

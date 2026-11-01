@@ -271,7 +271,7 @@ function throwAtSegment(game: SimulationGame, segment: SegmentDefinition): Simul
   const { source, used } = resumeRandom(game.seed, startDraws);
   const dartIndex = totalDarts(game) + 1;
   const leftBefore = currentLeft(game);
-  const simulated = simulateThrow(segment, abilityOf(game.settings), dartIndex, source);
+  const simulated = simulateThrow(segment, abilityOf(game.settings), leftBefore, source);
   const result = applyDart(leftBefore, simulated.landing.dart);
 
   const record: ThrowRecord = {

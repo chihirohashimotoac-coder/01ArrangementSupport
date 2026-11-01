@@ -5,13 +5,18 @@ import {
   MAX_PPR,
   MISS_DIRECTIONS,
   SIGMA_ANCHORS,
-  TRANSITION_DARTS,
+  FINISHING_PHASE_MAX,
   FIRST9_SIGMA_ANCHORS,
+  averageCapFor,
   clampPpr,
+  effectiveAveragePpr,
+  finishingSigma,
+  isAverageCapped,
   scatterProfile,
-  sigmaForDart,
+  scoringSigma,
   sigmaForFirst9Ppr,
   sigmaForPpr,
+  sigmaForThrow,
 } from './accuracy';
 
 describe('PPR → 散布幅 σ', () => {
@@ -86,37 +91,70 @@ describe('PPR → 散布幅 σ', () => {
   });
 });
 
-describe('First9 と Average の使い分け', () => {
-  const first9 = 100;
-  const average = 50;
-
-  it('1〜9 投目は First9 専用の σ をそのまま使う', () => {
-    for (let dart = 1; dart <= 9; dart += 1) {
-      expect(sigmaForDart(first9, average, dart)).toBeCloseTo(sigmaForFirst9Ppr(first9), 10);
+describe('場面で σ を分ける（着弾モデル v2 / 案 2）', () => {
+  it('得点の場面（残り 171 以上）は First9 の σ、上がりの場面（170 以下）は上がりの σ', () => {
+    for (const direction of MISS_DIRECTIONS) {
+      expect(sigmaForThrow(80, 70, FINISHING_PHASE_MAX + 1, direction)).toBeCloseTo(
+        sigmaForFirst9Ppr(80, direction),
+        10,
+      );
+      expect(sigmaForThrow(80, 70, FINISHING_PHASE_MAX, direction)).toBeCloseTo(
+        finishingSigma(80, 70, direction),
+        10,
+      );
     }
   });
 
-  it('10 投目以降は Average へ向かって滑らかに移る', () => {
-    const start = sigmaForDart(first9, average, 9);
-    const justAfter = sigmaForDart(first9, average, 10);
-    const settled = sigmaForDart(first9, average, 9 + TRANSITION_DARTS);
-    // 9 投目 → 10 投目で一気に変わらない（遷移 1 段ぶんだけ動く）。
-    const totalGap = Math.abs(sigmaForPpr(average) - sigmaForFirst9Ppr(first9));
-    expect(Math.abs(justAfter - start)).toBeLessThan(totalGap);
-    expect(Math.abs(justAfter - start)).toBeCloseTo(totalGap / TRANSITION_DARTS, 8);
-    expect(settled).toBeCloseTo(sigmaForPpr(average), 10);
-    expect(sigmaForDart(first9, average, 200)).toBeCloseTo(sigmaForPpr(average), 10);
+  it('0〜167 の First9 × Average の全組み合わせで、上がりの σ は得点の σ 以上（上がりの方が精度が高くならない）', () => {
+    const violations: string[] = [];
+    for (const direction of MISS_DIRECTIONS) {
+      for (let first9 = 0; first9 <= MAX_PPR; first9 += 1) {
+        const scoring = sigmaForThrow(first9, 0, 501, direction);
+        for (let average = 0; average <= MAX_PPR; average += 1) {
+          const finishing = sigmaForThrow(first9, average, 100, direction);
+          if (!(finishing >= scoring - 1e-9) || !Number.isFinite(finishing)) {
+            violations.push(`${direction} ${first9}/${average}: ${scoring} > ${finishing}`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
   });
 
-  it('Average が 167 ならゲーム全体で σ = 0（First9 が低くても）', () => {
-    for (const dart of [1, 5, 9, 10, 40]) {
-      expect(sigmaForDart(20, MAX_PPR, dart)).toBe(0);
+  it('同じ First9 なら、Average が高いほど上がりの σ は小さい（単調）', () => {
+    const violations: string[] = [];
+    for (const direction of MISS_DIRECTIONS) {
+      for (let first9 = 0; first9 <= MAX_PPR; first9 += 5) {
+        for (let average = 0; average < MAX_PPR; average += 1) {
+          if (finishingSigma(first9, average + 1, direction) > finishingSigma(first9, average, direction) + 1e-9) {
+            violations.push(`${direction} ${first9}/${average}`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('Average の上限は「First9 の精度のまま投げ切ったときのゲーム全体 PPR」で、超えた設定は丸める', () => {
+    for (const direction of MISS_DIRECTIONS) {
+      const cap = averageCapFor(60, direction);
+      expect(cap).toBeLessThan(60);
+      expect(isAverageCapped(60, Math.ceil(cap) + 1, direction)).toBe(true);
+      expect(isAverageCapped(60, Math.floor(cap) - 1, direction)).toBe(false);
+      expect(effectiveAveragePpr(60, MAX_PPR, direction)).toBeCloseTo(cap, 10);
+      // 上限に丸めたときの上がりの σ は、得点の σ と同じ（精度一定）。
+      expect(finishingSigma(60, MAX_PPR, direction)).toBeCloseTo(scoringSigma(60, direction), 10);
     }
   });
 
-  it('First9 だけ 167 でも、ゲーム全体が 100% 精度にはならない', () => {
-    expect(sigmaForDart(MAX_PPR, 60, 5)).toBe(0);
-    expect(sigmaForDart(MAX_PPR, 60, 20)).toBeGreaterThan(0);
+  it('First9 と Average がどちらも 167 のときだけ、ゲーム全体で σ = 0', () => {
+    expect(sigmaForThrow(MAX_PPR, MAX_PPR, 501, 'even')).toBe(0);
+    expect(sigmaForThrow(MAX_PPR, MAX_PPR, 40, 'even')).toBe(0);
+    // Average だけ 167 にしても、First9 の精度で上限に丸められる。
+    expect(sigmaForThrow(20, MAX_PPR, 40, 'even')).toBeGreaterThan(0);
+    // First9 だけ 167 なら、得点の場面だけ 100%。
+    expect(sigmaForThrow(MAX_PPR, 60, 501, 'even')).toBe(0);
+    expect(sigmaForThrow(MAX_PPR, 60, 40, 'even')).toBeGreaterThan(0);
   });
 
   it('設定した First9 PPR が、実測の First9 PPR とおおむね一致する', () => {
@@ -126,8 +164,8 @@ describe('First9 と Average の使い分け', () => {
       const result = measure(
         {
           startScore: 501,
-          first9Sigma: sigma,
-          averageSigma: sigma,
+          scoringSigma: sigma,
+          finishingSigma: sigma,
           direction: 'even',
           maxMiss: 'medium',
         },
@@ -252,8 +290,8 @@ describe('PPR キャリブレーション（固定戦略の 501）', () => {
         const result = measure(
           {
             startScore: 501,
-            first9Sigma: sigma,
-            averageSigma: sigma,
+            scoringSigma: sigma,
+            finishingSigma: sigma,
             direction: 'even',
             maxMiss: 'medium',
           },
@@ -280,8 +318,8 @@ describe('PPR キャリブレーション（固定戦略の 501）', () => {
           const result = measure(
             {
               startScore: 501,
-              first9Sigma: sigma,
-              averageSigma: sigma,
+              scoringSigma: sigma,
+              finishingSigma: sigma,
               direction,
               maxMiss,
             },
@@ -299,13 +337,33 @@ describe('PPR キャリブレーション（固定戦略の 501）', () => {
   );
 
   it(
+    '実際の設定（First9 70 / Average 50）で投げると、First9 も Average も設定に近い（着弾モデル v2）',
+    () => {
+      const result = measure(
+        {
+          startScore: 501,
+          scoringSigma: scoringSigma(70),
+          finishingSigma: finishingSigma(70, 50),
+          direction: 'even',
+          maxMiss: 'medium',
+        },
+        400,
+        20260916,
+      );
+      expect(Math.abs(result.first9Ppr - 70)).toBeLessThanOrEqual(TOLERANCE);
+      expect(Math.abs(result.ppr - 50)).toBeLessThanOrEqual(TOLERANCE);
+    },
+    30000,
+  );
+
+  it(
     'Average 167 は 9 ダーツで上がりきる',
     () => {
       const result = measure(
         {
           startScore: 501,
-          first9Sigma: 0,
-          averageSigma: 0,
+          scoringSigma: 0,
+          finishingSigma: 0,
           direction: 'even',
           maxMiss: 'medium',
         },
