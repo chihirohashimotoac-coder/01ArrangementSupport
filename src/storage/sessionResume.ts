@@ -104,14 +104,11 @@ export function parseTrainingSession(raw: unknown): SavedTrainingSession | null 
 
 const PHASES = ['aiming', 'score-entry', 'finished'];
 
-function validRoundLike(value: unknown): boolean {
+function validThrows(value: unknown): boolean {
   return (
-    isObject(value) &&
-    isInt(value.round) &&
-    isInt(value.leftBefore) &&
-    Array.isArray(value.throws) &&
-    value.throws.length <= 3 &&
-    value.throws.every(
+    Array.isArray(value) &&
+    value.length <= 3 &&
+    value.every(
       (record) =>
         isObject(record) &&
         typeof record.intendedSegmentId === 'string' &&
@@ -120,8 +117,35 @@ function validRoundLike(value: unknown): boolean {
         isInt(record.leftAfter) &&
         isObject(record.intendedPoint) &&
         isObject(record.actualPoint),
-    ) &&
-    Array.isArray(value.wrongEntries)
+    )
+  );
+}
+
+/** 進行中のラウンド（`ActiveRound`）。未確定の計算ミスは直下の `wrongEntries` に持つ。 */
+function validActiveRound(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    isInt(value.round) &&
+    isInt(value.leftBefore) &&
+    validThrows(value.throws) &&
+    Array.isArray(value.wrongEntries) &&
+    (value.entry === null || isObject(value.entry))
+  );
+}
+
+/**
+ * 確定したラウンド（`RoundRecord`）。`advanceRound()` は `wrongEntries` を直下に持たせず、
+ * 暗算の記録は `entry` の中に置く（BUST のラウンドは entry が null）。
+ */
+function validCommittedRound(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    isInt(value.round) &&
+    isInt(value.leftBefore) &&
+    isInt(value.leftAfter) &&
+    isInt(value.scored) &&
+    validThrows(value.throws) &&
+    (value.entry === null || value.entry === undefined || isObject(value.entry))
   );
 }
 
@@ -132,8 +156,8 @@ export function parseSimulationSession(raw: unknown): SavedSimulationSession | n
   if (!isInt(game.seed) || !isInt(game.draws) || game.draws < 0) return null;
   if (typeof game.phase !== 'string' || !PHASES.includes(game.phase)) return null;
   if (!isInt(game.left) || game.left < 0) return null;
-  if (!Array.isArray(game.rounds) || !game.rounds.every(validRoundLike)) return null;
-  if (!(game.current === null || validRoundLike(game.current))) return null;
+  if (!Array.isArray(game.rounds) || !game.rounds.every(validCommittedRound)) return null;
+  if (!(game.current === null || validActiveRound(game.current))) return null;
   if (typeof game.abandoned !== 'boolean') return null;
   return {
     version: VERSION,

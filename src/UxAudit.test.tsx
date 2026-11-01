@@ -13,7 +13,15 @@ import App from './App';
 import { tabFromHash } from './navigation';
 import { markUpdateAvailable, resetUpdateStore, setUpdateApplier } from './pwa/updateStore';
 import {
+  advanceRound,
+  createGame,
+  roundScoreOf,
+  submitScore,
+  throwAt,
+} from './engine/simulation/game';
+import {
   SIMULATION_SESSION_KEY,
+  saveSimulationSession,
   TRAINING_SESSION_KEY,
   loadSimulationSession,
   loadTrainingSession,
@@ -129,6 +137,43 @@ describe('U-H3 進行中の SIMULATION を一時保存して再開する', () =>
     expect(screen.getByTestId('sim-resume')).toHaveTextContent('ラウンド 1');
     await user.click(screen.getByTestId('sim-resume-apply'));
     expect(screen.getByTestId('sim-last-throw').textContent).toBe(lastThrow);
+  });
+
+  /*
+   * Codex レビュー（PR #37）: 確定したラウンド（RoundRecord）は計算ミスを `entry` の中に持ち、
+   * 進行中のラウンドとは形が違う。同じ検査を当てるとラウンド 2 以降の保存が捨てられていた。
+   */
+  it('ラウンドを確定したあとの保存も読める（計算ミスの記録を含む）', () => {
+    let game = createGame(
+      { startScore: 501, first9Ppr: 60, averagePpr: 55, missDirection: 'even', maxMiss: 'medium' },
+      12345,
+    );
+    for (let i = 0; i < 3; i += 1) game = throwAt(game, 'segment-t20');
+    game = submitScore(game, 999);
+    game = submitScore(game, roundScoreOf(game.current!));
+    game = advanceRound(game);
+    game = throwAt(game, 'segment-t20');
+    expect(game.rounds).toHaveLength(1);
+    saveSimulationSession(game);
+
+    const loaded = loadSimulationSession();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.game.rounds[0].entry?.wrongEntries).toEqual([999]);
+    expect(loaded!.game.current?.round).toBe(2);
+    expect(loaded!.game.current?.throws).toHaveLength(1);
+  });
+
+  it('BUST で確定したラウンド（entry が null）を含む保存も読める', () => {
+    let game = createGame(
+      { startScore: 61, first9Ppr: 167, averagePpr: 167, missDirection: 'even', maxMiss: 'medium' },
+      1,
+    );
+    game = throwAt(game, 'segment-t20');
+    expect(game.current?.bust).toBe(true);
+    game = advanceRound(game);
+    expect(game.rounds[0].entry).toBeNull();
+    saveSimulationSession(game);
+    expect(loadSimulationSession()?.game.rounds).toHaveLength(1);
   });
 
   it('壊れた保存データは読まずに捨てる', () => {
