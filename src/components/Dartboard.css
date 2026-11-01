@@ -236,3 +236,20 @@
   stroke: #fff;
   stroke-width: 3.5;
 }
+
+/* 狙う的: 白黒 2 重の太い縁と斜線（2026-11-01 監査 D-M3）。 */
+.dartboard__targets path { pointer-events: none; }
+.dartboard__target-edge-outer { fill: none; stroke: #000; stroke-width: 4.5; stroke-linejoin: round; }
+.dartboard__target-edge-inner { fill: none; stroke: #fff; stroke-width: 2; stroke-linejoin: round; }
+.dartboard__hatch-line { stroke: rgba(0, 0, 0, 0.35); stroke-width: 2.5; }
+
+/* 投げる順番の番号札。 */
+.dartboard__badge { pointer-events: none; }
+.dartboard__badge circle { fill: #000; stroke: #fff; stroke-width: 2; }
+.dartboard__badge text {
+  fill: #fff;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 800;
+  text-anchor: middle;
+}

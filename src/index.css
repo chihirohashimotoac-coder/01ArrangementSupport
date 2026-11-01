@@ -139,9 +139,10 @@
   --segment-light: #eee2c4;
   --segment-red: #cd2c33;
   --segment-green: #17834a;
-  --highlight-fill: #2a7aa1;
+  /* 狙う的は赤・緑の区画との明るさの比を 3:1 以上にする（2026-11-01 監査 D-M3）。 */
+  --highlight-fill: #9be3ff;
   --highlight-stroke: #8fd8fb;
-  --focus-fill: #b37a1e;
+  --focus-fill: #ffd75e;
 }
 
 /* Light: Aluminum + ink. */
@@ -202,9 +203,9 @@
   --segment-light: #f0e5c8;
   --segment-red: #c82c35;
   --segment-green: #147c45;
-  --highlight-fill: #237ba8;
+  --highlight-fill: #9be3ff;
   --highlight-stroke: #b9ebff;
-  --focus-fill: #b37a1e;
+  --focus-fill: #ffd75e;
 }
 
 * { box-sizing: border-box; }

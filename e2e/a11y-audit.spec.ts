@@ -137,3 +137,19 @@ test('D-M4: 盤面は Tab 1 か所で、中は矢印キーで移り、最前面�
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('next-remaining')).toHaveText('53');
 });
+
+test('D-M3: 盤面の狙う的に投げる順番の番号札を置く', async ({ page }) => {
+  await page.getByTestId('nav-checkout').click();
+  await page.getByTestId('score-input').fill('121');
+  await page.getByTestId('recovery-toggle').click();
+  // 121 の基準ルートは T20 → S11 → BULL。
+  await expect(page.getByTestId('board-order-T20')).toHaveText('1');
+  await expect(page.getByTestId('board-order-S11')).toHaveText('2');
+  await expect(page.getByTestId('board-order-BULL')).toHaveText('3');
+
+  await page.getByTestId('score-input').fill('100');
+  await page.getByTestId('recovery-toggle').click();
+  // 同じ的を続けるときは 1·2 と並べる（100 は T20 → D20）。
+  await expect(page.getByTestId('board-order-T20')).toHaveText('1');
+  await expect(page.getByTestId('board-order-D20')).toHaveText('2');
+});

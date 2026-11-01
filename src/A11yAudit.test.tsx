@@ -1,6 +1,8 @@
 /**
  * 2026-11-01 監査 フェーズ 4（デザイン・アクセシビリティ）の回帰テスト。
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -52,5 +54,33 @@ describe('D-M5 読み上げ（常に置いておく live 領域）', () => {
     const verdict = screen.getByTestId('training-verdict').textContent ?? '';
     await waitFor(() => expect(screen.getByTestId('live-announcer')).toHaveTextContent(verdict));
     expect(screen.getByTestId('training-result')).not.toHaveAttribute('aria-live');
+  });
+});
+
+describe('D-M3 狙う的の明るさ', () => {
+  const css = readFileSync(resolve(__dirname, 'index.css'), 'utf8');
+  const luminance = (hex: string) => {
+    const channel = (value: number) => {
+      const c = value / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    const n = Number.parseInt(hex.slice(1), 16);
+    return 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
+  };
+  const ratio = (a: string, b: string) => {
+    const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+    return (x + 0.05) / (y + 0.05);
+  };
+  const valuesOf = (name: string) => [...css.matchAll(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`, 'g'))].map((m) => m[1]);
+
+  it('狙う的の塗り（2 種類）は、どのテーマでも赤・緑の区画と 3:1 以上の明るさの比がある', () => {
+    const targets = [...valuesOf('highlight-fill'), ...valuesOf('focus-fill')];
+    const others = [...valuesOf('segment-red'), ...valuesOf('segment-green')];
+    expect(targets.length).toBeGreaterThanOrEqual(4);
+    expect(others.length).toBeGreaterThanOrEqual(4);
+    const violations = targets.flatMap((target) =>
+      others.filter((other) => ratio(target, other) < 3).map((other) => `${target} / ${other}: ${ratio(target, other).toFixed(2)}`),
+    );
+    expect(violations).toEqual([]);
   });
 });

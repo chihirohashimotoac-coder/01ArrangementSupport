@@ -6,6 +6,7 @@ import {
   buildNumberLabelPositions,
   buildSegmentPath,
   buildWedgeAreas,
+  segmentCenter,
   buildWireLines,
 } from '../geometry/dartboardGeometry';
 import './Dartboard.css';
@@ -81,6 +82,13 @@ const RING_INDEX_NUMBER = new Map(
 );
 const DEFAULT_SEGMENT_ID = 'segment-t20';
 
+/** 番号札を置く区画（シングルは外側のシングルを代表にする）。 */
+const BADGE_SEGMENT_BY_DART = new Map(
+  SEGMENTS.filter((segment) => segment.ring !== 'inner-single' && segment.ring !== 'miss').map(
+    (segment) => [segment.dart.id, segment],
+  ),
+);
+
 function segmentAt(ring: (typeof RING_ORDER)[number], index: number): string {
   if (ring === 'inner-bull') return 'segment-inner-bull';
   if (ring === 'outer-bull') return 'segment-outer-bull';
@@ -149,6 +157,20 @@ function DartboardComponent({
     svgRef.current?.querySelector<SVGPathElement>(`[data-wedge="${next}"]`)?.focus();
   };
 
+  /*
+   * 投げる順番の番号札（2026-11-01 監査 D-M3）。同じ的を続けて狙うときは「1·2」のように並べる。
+   */
+  const orderBadges = (() => {
+    const ids = highlightedDartIds ?? [];
+    const byDart = new Map<string, number[]>();
+    ids.forEach((id, index) => byDart.set(id, [...(byDart.get(id) ?? []), index + 1]));
+    return [...byDart.entries()].flatMap(([dartId, orders]) => {
+      const segment = BADGE_SEGMENT_BY_DART.get(dartId);
+      if (segment === undefined) return [];
+      return [{ dartId, label: orders.join('·'), center: segmentCenter(segment) }];
+    });
+  })();
+
   const focusRingPath =
     keyboardFocusId === null
       ? null
@@ -167,6 +189,12 @@ function DartboardComponent({
         aria-disabled={disabled}
         xmlns="http://www.w3.org/2000/svg"
       >
+        <defs>
+          {/* 狙う的の斜線（色だけに頼らない印。2026-11-01 監査 D-M3）。 */}
+          <pattern id="dartboard-target-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="8" className="dartboard__hatch-line" />
+          </pattern>
+        </defs>
         <circle className="dartboard__backdrop" cx={0} cy={0} r={RADII.missOuter} />
 
         <g className="dartboard__segments" aria-hidden={wedgeMode ? true : undefined}>
@@ -267,6 +295,35 @@ function DartboardComponent({
             </text>
           ))}
         </g>
+
+        {/* 狙う的の斜線と、白黒 2 重の縁（色覚の違いがあっても見分けられるように）。 */}
+        {highlighted.size > 0 && (
+          <g className="dartboard__targets" aria-hidden="true">
+            {SEGMENT_PATHS.filter(({ segment }) => highlighted.has(segment.dart.id)).map(({ segment, d }) => (
+              <g key={segment.id}>
+                <path className="dartboard__target-edge-outer" d={d} />
+                <path className="dartboard__target-edge-inner" d={d} />
+                <path className="dartboard__target-hatch" d={d} fill="url(#dartboard-target-hatch)" />
+              </g>
+            ))}
+          </g>
+        )}
+
+        {orderBadges.length > 0 && (
+          <g className="dartboard__badges" aria-hidden="true">
+            {orderBadges.map((badge) => (
+              <g
+                key={badge.dartId}
+                className="dartboard__badge"
+                data-testid={`board-order-${badge.dartId}`}
+                transform={`translate(${badge.center.x} ${badge.center.y})`}
+              >
+                <circle r={badge.label.length > 1 ? 13 : 10} />
+                <text dy="0.35em">{badge.label}</text>
+              </g>
+            ))}
+          </g>
+        )}
 
         {/*
           キーボードでフォーカスしている区画の輪郭は、最前面の別レイヤーに描く
