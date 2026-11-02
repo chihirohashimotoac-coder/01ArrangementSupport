@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { ThrowRecord } from './game';
+import { isCheckoutable } from '../../domain/checkoutRules';
 import { reviewThrow } from './review';
 import { throwConclusionJa } from './reviewConclusion';
 
@@ -55,6 +56,35 @@ describe('振り返りの結論 1 行', () => {
             violations.push(`${left}/${dartNumber} ${target}: ${line}`);
           }
         }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  /*
+   * Codex レビュー（PR #39）: 最後の 1 投で「テンパイを作れる的」を代案にしたとき、シングル落ちでも
+   * テンパイが残るとは限らない（200 の T20 は入れば 140 だが、S20 に落ちると 180 でノーテン）。
+   */
+  it.each([
+    [200, 140],
+    [191, 131],
+    [220, 160],
+    [230, 170],
+  ])('%i の最後の 1 投 S20: 代案 T20 は「入れば残り %i でテンパイ」と書き、シングル落ちでも残るとは書かない', (left, hit) => {
+    const line = throwConclusionJa(reviewThrow(record(left, 'S20', 3)));
+    expect(line).toContain(`入れば残り ${hit} でテンパイです。`);
+    expect(line).not.toContain('落ちても');
+  });
+
+  it('171〜350 の最後の 1 投: 「落ちても残り X でテンパイ」と書くのは、X が本当にテンパイのときだけ', () => {
+    const violations: string[] = [];
+    for (let left = 171; left <= 350; left += 1) {
+      for (const target of ['S20', 'S19', 'T20', 'T19', 'S18', 'D20', 'BULL']) {
+        const line = throwConclusionJa(reviewThrow(record(left, target, 3)));
+        const match = /落ちても残り (\d+) でテンパイ/.exec(line);
+        if (match === null) continue;
+        const leave = Number(match[1]);
+        if (!(leave >= 2 && leave <= 170 && isCheckoutable(leave, 3))) violations.push(`${left} ${target}: ${line}`);
       }
     }
     expect(violations).toEqual([]);

@@ -624,6 +624,81 @@ export const CURATED_SETUP_LINE_EXAMPLES: Readonly<Record<number, SetupLineExamp
   },
 };
 
+/** 振り返りの結論 1 行（監査フェーズ 2 / 2-9）へ渡す値（表記は変換済み）。 */
+export interface ReviewConclusionContext {
+  /** 判定の札（良い判断 / もっと良い狙いあり など）。 */
+  readonly label: string;
+  readonly kind:
+    | 'good-recommended'
+    | 'good-peer'
+    | 'good-other'
+    | 'alternative'
+    | 'bogey-without-alternative'
+    | 'plain';
+  /** 代案（kind = alternative のとき）。 */
+  readonly alternativeText?: string;
+  readonly basis?:
+    | 'APP_ROUTE'
+    | 'LAST_DART_TENPAI'
+    | 'LAST_DART_SAME_NUMBER_TRIPLE'
+    | 'LAST_DART_LEAVE_PROFILE'
+    | 'SETUP_RECOVERY';
+  /** 代案が狙い通りに入ったときの残り（0 なら上がり）と、それがテンパイか。 */
+  readonly leaveOnHit?: number;
+  readonly hitTenpai?: boolean;
+  /** 代案がシングルに落ちたときの的・残りと、それがテンパイか（無ければ null）。 */
+  readonly missText?: string | null;
+  readonly leaveOnSingleMiss?: number | null;
+  readonly missTenpai?: boolean;
+}
+
+/**
+ * 振り返りの結論 1 行。推奨度は書かない（相対評価なので、判定と食い違って見えるため）。
+ * 「シングルに落ちても残る」と書くのは、代案のシングル落ちの残りが実際にテンパイのときだけ。
+ */
+export function renderReviewConclusionJa(ctx: ReviewConclusionContext): string {
+  switch (ctx.kind) {
+    case 'good-recommended':
+      return `${ctx.label}：おすすめどおりの狙いです。`;
+    case 'good-peer':
+      return `${ctx.label}：おすすめと同等の上がり方です。`;
+    case 'good-other':
+      return `${ctx.label}：この場面で推奨できる狙いです。`;
+    case 'bogey-without-alternative':
+      return `${ctx.label}：狙い通りでも、次のビジットで上がれない残りになります。`;
+    case 'plain':
+      return `${ctx.label}。`;
+    case 'alternative':
+      return `${ctx.label}：${ctx.alternativeText ?? ''} なら、${alternativeReasonJa(ctx)}`;
+  }
+}
+
+function alternativeReasonJa(ctx: ReviewConclusionContext): string {
+  const hit = ctx.leaveOnHit ?? null;
+  const missLeave = ctx.leaveOnSingleMiss ?? null;
+  const missKeeps =
+    ctx.missText !== null && ctx.missText !== undefined && missLeave !== null && ctx.missTenpai === true;
+  const hitPart =
+    hit === 0 ? '入れば上がりです' : ctx.hitTenpai === true ? `入れば残り ${hit} でテンパイです` : `入れば残り ${hit} です`;
+  switch (ctx.basis) {
+    case 'LAST_DART_TENPAI':
+      return missKeeps
+        ? `${hitPart}。${ctx.missText} に落ちても残り ${missLeave} でテンパイが残ります。`
+        : `${hitPart}。`;
+    case 'LAST_DART_SAME_NUMBER_TRIPLE':
+      return '同じナンバーのトリプルの方が、入っても落ちても有利です。';
+    case 'LAST_DART_LEAVE_PROFILE':
+      return `次のビジットで上がりやすい残り（${hit ?? '—'}）になります。`;
+    case 'SETUP_RECOVERY':
+      return missLeave !== null && ctx.missText
+        ? `${ctx.missText} に落ちても残り ${missLeave} から立て直せます。`
+        : 'シングルに落ちても立て直せます。';
+    case 'APP_ROUTE':
+    case undefined:
+      return 'アプリの評価が高い狙いです。';
+  }
+}
+
 /** 振り返りの `CHECKOUT_PEER_OF_RECOMMENDED` の説明文へ渡す値（表記は変換済み）。 */
 export interface CheckoutPeerContext {
   readonly intendedLabel: string;
