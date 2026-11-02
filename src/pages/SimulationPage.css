@@ -457,7 +457,8 @@
 }
 
 .simulation__throw-dart {
-  min-width: 1.8rem;
+  min-width: 3.2rem;
+  white-space: nowrap;
   color: var(--text-dim);
   font-weight: 700;
   font-variant-numeric: tabular-nums;

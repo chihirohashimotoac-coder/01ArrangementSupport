@@ -1147,7 +1147,7 @@ function ThrowRow({ record }: { record: ThrowRecord }) {
   const described = describeThrow(record);
   return (
     <li data-testid={`sim-throw-row-${record.dartNumber}`}>
-      <span className="simulation__throw-dart">D{record.dartNumber}</span>
+      <span className="simulation__throw-dart">{record.dartNumber}投目</span>
       <span className="simulation__throw-aim">狙い {described.intended}</span>
       <span className="simulation__throw-hit">着弾 {described.actual}</span>
       {(record.bust || record.checkout) && (
