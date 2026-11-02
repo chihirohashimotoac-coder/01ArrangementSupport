@@ -128,6 +128,19 @@ Excel の「OK」は信用しません。さらに「—（不成立）」が本
 - T20 が安全な 300 / 301 / 304 / 307 は、T18 / T19 へ振り替えないこと
 - 通常 SETUP の第一ターゲットが、TRAINING / FIRST DART の推奨と一致すること
 
+### 戦術 v2（2026-11-01 オーナー承認 / `docs/APPROVALS.md` A-27〜A-33）
+
+| 内容 | テスト |
+| --- | --- |
+| BULL → S-BULL の外れ、ダブル→ダブルを代替に数えない、MY ROUTE の選び方、残り 2 本の 51〜70、C には必ず否定理由、外れてちょうど 0 | `src/engine/ranking/tacticsV2.test.ts` |
+| SETUP の最後の 1 投の縦ズレ（+40）と同点の並び（302 / 303 / 306 / 309 / 312 / 320 / 330 / 192 / 195 / 200） | `src/engine/setup/setupV2.test.ts` |
+| 計画の継続（監査の CHECKOUT 13 状態、SETUP の例、2〜350 × 2〜3 本の全件） | `src/engine/recovery/visitPlan.test.ts`、`src/App.test.tsx` |
+| TRAINING の基準と同等の別解（263 件 / 41 状態） | `src/engine/training/peer.test.ts` |
+| 着弾モデル v2（上がりの σ ≧ 得点の σ の全組み合わせ、単調性、Average の上限） | `src/engine/simulation/accuracy.test.ts`、`src/App.simulation.test.tsx` |
+
+試算（`scripts/lib/tacticsV2Trial.ts`）と実装後のエンジンの一致は `npm run audit:tactics-v2` で照合する
+（CHECKOUT は全ルートの並び・推奨度・スコア・理由コード、SETUP は 540 状態の第 1 候補）。
+
 ### S-BULL 231〜235 / 271〜275
 
 10 件すべてで、ルートが Bust せず、合計・残り・テンパイ成立が資料の記載と一致すること。
@@ -247,7 +260,9 @@ SIMULATION の着弾モデルは乱数を伴うので、通常の unit test に�
 
 監査する項目:
 
-- 設定 Average と、固定戦略で 501 を大量に投げたときの実測 PPR の差（±5 以内）
+- 精度一定で投げ切ったときの実測 PPR と `SIGMA_ANCHORS` の差（±5 以内）
+- **実際の設定の組み合わせ（First9 / Average）で投げたとき**、First9 と Average（上限に丸めた値）の両方が設定に近く（±5 以内）、
+  上がりの σ ≧ 得点の σ であること（着弾モデル v2 / A-33）
 - 最大ブレ・ブレ方向を変えても実測 PPR が大きく動かないこと（±7 以内）
 - PPR が高いほど散布が小さくなること
 - 縦ブレで σY が、横ブレで σX が大きくなること
@@ -256,7 +271,8 @@ SIMULATION の着弾モデルは乱数を伴うので、通常の unit test に�
 - BULL / ダブルが座標から自然に判定されること
 
 `npm run audit:simulation -- --solve` は、PPR → σ のアンカー表そのものを
-二分探索で作り直す（`src/engine/simulation/accuracy.ts` の `SIGMA_ANCHORS`）。
+二分探索で作り直す（`src/engine/simulation/accuracy.ts` の `SIGMA_ANCHORS` / `FIRST9_SIGMA_ANCHORS` /
+`FINISHING_SIGMA_TABLE`。約 6 分）。
 
 **得点判定と表示位置が必ず一致すること**は乱数に依存しないので、
 通常の unit test 側（`boardGeometry.test.ts`・2 万点の無作為着弾）で担保する。
@@ -290,7 +306,8 @@ vitest の既定タイムアウト（5 秒）を超えます。違反を配列�
 
 ## 7. 現在の規模
 
-- ユニット / コンポーネント: **28 ファイル / 915 テスト**
-- E2E: **89 テスト × 2 プロジェクト = 178**
+- ユニット / コンポーネント: **41 ファイル / 1172 テスト**
+- E2E: **135 テスト × 2 プロジェクト = 270**
 - 統計監査: `npm run audit:training`（各モード 10 万問、約 25 秒）
-- 統計監査: `npm run audit:simulation`（501 を数千ゲーム＋散布 20 万点、約 5 秒）
+- 統計監査: `npm run audit:simulation`（501 を数千ゲーム＋散布 20 万点、約 12 秒）
+- 差分照合: `npm run audit:tactics-v2`（試算と実装後のエンジンの全件照合、約 2 分）

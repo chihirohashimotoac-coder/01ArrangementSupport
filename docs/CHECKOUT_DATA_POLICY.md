@@ -104,6 +104,26 @@ Excel に収録がないため、アルゴリズムが暗黙の「好み」を�
 `reviewStatus` は `human-approved-v1` です。UI の「設定」画面にも件数と承認状態を表示しています。
 今後この帯に未承認のデータを追加する場合は `pending-human-review` を使ってください。
 
+## 5-2. 残り本数で基準ルートを切り替える帯（v2 として承認済み）
+
+> **承認状態**: 2026-11-01 に **v2 の STANDARD 基準ルートとして人間が承認**しました
+> （`docs/APPROVALS.md` A-27）。v1 と同じく、戦術方針の暫定値です。
+
+これまで基準ルートは**残り点だけ**で決まっていました（`getStandardRoute(left)`）。
+残り 2 本の 51〜70 では、Excel の第 1 候補（3 本前提の `T15 → D8` など）が 2 本でも基準ルートになり、
+1 投目を外すと上がれない並びが「基準」と表示されていました。v2 では、この帯だけ残り本数で切り替えます
+（`src/data/twoDartStandardRoutes.ts`、`reviewStatus: 'human-approved-v2'`）。
+
+**R3. 残り 2 本・LEFT 51〜60** → `S(LEFT − 40) → D20`
+
+**R4. 残り 2 本・LEFT 61〜70** → `S(LEFT − 50) → D-BULL`
+
+- 切り替えは `getStandardRouteFor(left, dartsAvailable)` で行います。2 本・51〜70 だけ R3 / R4 を返し、
+  それ以外は `getStandardRoute(left)`（Excel / 2〜40 の導出）を返します。
+- 残り 3 本・1 本、および 2 本でも 51〜70 以外は変わりません。**Excel と生成ファイルは変更しません。**
+- 次ラウンドの残りの評価（`evaluateLeave`）は 3 本前提なので、`getStandardRoute` のままです。
+- 53〜60 は、Excel の第 1 候補がもともと同じ形です。第 1 候補が変わるのは 51 / 52 / 61〜70 の 12 状態です。
+
 ## 6. 生成ファイルの扱い
 
 `src/data/standardCheckoutRoutes.generated.ts` は**手編集禁止**です。

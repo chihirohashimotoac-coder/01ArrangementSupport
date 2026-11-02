@@ -4,16 +4,23 @@
  *   npm run audit:tactics-v2            # docs/reports/tactics-v2-diff.md を書き出す
  *   npm run audit:tactics-v2 -- --stdout # 標準出力にも出す
  *
- * 本体（src/**）は一切変更しない。scripts/lib/tacticsV2Trial.ts の試算実装を、
- * フラグを外した状態で現行エンジンと全件照合したうえで、修正前 / 修正後を比べる。
- * 照合が 1 件でも食い違えば終了コード 1（差分表が試算の書き写し誤りを含まないことの担保）。
+ * 本体（src/**）は一切変更しない。scripts/lib/tacticsV2Trial.ts の試算実装と比べる。
+ *
+ * 戦術 v2 の承認（2026-11-01、docs/APPROVALS.md A-27〜A-31）後は、**承認した案（CHECKOUT_FLAGS_V2 /
+ * SETUP 案 A）の試算と実装後のエンジンを全件照合**する（承認前は、フラグを外した試算と当時のエンジンを照合していた）。
+ * 照合が 1 件でも食い違えば終了コード 1（承認した差分表どおりに実装されていることの担保）。
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { routeKey, type Dart } from '../src/domain/dart';
 import { MAX_CHECKOUT, isCheckoutable } from '../src/domain/checkoutRules';
-import { DISCOURAGING_REASON_CODES, type RouteGrade } from '../src/data/rankingRules';
-import { rankCheckoutRoutes } from '../src/engine/ranking/checkoutRanking';
+import {
+  CHECKOUT_REASON_WEIGHTS,
+  DISCOURAGING_REASON_CODES,
+  SETUP_REASON_WEIGHTS,
+  type RouteGrade,
+} from '../src/data/rankingRules';
+import { rankCheckoutRoutes, selectMyRoute } from '../src/engine/ranking/checkoutRanking';
 import { rankSetupRoutes } from '../src/engine/setup/enumerate';
 import { suggestFor } from '../src/engine/recovery/suggest';
 import {
@@ -43,6 +50,14 @@ let failures = 0;
 // ---------------------------------------------------------------------------
 // 0. 照合
 // ---------------------------------------------------------------------------
+/** MY ROUTE の照合・集計に使う得意ダブルの設定（15 通り）。 */
+const MY_ROUTE_SETTINGS: readonly (readonly string[])[] = [
+  ...['D20', 'D16', 'D8', 'D10', 'D12', 'D18', 'D4', 'D2', 'D6', 'D14', 'D1', 'BULL'].map((id) => [id]),
+  ['D16', 'D20'],
+  ['D20', 'D16'],
+  ['D16', 'D20', 'D8'],
+];
+
 function verifyReproduction(): void {
   let checkoutStates = 0;
   let checkoutMismatch = 0;
@@ -52,7 +67,7 @@ function verifyReproduction(): void {
         for (let d = 1; d <= 3; d += 1) {
           const options = { preferredDoubles, applyStandardBonus };
           const engine = rankCheckoutRoutes(r, d, options);
-          const trial = rankCheckoutTrial(r, d, options, CHECKOUT_FLAGS_OFF);
+          const trial = rankCheckoutTrial(r, d, options, CHECKOUT_FLAGS_V2);
           checkoutStates += 1;
           const same =
             engine.length === trial.length &&
@@ -70,24 +85,57 @@ function verifyReproduction(): void {
       }
     }
   }
+  let myRouteStates = 0;
+  let myRouteMismatch = 0;
+  for (const preferred of MY_ROUTE_SETTINGS) {
+    for (const { r, d } of checkoutStates_()) {
+      myRouteStates += 1;
+      const engine = selectMyRoute(r, d, preferred)?.key ?? null;
+      const trial = myRouteTopTrial(r, d, preferred, CHECKOUT_FLAGS_V2, true)?.mine.key ?? null;
+      if (engine !== trial) myRouteMismatch += 1;
+    }
+  }
   let setupMismatch = 0;
   for (let r = 171; r <= 350; r += 1) {
     for (let d = 1; d <= 3; d += 1) {
-      const engine = rankSetupRoutes(r, d, { maxRoutes: 1 })[0];
-      const trial = setupV1(r, d).top;
-      if (engine.key !== trial.key || Math.abs(engine.score - trial.score) > 1e-9) setupMismatch += 1;
+      const engine = rankSetupRoutes(r, d).slice(0, 5);
+      const trial = setupState(r, d, SETUP_OPTION_A).leaders;
+      const n = Math.min(engine.length, trial.length);
+      const same =
+        n > 0 &&
+        engine.slice(0, n).every(
+          (route, i) => route.key === trial[i].key && Math.abs(route.score - trial[i].score) <= 1e-9,
+        );
+      if (!same) setupMismatch += 1;
     }
   }
-  if (checkoutMismatch + setupMismatch > 0) failures += 1;
-  line('## 0. 試算実装の照合（フラグをすべて外した状態 = 現行エンジン）');
+  // 承認した重みが、そのまま本体（src/data/rankingRules.ts）に入っていること。
+  const weightsMatch =
+    CHECKOUT_REASON_WEIGHTS.SPENDS_EXTRA_DART === PROPOSED_CHECKOUT_WEIGHTS.SPENDS_EXTRA_DART &&
+    CHECKOUT_REASON_WEIGHTS.BELOW_TOP_ROUTE === PROPOSED_CHECKOUT_WEIGHTS.BELOW_TOP_ROUTE &&
+    SETUP_REASON_WEIGHTS.SETUP_LAST_DART_MISS_KEEPS_TENPAI === SETUP_OPTION_A.lastDartMissBonus;
+  if (checkoutMismatch + myRouteMismatch + setupMismatch > 0 || !weightsMatch) failures += 1;
+  line('## 0. 実装後のエンジンと、承認した案の試算の照合');
+  line();
+  line('承認（2026-11-01、Q1〜Q8 すべて提案どおり）後は、CHECKOUT は `CHECKOUT_FLAGS_V2`、SETUP は案 A の試算と、');
+  line('実装後のエンジンを全件照合する。承認前の照合（フラグをすべて外した試算 = 当時のエンジン）も食い違い 0 件だった。');
   line();
   line('| 対象 | 照合した状態 | 食い違い |');
   line('| --- | ---: | ---: |');
   line(`| CHECKOUT 全ルートの並び・推奨度・スコア・理由コード（得意ダブル 3 設定 × 基準加点あり / なし） | ${checkoutStates} | ${checkoutMismatch} |`);
-  line(`| SETUP 第 1 候補とスコア（171〜350 × 1〜3 本・総当たり） | 540 | ${setupMismatch} |`);
+  line(`| MY ROUTE の最上位（得意ダブル 15 設定 × 2〜170 × 1〜3 本） | ${myRouteStates} | ${myRouteMismatch} |`);
+  line(`| SETUP 上位 5 件とスコア（171〜350 × 1〜3 本・総当たり） | 540 | ${setupMismatch} |`);
+  line(`| 承認した重みと \`src/data/rankingRules.ts\` | 3 | ${weightsMatch ? 0 : 1} |`);
   line();
-  line('食い違いが 0 件なので、以下の差分はすべて「提案した規則の効果」です。');
+  line('以下の「修正前」は試算のフラグを外した値（v1 の規則）、「修正後」は承認した案の値で、修正後はエンジンの出力と一致する。');
   line();
+}
+
+/** 2〜170 × 1〜3 本（照合用。下の checkoutStates と同じ並び）。 */
+function checkoutStates_(): { r: number; d: number }[] {
+  const states: { r: number; d: number }[] = [];
+  for (let r = 2; r <= MAX_CHECKOUT; r += 1) for (let d = 1; d <= 3; d += 1) states.push({ r, d });
+  return states;
 }
 
 // ---------------------------------------------------------------------------
@@ -236,12 +284,7 @@ function itemDetails(): void {
   line();
 
   // 1-4 MY ROUTE
-  const settings: string[][] = [
-    ...['D20', 'D16', 'D8', 'D10', 'D12', 'D18', 'D4', 'D2', 'D6', 'D14', 'D1', 'BULL'].map((id) => [id]),
-    ['D16', 'D20'],
-    ['D20', 'D16'],
-    ['D16', 'D20', 'D8'],
-  ];
+  const settings = MY_ROUTE_SETTINGS;
   line('**1-4 L-M1 MY ROUTE**: MY ROUTE の最上位が「通常評価で C」になる状態の数（2〜170 × 1〜3 本）');
   line();
   line('| 得意ダブル | 修正前 | 修正後 | 修正後にダブル→ダブル / 繋ぎのシングルが最上位 |');
@@ -720,12 +763,13 @@ function setupPlanContinuity(): void {
 // ---------------------------------------------------------------------------
 // 実行
 // ---------------------------------------------------------------------------
-line('# 戦術 v2 差分表（フェーズ 1・オーナー確認用）');
+line('# 戦術 v2 差分表（2026-11-01 オーナー承認・実装済み）');
 line();
-line(`生成: \`npm run audit:tactics-v2\`（${new Date().toISOString().slice(0, 10)}）。本体のコードと戦術データは**変更していません**。`);
-line('重みはすべて提案値で、承認後に `src/data/rankingRules.ts` へ入れます。');
+line(`生成: \`npm run audit:tactics-v2\`（${new Date().toISOString().slice(0, 10)}）。`);
+line('提案 Q1〜Q8 はすべて提案どおりに承認され（`docs/APPROVALS.md` v2 / A-27〜A-33）、CHECKOUT は `CHECKOUT_FLAGS_V2`、SETUP は案 A を実装した。');
+line('案 B / 案 C の列は、検討の記録として残している（採用していない）。重み・判定は人間が選んだ暫定の方針で、数学的・統計的に正しい値という意味ではない。');
 line();
-line(`提案する新しい重み: \`SPENDS_EXTRA_DART\` = ${PROPOSED_CHECKOUT_WEIGHTS.SPENDS_EXTRA_DART}、\`BELOW_TOP_ROUTE\` = ${PROPOSED_CHECKOUT_WEIGHTS.BELOW_TOP_ROUTE}（表示のみ）、\`SETUP_LAST_DART_MISS_KEEPS_TENPAI\` = +${SETUP_OPTION_A.lastDartMissBonus}（案 A）、\`SETUP_THIN_TARGET\` = 0 → −12（案 B のみ）。`);
+line(`承認した新しい重み: \`SPENDS_EXTRA_DART\` = ${PROPOSED_CHECKOUT_WEIGHTS.SPENDS_EXTRA_DART}、\`BELOW_TOP_ROUTE\` = ${PROPOSED_CHECKOUT_WEIGHTS.BELOW_TOP_ROUTE}（表示のみ）、\`SETUP_LAST_DART_MISS_KEEPS_TENPAI\` = +${SETUP_OPTION_A.lastDartMissBonus}（案 A）。案 B の \`SETUP_THIN_TARGET\` = 0 → −12 は採用していない。`);
 line();
 verifyReproduction();
 checkoutSection();
