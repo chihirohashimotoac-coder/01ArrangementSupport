@@ -1131,7 +1131,7 @@ function leaveProfilePhraseJa(profile: LeaveProfile): string {
         : `${routeLabelOf(example)} とシングル 1 本でダブルが残る`;
     case 'TWO_DART_OTHER':
       return example === null
-        ? '2 本で上がれるが、先にトリプルや BULL を決める必要がある'
+        ? '2 本で上がれるが、先にトリプルや D-BULL を決める必要がある'
         : `${routeLabelOf(example)} と、先にトリプルなどを決めてからダブルへ進む`;
     case 'THREE_DART':
       return '上がりに 3 本を使う';

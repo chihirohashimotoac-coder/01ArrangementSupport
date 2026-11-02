@@ -50,7 +50,7 @@ describe('基準ルートの扱い', () => {
  * T18 始動と T20 始動の差を、engine が理由コードとして説明できることを検証する。
  */
 describe('122 の回帰テスト', () => {
-  it('基準ルートは T18 → S18 → BULL', () => {
+  it('基準ルートは T18 → S18 → D-BULL', () => {
     expect(getStandardRoute(122)?.darts.map((d) => d.id)).toEqual(['T18', 'S18', 'BULL']);
   });
 
@@ -204,7 +204,7 @@ describe('動画ケース: 121 からのチェックアウト', () => {
   it('V-121-1: 121 の基準ルートは T20 → S11 → BULL のまま', () => {
     expect(getStandardRoute(121)?.darts.map((d) => d.id)).toEqual(['T20', 'S11', 'BULL']);
     const ranked = rankCheckoutRoutes(121, 3);
-    expect(ranked[0].routeText).toBe('T20 → S11 → BULL');
+    expect(ranked[0].routeText).toBe('T20 → S11 → D-BULL');
     expect(ranked[0].isStandard).toBe(true);
   });
 
@@ -224,7 +224,7 @@ describe('動画ケース: 121 からのチェックアウト', () => {
 
   it('V-101-1: S20 へ落ちた 101 / 2 本では T17 → BULL が第 1 候補', () => {
     const ranked = rankCheckoutRoutes(101, 2);
-    expect(ranked[0].routeText).toBe('T17 → BULL');
+    expect(ranked[0].routeText).toBe('T17 → D-BULL');
   });
 
   /*
@@ -233,7 +233,7 @@ describe('動画ケース: 121 からのチェックアウト', () => {
    */
   it('V-61-1: 61 / 2 本の基準ルートは S11 → D-BULL、3 本の Excel は T15 → D8 のまま（A-27）', () => {
     const ranked = rankCheckoutRoutes(61, 2);
-    expect(ranked[0].routeText).toBe('S11 → BULL');
+    expect(ranked[0].routeText).toBe('S11 → D-BULL');
     expect(ranked[0].isStandard).toBe(true);
     expect(getStandardRoute(61)?.darts.map((d) => d.id)).toEqual(['T15', 'D8']);
     expect(rankCheckoutRoutes(61, 3)[0].routeText).toBe('T15 → D8');
@@ -257,7 +257,7 @@ describe('動画ケース: 121 からのチェックアウト', () => {
      */
     expect(t11.tacticalScore).toBeGreaterThan(t15.tacticalScore);
     const standard = rankCheckoutRoutes(61, 2)[0];
-    expect(standard.routeText).toBe('S11 → BULL');
+    expect(standard.routeText).toBe('S11 → D-BULL');
     expect(standard.score).toBeGreaterThan(t11.score);
   });
 
@@ -266,7 +266,7 @@ describe('動画ケース: 121 からのチェックアウト', () => {
     expect(rankCheckoutRoutes(28, 1)[0].routeText).toBe('D14');
     // T11 が S11 へ落ちても 50 が残り、BULL の 1 本上がりが生きている。
     expect(61 - 11).toBe(50);
-    expect(rankCheckoutRoutes(50, 1)[0].routeText).toBe('BULL');
+    expect(rankCheckoutRoutes(50, 1)[0].routeText).toBe('D-BULL');
     // T15 が S15 へ落ちると 46 / 1 本で、もう上がれない。
     expect(61 - 15).toBe(46);
     expect(isCheckoutable(46, 1)).toBe(false);

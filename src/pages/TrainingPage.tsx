@@ -10,7 +10,7 @@ import { ConfirmDialog } from '../components/ui/Modal';
 import { announce } from '../components/liveAnnouncement';
 import { RadioGroup } from '../components/ui/RadioGroup';
 import { Select } from '../components/ui/Select';
-import { findDart, requireDart, type Dart } from '../domain/dart';
+import { findDart, requireDart, type Dart, displayDartId } from '../domain/dart';
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
 import {
   DEFAULT_TRAINING_SETTINGS,
@@ -1080,7 +1080,7 @@ export function TrainingPage({ onContextChange, onSessionActiveChange }: Trainin
                           keyHeader="ダブル"
                           rows={stats.byFinishDouble.map((item) => ({
                             key: item.key,
-                            label: item.key,
+                            label: displayDartId(item.key),
                             attempts: item.attempts,
                             accuracy: item.accuracy,
                           }))}

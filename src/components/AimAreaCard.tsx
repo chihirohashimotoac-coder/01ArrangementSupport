@@ -1,3 +1,4 @@
+import { displayDartId } from '../domain/dart';
 import { useId, useState } from 'react';
 import {
   AIM_LANDING_GROUP_LABEL_JA,
@@ -91,7 +92,7 @@ export function AimAreaCard({ analysis, preferredDoubles = [], testId = 'aim-are
                           data-dart={landing.dart.id}
                           data-kind={landing.kind}
                         >
-                          <span className="aim-area__dart">{landing.dart.id}</span>
+                          <span className="aim-area__dart">{displayDartId(landing.dart.id)}</span>
                           <span className="aim-area__outcome">
                             {aimLandingOutcomeJa(landing)}
                             {landing.isStandardFirstDart && (

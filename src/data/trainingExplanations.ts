@@ -4,7 +4,7 @@
  * 「何を答えればよかったか」を必ず伝える、という要件（本仕様 34 節）に対応する。
  * 判定そのものは engine が行い、ここでは表示用の日本語だけを組み立てる。
  */
-import { findDart } from '../domain/dart';
+import { findDart, displayDartId } from '../domain/dart';
 import type { LeaveVerdict } from '../engine/training/setupQuestions';
 
 export const LEAVE_VERDICT_LABEL_JA: Readonly<Record<LeaveVerdict, string>> = {
@@ -52,7 +52,7 @@ function landingTextJa(landing: WedgeLanding): string {
         : landing.verdict === 'above-range'
           ? '（170 超え）'
           : '（Bust）';
-  return `${landing.dartId} なら ${landing.leave}${suffix}`;
+  return `${displayDartId(landing.dartId)} なら ${landing.leave}${suffix}`;
 }
 
 function wedgeTextJa(landings: readonly WedgeLanding[]): string {
@@ -123,7 +123,7 @@ export interface FirstDartOutcomeInput {
  * 例: 「S20 へ落ちると 279 / 残り 2 本 — このラウンドではテンパイを作れません。」
  */
 export function firstDartMissOutcomeJa(input: FirstDartOutcomeInput): string {
-  const head = `${input.missDartId} へ落ちると ${input.missLeave} / 残り ${input.dartsAfterMiss} 本`;
+  const head = `${displayDartId(input.missDartId)} へ落ちると ${input.missLeave} / 残り ${input.dartsAfterMiss} 本`;
   if (!input.singleMissSafe) {
     return `${head} — このラウンドではテンパイを作れません。`;
   }
@@ -146,15 +146,15 @@ export function firstDartDifferenceJa(input: {
 
   if (input.answerDartId === null) return tail;
   if (input.answerDartId === input.recommendedDartId) {
-    return `${input.recommendedMissDartId} へ落ちてもテンパイへの道が残るので、${recommendedNumber} から入ります。`;
+    return `${displayDartId(input.recommendedMissDartId)} へ落ちてもテンパイへの道が残るので、${recommendedNumber} から入ります。`;
   }
   if (!input.answerIsCandidate) {
-    return `${input.answerDartId} はこの残りの得点ターゲットとしては選びません。${tail}`;
+    return `${displayDartId(input.answerDartId)} はこの残りの得点ターゲットとしては選びません。${tail}`;
   }
   if (input.answerSafe) {
     return `その的でもシングル落ちに耐えられます。より多く取れる ${tail}`;
   }
-  return `${input.answerDartId} 狙いは ${input.answerMissDartId ?? 'シングル'} へ落ちると残り本数でテンパイ不能ですが、${tail}`;
+  return `${displayDartId(input.answerDartId)} 狙いは ${input.answerMissDartId === null ? 'シングル' : displayDartId(input.answerMissDartId)} へ落ちると残り本数でテンパイ不能ですが、${tail}`;
 }
 
 /** CHECKOUT / RECOVERY で「何を答えればよかったか」を 1 文にする。 */

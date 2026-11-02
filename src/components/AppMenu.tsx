@@ -12,7 +12,8 @@ export type MenuDestination =
   | 'simulation'
   | 'settings'
   | 'history'
-  | 'references';
+  | 'references'
+  | 'glossary';
 
 export interface MenuMode {
   readonly id: 'checkout' | 'setup' | 'training' | 'simulation';
@@ -70,6 +71,7 @@ const MORE: ReadonlyArray<{ id: MenuDestination; label: string; sub: string; tes
   { id: 'settings', label: '設定', sub: '得意ダブル（MY ROUTE）・テーマ', testId: 'nav-settings' },
   { id: 'history', label: 'バージョン履歴', sub: '主な変更の一覧', testId: 'menu-history' },
   { id: 'references', label: '参考資料・出典', sub: '判断・データの根拠', testId: 'menu-references' },
+  { id: 'glossary', label: '用語集', sub: 'テンパイ・ノーテン・NEXT VISIT などの意味', testId: 'menu-glossary' },
 ];
 
 /**

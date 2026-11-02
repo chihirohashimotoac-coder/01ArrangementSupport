@@ -241,3 +241,29 @@ test('4-8: パンくず・カルーセルの点・参考資料のリンクは 44
   const link = await heightOf('.references__link');
   expect(link.height).toBeGreaterThanOrEqual(43.9);
 });
+
+test.describe('監査フェーズ 2 / 2-3: D-BULL / S-BULL のチップが幅 320px ではみ出さない', () => {
+  test.use({ viewport: { width: 320, height: 700 } });
+
+  for (const left of ['170', '121', '50']) {
+    test(`CHECKOUT ${left}`, async ({ page }) => {
+      await page.getByTestId('nav-checkout').click();
+      await page.getByTestId('score-input').fill(left);
+      const showAll = page.getByTestId('show-all-routes');
+      if ((await showAll.count()) > 0) await showAll.click();
+      await page.evaluate(() => document.fonts.ready);
+      const overflow = await page.evaluate(() => {
+        const bad: string[] = [];
+        for (const chip of document.querySelectorAll<HTMLElement>('.route-card__dart')) {
+          const card = chip.closest('.route-card')!.getBoundingClientRect();
+          const rect = chip.getBoundingClientRect();
+          if (rect.right > card.right + 0.5 || chip.scrollWidth > chip.clientWidth + 1) bad.push(chip.textContent ?? '');
+        }
+        return { bad, scroll: document.documentElement.scrollWidth };
+      });
+      expect(overflow.bad).toEqual([]);
+      expect(overflow.scroll).toBeLessThanOrEqual(320);
+      await expect(page.getByTestId('standard-route')).toContainText(left === '121' ? 'D-BULL' : left === '50' ? 'D16' : 'D-BULL');
+    });
+  }
+});

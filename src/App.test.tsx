@@ -946,8 +946,15 @@ describe('v1.2 UX（答えを先に見せる）', () => {
       .map((chip) => chip.getAttribute('data-dart'));
     expect(chips[0]).toBe('T18');
     expect(best.textContent).toContain('残り 170');
-    expect(best.textContent).toContain('別の展開例：');
-    expect(best.textContent).toContain('T20 が 2 本入った時点で 182 残り');
+    // 監査フェーズ 2 / 2-2: BEST の要約は、T18 から入る理由（T20 → S20 との比較）。
+    expect(best.textContent).toContain('T20 を狙って S20 に入ると、残り 282・あと 2 本ではテンパイを作れません。');
+    expect(best.textContent).toContain('T18 を狙って S18 に入っても、残り 284・あと 2 本でまだテンパイを作るチャンスが残ります。');
+    // 別の場面の書き下ろしは、BEST のカードの外に見出し付きで出す。
+    expect(best.textContent).not.toContain('別の展開例');
+    const example = screen.getByTestId('setup-line-example');
+    expect(example).toHaveTextContent('別の展開例：T20 が 2 本入ったとき');
+    expect(example).toHaveTextContent('T20 が 2 本入った時点で 182 残り');
+    expect(precedes(best, example)).toBe(true);
   });
 
   it('S: TRAINING は採点後にだけ、結果の直下へ「次の問題」を出す', async () => {
@@ -1395,6 +1402,18 @@ describe('v1.3.1 CHECKOUT 不能時の NEXT VISIT', () => {
     expect(screen.getAllByTestId('next-visit-route')).toHaveLength(1);
   });
 
+  it('169（ノーテン）の NEXT VISIT に、その残しを選んだ理由を出す（監査フェーズ 2 / 2-6）', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '169');
+    const card = screen.getByTestId('next-visit-route');
+    // 169 の残しは T20 → T20 → S17 で 32。32 は D16 で上がれ、外しても 16 → 8 と続く。
+    expect(card).toHaveTextContent('残り 32');
+    await user.click(within(card).getByRole('button', { name: /理由を見る/ }));
+    expect(card).toHaveTextContent('D16 で上がれます');
+    expect(card).toHaveTextContent('16 → 8 → 4 → 2');
+  });
+
   it('上がれないときの警告文を 2 回表示しない', async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -1626,7 +1645,7 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     await user.click(screen.getByTestId('segment-t20'));
     expect(screen.getByTestId('status-left')).toHaveTextContent('62');
     // 62 / 2 本の MY ROUTE。STANDARD（T10 → D16）へは戻さない。
-    expect(nextRoute()).toEqual(['S12', 'BULL']);
+    expect(nextRoute()).toEqual(['S12', 'D-BULL']);
   });
 
   it('MY ROUTE で外して上がれなくなったら、NEXT VISIT へ移る', async () => {
@@ -1917,7 +1936,9 @@ describe('動画ケース: 121 の OTHER ROUTE を選んで追従する', () => 
     render(<App />);
     await openCheckoutWith(user, '121');
     // 主表示は基準ルートのまま。
-    expect(within(screen.getByTestId('standard-route')).getByText('BULL')).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('standard-route')).getByRole('button', { name: /3 投目 D-BULL/ }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByTestId('show-all-routes'));
     await user.click(chipOf(screen.getByTestId('route-T20-T11-D14'), 1));
@@ -1937,14 +1958,14 @@ describe('動画ケース: 121 の OTHER ROUTE を選んで追従する', () => 
     expect(nextRoute()).toEqual(['D14']);
   });
 
-  it('S20 へ落ちたら、101 / 2 本の T17 → BULL へ計算し直す', async () => {
+  it('S20 へ落ちたら、101 / 2 本の T17 → D-BULL へ計算し直す', async () => {
     const user = userEvent.setup();
     await selectVideoRoute(user);
 
     // T20 の予定に対して S20。選択は自動で解除され、現在の答えへ戻る。
     await user.click(screen.getByTestId('segment-s20-outer'));
     expect(screen.getByTestId('status-left')).toHaveTextContent('101');
-    expect(nextRoute()).toEqual(['T17', 'BULL']);
+    expect(nextRoute()).toEqual(['T17', 'D-BULL']);
   });
 });
 
@@ -1987,5 +2008,22 @@ describe('1-6 狙いどおりに入っているあいだは計画を続ける（
     await user.click(screen.getByTestId('segment-t20'));
     expect(screen.queryByTestId('plan-route')).toBeNull();
     expect(screen.getByTestId('standard-heading')).toHaveTextContent('残り 40 の基準ルート');
+  });
+});
+
+describe('監査フェーズ 2 / 2-9: SETUP から 170 以下になったときの補足', () => {
+  it('250 → T20・T20・S20 で 110 になったら、補足を CHECKOUT 側の文言にする', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await openSetupWith(user, '250');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-s20-outer'));
+    await user.click(screen.getByTestId('next-visit-button'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('110');
+    const hint = container.querySelector('.score-input__hint')!;
+    expect(hint).toHaveTextContent('2〜170・この3投で上がる');
+    expect(hint).not.toHaveTextContent('次の3投に向けて整える');
   });
 });

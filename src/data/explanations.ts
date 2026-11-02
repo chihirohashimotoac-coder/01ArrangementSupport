@@ -9,6 +9,7 @@
  *  1) engine の計算結果から機械的に組み立てる説明（このファイルのテンプレート）
  *  2) 特に重要なスコアに人間が書き下ろす説明（CURATED_CHECKOUT_EXPLANATIONS）
  */
+import { displayDartId } from '../domain/dart';
 import type {
   CheckoutReasonCode,
   NextVisitProposalFacet,
@@ -101,7 +102,7 @@ export interface ReasonContext {
   readonly missLeave: number | null;
   /** 縦ズレ後に残る本数。 */
   readonly dartsAfterMiss: number;
-  /** 縦ズレ後のリカバリー例（例: "T18 → BULL"）。 */
+  /** 縦ズレ後のリカバリー例（例: "T18 → D-BULL"）。 */
   readonly missRecoveryText: string | null;
   /** 横ズレの説明（例: "S10 なら 36 残りで D18"）。 */
   readonly neighborNotes: readonly string[];
@@ -123,6 +124,63 @@ export interface ReasonContext {
   readonly minPlainDarts?: number | null;
   /** 基準ルートの表記（PEER_OF_STANDARD 用）。 */
   readonly standardRouteText?: string | null;
+  /** 主目標と BEST の 1 投目の比較（SETUP_WHY_NOT_MAIN_TARGET 用）。 */
+  readonly mainTargetComparison?: MainTargetComparison | null;
+}
+
+/**
+ * SETUP の BEST が主目標（既定 T20）から始まらない理由の材料（監査フェーズ 2 / 2-2）。
+ * どちらの的も「同じナンバーのシングルへ落ちた」場合を、エンジンが計算した値で比べる。
+ */
+export interface MainTargetComparison {
+  /** 主目標の表記（例: T20）。 */
+  readonly mainText: string;
+  /** 主目標が落ちたシングルの表記（例: S20）。 */
+  readonly mainMissText: string;
+  readonly mainMissLeave: number;
+  /** 主目標がシングルへ落ちても、残りの本数でテンパイを作れるか。 */
+  readonly mainMissTenpai: boolean;
+  /** BEST の 1 投目の表記（例: T18）。 */
+  readonly bestText: string;
+  readonly bestMissText: string;
+  readonly bestMissLeave: number;
+  readonly bestMissTenpai: boolean;
+  /** シングルへ落ちたあとに残る本数。 */
+  readonly dartsAfterMiss: number;
+  /** BEST の残し。 */
+  readonly bestLeave: number;
+  /** 主目標から始めたときの最良ルートの表記と残し（候補に無ければ null）。 */
+  readonly mainBestRouteText: string | null;
+  readonly mainBestLeave: number | null;
+}
+
+function whyNotMainTargetJa(c: MainTargetComparison): { summary: string; detail: string } {
+  const after = (leave: number) => `残り ${leave}・あと ${c.dartsAfterMiss} 本`;
+  if (!c.mainMissTenpai && c.bestMissTenpai) {
+    return {
+      summary:
+        `${c.mainText} を狙って ${c.mainMissText} に入ると、${after(c.mainMissLeave)}ではテンパイを作れません。` +
+        `${c.bestText} を狙って ${c.bestMissText} に入っても、${after(c.bestMissLeave)}でまだテンパイを作るチャンスが残ります。`,
+      detail:
+        `だから 1 投目は ${c.bestText} から狙います。いちばん起きるミス（同じナンバーのシングル）をしても、` +
+        'このラウンドのうちに次のラウンドで上がれる残りを作り直せる入り方です。',
+    };
+  }
+  const comparison =
+    c.mainBestRouteText !== null && c.mainBestLeave !== null
+      ? `${c.mainText} から入る最良の組み立て（${c.mainBestRouteText}）は ${c.mainBestLeave} 残しで、` +
+        `${c.bestText} から入ると ${c.bestLeave} 残しになります。`
+      : `${c.bestText} から入ると ${c.bestLeave} 残しになります。`;
+  if (c.mainMissTenpai && c.bestMissTenpai) {
+    return {
+      summary: `${c.mainText} も ${c.bestText} も、シングルに入ってもテンパイを作れます。違いは狙いどおり入ったときの残しです。`,
+      detail: `${comparison}次のラウンドで上がりやすい残しを優先して、${c.bestText} から狙います。`,
+    };
+  }
+  return {
+    summary: `${c.mainText} も ${c.bestText} も、シングルに入るとこのラウンドではテンパイを作れません。違いは狙いどおり入ったときの残しです。`,
+    detail: `${comparison}次のラウンドで上がりやすい残しを優先して、${c.bestText} から狙います。`,
+  };
 }
 
 export interface RenderedReason {
@@ -246,10 +304,10 @@ const CHECKOUT_TEMPLATES: Record<CheckoutReasonCode, ReasonTemplate> = {
   },
   BULL_REQUIRED: {
     polarity: 'negative',
-    label: 'BULLが必要',
+    label: 'D-BULL が必要',
     render: () => ({
-      summary: 'BULL を要求するルートです。',
-      detail: 'BULL は的が小さく、外したときの代替が乏しくなります。',
+      summary: 'D-BULL を要求するルートです。',
+      detail: 'D-BULL は的が小さく、外したときの代替が乏しくなります。',
     }),
   },
   TARGET_CONTINUITY: {
@@ -380,9 +438,9 @@ const SETUP_TEMPLATES: Record<SetupReasonCode, ReasonTemplate> = {
   },
   LEAVE_REQUIRES_BULL: {
     polarity: 'negative',
-    label: '上がりにBULLが要る',
+    label: '上がりに D-BULL が要る',
     render: (ctx) => ({
-      summary: `${ctx.remaining} 残りは基準ルートが BULL を要求します。`,
+      summary: `${ctx.remaining} 残りは基準ルートが D-BULL を要求します。`,
       detail: null,
     }),
   },
@@ -472,6 +530,14 @@ const SETUP_TEMPLATES: Record<SetupReasonCode, ReasonTemplate> = {
       detail: '狙いどおり入れば良い残りでも、シングルへ落ちた時点でこのラウンドが終わります。',
     }),
   },
+  SETUP_WHY_NOT_MAIN_TARGET: {
+    polarity: 'positive',
+    label: '1 投目の選び方',
+    render: (ctx) =>
+      ctx.mainTargetComparison
+        ? whyNotMainTargetJa(ctx.mainTargetComparison)
+        : { summary: '主目標から始めるより評価が高い入り方です。', detail: null },
+  },
   SETUP_LAST_DART_MISS_KEEPS_TENPAI: {
     polarity: 'positive',
     label: '最後の 1 投が外れてもテンパイ',
@@ -483,12 +549,27 @@ const SETUP_TEMPLATES: Record<SetupReasonCode, ReasonTemplate> = {
   },
 };
 
+/**
+ * テンプレートへ渡す前に、内部 ID（BULL / SB）を画面の表記（D-BULL / S-BULL）へ直す（監査フェーズ 2 / 2-3）。
+ * テンプレートの中では ID を比べず（null かどうかだけを見る）、表示にだけ使うので、ここで一括で直してよい。
+ */
+function displayContext(ctx: ReasonContext): ReasonContext {
+  const show = (id: string | null) => (id === null ? null : displayDartId(id));
+  return {
+    ...ctx,
+    firstDartId: displayDartId(ctx.firstDartId),
+    finishDartId: displayDartId(ctx.finishDartId),
+    missDartId: show(ctx.missDartId),
+    continuityTargetId: show(ctx.continuityTargetId),
+  };
+}
+
 export function renderCheckoutReason(
   code: CheckoutReasonCode,
   ctx: ReasonContext,
 ): RenderedReason & { polarity: ReasonPolarity; label: string } {
   const template = CHECKOUT_TEMPLATES[code];
-  return { ...template.render(ctx), polarity: template.polarity, label: template.label };
+  return { ...template.render(displayContext(ctx)), polarity: template.polarity, label: template.label };
 }
 
 export function renderSetupReason(
@@ -496,7 +577,7 @@ export function renderSetupReason(
   ctx: ReasonContext,
 ): RenderedReason & { polarity: ReasonPolarity; label: string } {
   const template = SETUP_TEMPLATES[code];
-  return { ...template.render(ctx), polarity: template.polarity, label: template.label };
+  return { ...template.render(displayContext(ctx)), polarity: template.polarity, label: template.label };
 }
 
 /**
@@ -505,23 +586,118 @@ export function renderSetupReason(
  */
 export const CURATED_CHECKOUT_EXPLANATIONS: Readonly<Record<number, string>> = {
   103: 'T19 で 46 を残し、S6 で 40（D20）へ整えます。1 投目を S19 へ落としても 84 が残り、残り 2 本での上がりが消えません。',
-  122: 'T18 始動が基準です。S18 へ落ちても 104 が残り、残り 2 本で T18 → BULL の上がりが残ります。T20 始動は S20 へ落ちると 102 となり、残り 2 本では上がれません。',
+  122: 'T18 始動が基準です。S18 へ落ちても 104 が残り、残り 2 本で T18 → D-BULL の上がりが残ります。T20 始動は S20 へ落ちると 102 となり、残り 2 本では上がれません。',
   46: 'S6 → D20 が基準です。隣の S10 へ横ズレしても 36 残りで D18 が残るため、盤面のズレに強い入り方です。',
-  170: '3 本での最大チェックアウトです。T20 → T20 → BULL 以外の組み立てはありません。',
-  167: 'T20 → T19 → BULL。167 は 3 本で上がれる数字なので、セットアップで積極的に「乗せる」価値があります。',
-  164: 'T20 → T18 → BULL。162 / 163 がノーテンであるぶん、164 へ着地させる意識が効きます。',
-  161: 'T20 → T17 → BULL。160 と並んで、340 点台から 180 を出したときに残したい数字です。',
-  160: 'T20 → T20 → D20。BULL を使わずに上がれるため、161 / 164 / 167 より組み立てが素直です。',
+  170: '3 本での最大チェックアウトです。T20 → T20 → D-BULL 以外の組み立てはありません。',
+  167: 'T20 → T19 → D-BULL。167 は 3 本で上がれる数字なので、セットアップで積極的に「乗せる」価値があります。',
+  164: 'T20 → T18 → D-BULL。162 / 163 がノーテンであるぶん、164 へ着地させる意識が効きます。',
+  161: 'T20 → T17 → D-BULL。160 と並んで、340 点台から 180 を出したときに残したい数字です。',
+  160: 'T20 → T20 → D20。D-BULL を使わずに上がれるため、161 / 164 / 167 より組み立てが素直です。',
 };
 
 /** SETUP 側の書き下ろし説明（残り点をキーにする）。 */
 export const CURATED_SETUP_EXPLANATIONS: Readonly<Record<number, string>> = {
   269: '100 点を取ると 169 でノーテンになります。19 + 20 × 4 = 99 のように 99 点へ着地させると 170 残りになります。',
-  302: 'T20 が 2 本入った時点で 182 残り。3 投目を S20 にすると 162 でノーテンになるため、S18 へ振って 164 を残します。',
-  305: 'T20 が 2 本入った時点で 185 残り。3 投目を S18 にすると 167 が残ります。',
   231: 'トリプルを使わなくても、20 + 19 + S-BULL = 64 で 167 残りへ整えられます。',
   271: 'T19 + S19 + S-BULL = 101 で 170 残り。1 本目に 60 が入った後、18・19・20・S-BULL で 170 へ乗せる考え方です。',
 };
+
+/**
+ * SETUP の「別の展開例」（書き下ろし）。BEST とは別の場面（例: T20 が 2 本入ったとき）の説明なので、
+ * BEST のカードの要約には使わず、見出しを付けてカードの外に出す（監査フェーズ 2 / 2-2、APPROVALS A-34）。
+ * 302 / 305 は以前 CURATED_SETUP_EXPLANATIONS にあり、BEST（T18 始動）の要約として出ていた。文章は変えていない。
+ */
+export interface SetupLineExample {
+  /** 見出し（どの場面の話か）。 */
+  readonly heading: string;
+  readonly text: string;
+}
+
+export const CURATED_SETUP_LINE_EXAMPLES: Readonly<Record<number, SetupLineExample>> = {
+  302: {
+    heading: 'T20 が 2 本入ったとき',
+    text: 'T20 が 2 本入った時点で 182 残り。3 投目を S20 にすると 162 でノーテンになるため、S18 へ振って 164 を残します。',
+  },
+  305: {
+    heading: 'T20 が 2 本入ったとき',
+    text: 'T20 が 2 本入った時点で 185 残り。3 投目を S18 にすると 167 が残ります。',
+  },
+};
+
+/** 振り返りの結論 1 行（監査フェーズ 2 / 2-9）へ渡す値（表記は変換済み）。 */
+export interface ReviewConclusionContext {
+  /** 判定の札（良い判断 / もっと良い狙いあり など）。 */
+  readonly label: string;
+  readonly kind:
+    | 'good-recommended'
+    | 'good-peer'
+    | 'good-other'
+    | 'alternative'
+    | 'bogey-without-alternative'
+    | 'plain';
+  /** 代案（kind = alternative のとき）。 */
+  readonly alternativeText?: string;
+  readonly basis?:
+    | 'APP_ROUTE'
+    | 'LAST_DART_TENPAI'
+    | 'LAST_DART_SAME_NUMBER_TRIPLE'
+    | 'LAST_DART_LEAVE_PROFILE'
+    | 'SETUP_RECOVERY';
+  /** 代案が狙い通りに入ったときの残り（0 なら上がり）と、それがテンパイか。 */
+  readonly leaveOnHit?: number;
+  readonly hitTenpai?: boolean;
+  /** 代案がシングルに落ちたときの的・残りと、それがテンパイか（無ければ null）。 */
+  readonly missText?: string | null;
+  readonly leaveOnSingleMiss?: number | null;
+  readonly missTenpai?: boolean;
+}
+
+/**
+ * 振り返りの結論 1 行。推奨度は書かない（相対評価なので、判定と食い違って見えるため）。
+ * 「シングルに落ちても残る」と書くのは、代案のシングル落ちの残りが実際にテンパイのときだけ。
+ */
+export function renderReviewConclusionJa(ctx: ReviewConclusionContext): string {
+  switch (ctx.kind) {
+    case 'good-recommended':
+      return `${ctx.label}：おすすめどおりの狙いです。`;
+    case 'good-peer':
+      return `${ctx.label}：おすすめと同等の上がり方です。`;
+    case 'good-other':
+      return `${ctx.label}：この場面で推奨できる狙いです。`;
+    case 'bogey-without-alternative':
+      return `${ctx.label}：狙い通りでも、次のビジットで上がれない残りになります。`;
+    case 'plain':
+      return `${ctx.label}。`;
+    case 'alternative':
+      return `${ctx.label}：${ctx.alternativeText ?? ''} なら、${alternativeReasonJa(ctx)}`;
+  }
+}
+
+function alternativeReasonJa(ctx: ReviewConclusionContext): string {
+  const hit = ctx.leaveOnHit ?? null;
+  const missLeave = ctx.leaveOnSingleMiss ?? null;
+  const missKeeps =
+    ctx.missText !== null && ctx.missText !== undefined && missLeave !== null && ctx.missTenpai === true;
+  const hitPart =
+    hit === 0 ? '入れば上がりです' : ctx.hitTenpai === true ? `入れば残り ${hit} でテンパイです` : `入れば残り ${hit} です`;
+  switch (ctx.basis) {
+    case 'LAST_DART_TENPAI':
+      return missKeeps
+        ? `${hitPart}。${ctx.missText} に落ちても残り ${missLeave} でテンパイが残ります。`
+        : `${hitPart}。`;
+    case 'LAST_DART_SAME_NUMBER_TRIPLE':
+      return '同じナンバーのトリプルの方が、入っても落ちても有利です。';
+    case 'LAST_DART_LEAVE_PROFILE':
+      return `次のビジットで上がりやすい残り（${hit ?? '—'}）になります。`;
+    case 'SETUP_RECOVERY':
+      return missLeave !== null && ctx.missText
+        ? `${ctx.missText} に落ちても残り ${missLeave} から立て直せます。`
+        : 'シングルに落ちても立て直せます。';
+    case 'APP_ROUTE':
+    case undefined:
+      return 'アプリの評価が高い狙いです。';
+  }
+}
 
 /** 振り返りの `CHECKOUT_PEER_OF_RECOMMENDED` の説明文へ渡す値（表記は変換済み）。 */
 export interface CheckoutPeerContext {

@@ -1,3 +1,4 @@
+import { displayDartId } from '../domain/dart';
 import type { VisitState } from '../engine/recovery/visit';
 import './VisitTrail.css';
 
@@ -26,7 +27,7 @@ export function VisitTrail({ visit, onNextVisit, onReset }: VisitTrailProps) {
             <li key={index} data-filled={thrown ? 'true' : undefined}>
               <span className="visit-trail__index">{4 - visit.initialDartsLeft + index}</span>
               <span className="visit-trail__dart" data-testid={`thrown-${index}`}>
-                {thrown ? thrown.dart.id : '—'}
+                {thrown ? displayDartId(thrown.dart.id) : '—'}
               </span>
               <span className="visit-trail__after">
                 {thrown ? `→ ${thrown.outcome === 'bust' ? 'BUST' : thrown.remainingAfter}` : ''}

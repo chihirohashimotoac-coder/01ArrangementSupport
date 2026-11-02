@@ -7,52 +7,28 @@
  *
  * 定義はアプリの判定と同じもの（`domain/checkoutRules.ts` の `applyDart`、
  * `review.ts` の `summarize`、`data/gradeLabels.ts`）を言葉にしたもので、
- * 新しい戦術判断は含めない。
+ * 新しい戦術判断は含めない。用語の定義そのものは data/glossary.ts（監査フェーズ 2 / 2-8）。
  */
-import { BOGEY_NUMBERS } from '../../data/bogeyNumbers';
-import { ROUTE_GRADE_LABEL_JA } from '../../data/gradeLabels';
-import type { RouteGrade } from '../../data/rankingRules';
+import { glossaryEntry, type GlossaryId } from '../../data/glossary';
 
 export interface GlossaryTerm {
   readonly term: string;
   readonly meaning: string;
 }
 
-const GRADES: readonly RouteGrade[] = ['S', 'A', 'B', 'C'];
-
-export const REVIEW_GLOSSARY_JA: readonly GlossaryTerm[] = [
-  {
-    term: 'CHECKOUT',
-    meaning: '残りをちょうど 0 にして上がること。最後の 1 投はダブル（DB を含む）。',
-  },
-  {
-    term: 'BUST',
-    meaning:
-      '残り点を超える・残り 1 になる・ダブル以外で 0 になる、のどれか。そのビジットは 0 点になり、残りはビジット開始時へ戻る。',
-  },
-  {
-    term: 'ボギー（Bogey Number）',
-    meaning: `170 以下で、3 本あっても上がれない残り（ノーテン）。${BOGEY_NUMBERS.join(' / ')}。`,
-  },
-  {
-    term: 'テンパイ',
-    meaning: '次の 3 投で上がれる残り。',
-  },
-  {
-    term: 'PPR（3投平均）',
-    meaning: '3 投あたりの平均得点。BUST したビジットの得点は 0 として数える。',
-  },
-  {
-    term: '最初の9投のPPR',
-    meaning: 'ゲーム開始から 9 投までの PPR。9 投より前に上がったときは、投げた本数で平均する。',
-  },
-  {
-    term: '推奨度',
-    meaning: GRADES.map((grade) => `${grade} = ${ROUTE_GRADE_LABEL_JA[grade]}`).join('、') +
-      '。ルート候補の相対評価。Cでも成立する上がり方はTRAININGでは正解。最後の1本の実戦推奨は別の比較軸で表示する。',
-  },
-  {
-    term: 'MY ROUTE',
-    meaning: '設定の得意ダブルを優先したルート。これに沿った狙いは良い判断として扱う。',
-  },
+/** 振り返りで説明する用語（定義は data/glossary.ts。アプリ全体の用語集と共有する）。 */
+const REVIEW_TERMS: readonly GlossaryId[] = [
+  'checkout',
+  'bust',
+  'bogey',
+  'tenpai',
+  'ppr',
+  'first9-ppr',
+  'grade',
+  'my-route',
 ];
+
+export const REVIEW_GLOSSARY_JA: readonly GlossaryTerm[] = REVIEW_TERMS.map((id) => {
+  const entry = glossaryEntry(id);
+  return { term: entry.term, meaning: entry.meaning };
+});

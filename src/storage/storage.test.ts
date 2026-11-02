@@ -301,10 +301,29 @@ describe('集計', () => {
     expect(scoreBandOf(2)).toBe('2〜19');
   });
 
-  it('苦手スコアと直近の間違いを再出題対象にする', () => {
+  it('1 回間違えただけでは苦手スコアに載せない（直近の間違いとして復習には残す）', () => {
     appendRecord(
       record({ startRemaining: 161, currentRemaining: 161, ruleValid: false, learningCorrect: false, grade: null }),
     );
+    const stats = computeStats(loadHistory());
+    expect(stats.weakScores).not.toContain(161);
+    expect(stats.recentMistakes).toContain(161);
+  });
+
+  it('2 回間違えても、正答率が 60% 以上なら苦手スコアに載せない', () => {
+    for (const learningCorrect of [false, false, true, true, true]) {
+      appendRecord(record({ startRemaining: 161, currentRemaining: 161, learningCorrect }));
+    }
+    expect(computeStats(loadHistory()).weakScores).not.toContain(161);
+  });
+
+  it('苦手スコアと直近の間違いを再出題対象にする', () => {
+    // 苦手スコアは 2 回以上間違え、正答率が 60% 未満のとき（監査フェーズ 2 / 2-9）。
+    for (let i = 0; i < 2; i += 1) {
+      appendRecord(
+        record({ startRemaining: 161, currentRemaining: 161, ruleValid: false, learningCorrect: false, grade: null }),
+      );
+    }
     appendRecord(record({ startRemaining: 122, currentRemaining: 122, grade: 'C' }));
     const stats = computeStats(loadHistory());
     expect(stats.weakScores).toContain(161);

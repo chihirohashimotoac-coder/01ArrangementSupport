@@ -206,7 +206,7 @@ describe('動画ケース: 121 を実着弾ごとに辿る', () => {
     expect(visit.remaining).toBe(61);
     expect(visit.dartsLeft).toBe(2);
     expect(suggestion.mode).toBe('checkout');
-    expect(suggestion.checkoutRoutes[0].routeText).toBe('S11 → BULL');
+    expect(suggestion.checkoutRoutes[0].routeText).toBe('S11 → D-BULL');
     // 動画の T11 → D14 も同じ一覧に出る（選べば実戦入力が追従する）。
     expect(suggestion.checkoutRoutes.some((route) => route.key === 'T11-D14')).toBe(true);
   });
@@ -215,7 +215,7 @@ describe('動画ケース: 121 を実着弾ごとに辿る', () => {
     const { visit, suggestion } = after('S20');
     expect(visit.remaining).toBe(101);
     expect(visit.dartsLeft).toBe(2);
-    expect(suggestion.checkoutRoutes[0].routeText).toBe('T17 → BULL');
+    expect(suggestion.checkoutRoutes[0].routeText).toBe('T17 → D-BULL');
   });
 
   it('V-84-1: S20 → S17 の 84 / 1 本では、上がれないので次ラウンドへの残しへ移る', () => {

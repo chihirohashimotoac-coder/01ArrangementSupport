@@ -25,7 +25,11 @@ import {
   SETUP_REASON_WEIGHTS,
   type RouteGrade,
 } from '../../data/rankingRules';
-import { renderSetupReason, type ReasonContext } from '../../data/explanations';
+import {
+  renderSetupReason,
+  type MainTargetComparison,
+  type ReasonContext,
+} from '../../data/explanations';
 import { evaluateLeave, isTonTrap, leaveTierOf, type LeaveTier } from './leaveQuality';
 import {
   difficultyOf,
@@ -36,7 +40,12 @@ import {
   type SequenceEntry,
   type SequenceTable,
 } from './sequences';
-import { isSingleMissTenpaiSafe, lastDartMissKeepsTenpai, singleMissDartOf } from './tenpai';
+import {
+  canReachTenpai,
+  isSingleMissTenpaiSafe,
+  lastDartMissKeepsTenpai,
+  singleMissDartOf,
+} from './tenpai';
 
 export { canReachTenpai, isSingleMissTenpaiSafe, singleMissDartOf } from './tenpai';
 
@@ -196,7 +205,8 @@ function buildReasons(evaluated: ScoredSetup, darts: readonly Dart[]): SetupReas
     missRecoveryText: leaveEval.standardRouteText,
     neighborNotes: [],
     verticalNotes: [],
-    doubleReason: null,
+    // LEAVE_GOOD_FINISH_DOUBLE の詳細（残りの上がりのダブルと、外しても続く理由）。
+    doubleReason: leaveEval.finishDoubleText,
     userPreferenceRank: null,
     switchCount: 0,
     continuityTargetId: evaluated.continuityTargetId,
@@ -460,8 +470,91 @@ export function rankSetupRoutes(
     if (detailed.length >= DETAILED_LIMIT) break;
   }
 
+  /*
+   * BEST が主目標（既定 T20）から始まらないときは、その理由を比較の形で添える（監査フェーズ 2 / 2-2）。
+   * 「主目標がシングルへ落ちたらテンパイを作れるか」と「BEST の 1 投目がシングルへ落ちたら作れるか」を
+   * エンジンの計算（isSingleMissTenpaiSafe）で比べ、文章は data/explanations.ts で組み立てる。表示のみで順位は変えない。
+   */
+  if (detailed.length > 0 && darts >= 2) {
+    const comparison = mainTargetComparisonOf(remaining, darts, mainTarget, detailed);
+    if (comparison !== null) {
+      const rendered = renderSetupReason('SETUP_WHY_NOT_MAIN_TARGET', {
+        ...WHY_NOT_MAIN_CONTEXT,
+        remaining: detailed[0].leave,
+        mainTargetComparison: comparison,
+      });
+      const reason: SetupReason = {
+        code: 'SETUP_WHY_NOT_MAIN_TARGET',
+        weight: SETUP_REASON_WEIGHTS.SETUP_WHY_NOT_MAIN_TARGET,
+        polarity: rendered.polarity,
+        label: rendered.label,
+        summary: rendered.summary,
+        detail: rendered.detail,
+      };
+      detailed[0] = { ...detailed[0], reasons: [reason, ...detailed[0].reasons] };
+    }
+  }
+
   rankingCache.set(cacheKey, detailed);
   return detailed.slice(0, limit);
+}
+
+/** SETUP_WHY_NOT_MAIN_TARGET の文を組み立てるときの、使わない項目の既定値。 */
+const WHY_NOT_MAIN_CONTEXT: ReasonContext = {
+  remaining: 0,
+  dartsAvailable: DARTS_PER_VISIT,
+  routeText: '',
+  firstDartId: '',
+  finishDartId: '',
+  missDartId: null,
+  missLeave: null,
+  dartsAfterMiss: 0,
+  missRecoveryText: null,
+  neighborNotes: [],
+  verticalNotes: [],
+  doubleReason: null,
+  userPreferenceRank: null,
+  switchCount: 0,
+  continuityTargetId: null,
+};
+
+/**
+ * BEST の 1 投目が主目標でないとき、両者のシングル落ちを比べる材料。
+ * 主目標・BEST の 1 投目のどちらかにシングル落ちが定義できない（S-BULL 狙いなど）ときは null。
+ */
+function mainTargetComparisonOf(
+  remaining: number,
+  darts: number,
+  mainTarget: string,
+  ranked: readonly RankedSetupRoute[],
+): MainTargetComparison | null {
+  const best = ranked[0];
+  const bestFirst = best.darts[0];
+  const main = findDart(mainTarget);
+  if (main === undefined || bestFirst.id === main.id) return null;
+  // 説明の比較だけ、D-BULL の外れを S-BULL として扱う（ふるいの判定 isSingleMissTenpaiSafe は変えない）。
+  const missOf = (dart: Dart) => (dart.id === 'BULL' ? findDart('SB') ?? null : singleMissDartOf(dart));
+  const mainMiss = missOf(main);
+  const bestMiss = missOf(bestFirst);
+  if (mainMiss === null || bestMiss === null) return null;
+  const mainMissLeave = remaining - mainMiss.score;
+  const bestMissLeave = remaining - bestMiss.score;
+  if (mainMissLeave < MIN_CHECKOUT || bestMissLeave < MIN_CHECKOUT) return null;
+  const mainBest = ranked.find((route) => route.darts[0].id === main.id) ?? null;
+  return {
+    mainText: formatRoute([main]),
+    mainMissText: formatRoute([mainMiss]),
+    mainMissLeave,
+    mainMissTenpai: canReachTenpai(mainMissLeave, darts - 1),
+    bestText: formatRoute([bestFirst]),
+    bestMissText: formatRoute([bestMiss]),
+    bestMissLeave,
+    bestMissTenpai: canReachTenpai(bestMissLeave, darts - 1),
+    dartsAfterMiss: darts - 1,
+    bestLeave: best.leave,
+    mainBestRouteText: mainBest?.routeText ?? null,
+    mainBestLeave: mainBest?.leave ?? null,
+  };
 }
 
 /**

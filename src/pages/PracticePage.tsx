@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AimAreaCard } from '../components/AimAreaCard';
 import { Dartboard } from '../components/Dartboard';
+import { GlossaryText } from '../components/GlossaryText';
 import { NextTarget } from '../components/NextTarget';
 import { RouteCard, type RouteReasonView } from '../components/RouteCard';
 import { ScoreInput } from '../components/ScoreInput';
@@ -8,7 +9,11 @@ import { StatusBar } from '../components/StatusBar';
 import { VisitTrail } from '../components/VisitTrail';
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
 import type { Dart } from '../domain/dart';
-import { CURATED_CHECKOUT_EXPLANATIONS, CURATED_SETUP_EXPLANATIONS } from '../data/explanations';
+import {
+  CURATED_CHECKOUT_EXPLANATIONS,
+  CURATED_SETUP_EXPLANATIONS,
+  CURATED_SETUP_LINE_EXAMPLES,
+} from '../data/explanations';
 import { otherRoutesGradeContext } from '../data/gradeLabels';
 import { analyzeAimArea } from '../engine/aimArea/aimArea';
 import { selectMyRoute } from '../engine/ranking/checkoutRanking';
@@ -695,7 +700,14 @@ export function PracticePage({
       <section className="practice__controls" aria-label="残り点の設定">
         <ScoreInput
           label={entering ? 'ラウンド開始' : '残り点 LEFT'}
-          hint={entering && visit !== null ? `いまの残り ${visit.remaining}・${visit.dartsLeft} 本` : inputCopy.hint}
+          hint={
+            entering && visit !== null
+              ? `いまの残り ${visit.remaining}・${visit.dartsLeft} 本`
+              : // SETUP で「次の3投へ」を押して 170 以下になったら、CHECKOUT 側の補足に合わせる（監査フェーズ 2 / 2-9）。
+                mode === 'setup' && suggestion?.mode === 'checkout' && !restoringUnknownBust
+                ? COPY.checkout.hint
+                : inputCopy.hint
+          }
           compact={entering}
           inputRef={scoreInputRef}
           redirect={restoringUnknownBust ? undefined : redirectOf}
@@ -787,7 +799,7 @@ export function PracticePage({
           */}
           {!recoveryOpen && statusNote && statusNote !== emptyNotice && (
             <p className="practice__note" data-testid="status-note">
-              {statusNote}
+              <GlossaryText text={statusNote} />
             </p>
           )}
 
@@ -861,7 +873,7 @@ export function PracticePage({
           {/* 上がれないことは、答え（実戦推奨・NEXT VISIT）より先に伝える。 */}
           {emptyNotice && (
             <p className="practice__empty" data-testid="no-routes">
-              {emptyNotice}
+              <GlossaryText text={emptyNotice} />
             </p>
           )}
 
@@ -901,21 +913,32 @@ export function PracticePage({
                 dartIds={bestSetup.darts.map((dart) => dart.id)}
                 meta={`取得 ${bestSetup.scored} 点 → 残り ${bestSetup.leave}`}
                 reasons={toReasonViews(bestSetup.reasons)}
-                curatedExplanation={
-                  visit.remaining === 302
-                    ? `別の展開例：${CURATED_SETUP_EXPLANATIONS[302]}`
-                    : CURATED_SETUP_EXPLANATIONS[visit.remaining] ?? null
-                }
+                curatedExplanation={CURATED_SETUP_EXPLANATIONS[visit.remaining] ?? null}
                 onDartFocus={focusDefaultDart}
                 focusedDartId={focusedDartId}
                 defaultOpen
               />
+              {/*
+                別の場面（T20 が 2 本入ったとき）の書き下ろし。BEST の説明と混ざらないよう、
+                カードの外に見出しを付けて出す（監査フェーズ 2 / 2-2）。
+              */}
+              {CURATED_SETUP_LINE_EXAMPLES[visit.remaining] && (
+                <aside className="practice__line-example" data-testid="setup-line-example">
+                  <h3 className="practice__line-example-heading">
+                    別の展開例：{CURATED_SETUP_LINE_EXAMPLES[visit.remaining].heading}
+                  </h3>
+                  <p className="practice__line-example-text">
+                    {CURATED_SETUP_LINE_EXAMPLES[visit.remaining].text}
+                  </p>
+                </aside>
+              )}
             </section>
           )}
 
           {/*
             1.5. 上がれないときの答え —— 盤面より前に置く。
-            判断を増やさないよう最適候補 1 件だけを出し、理由の展開もしない。
+            判断を増やさないよう最適候補 1 件だけを出す。理由は他のカードと同じく要約と折りたたみで出す
+            （2026-11-01 監査フェーズ 2 / 2-6。以前は理由を出しておらず、なぜその残しなのかが分からなかった）。
           */}
           {suggestion.mode === 'checkout' && nextVisitRoute && !practicalLastDart && (
             <section className="practice__routes" aria-label="次ラウンドへの残し">
@@ -927,7 +950,7 @@ export function PracticePage({
                 badge={planDiverges ? ALTERNATIVE_BADGE : 'NEXT VISIT'}
                 dartIds={nextVisitRoute.darts.map((dart) => dart.id)}
                 meta={`取得 ${nextVisitRoute.scored} 点 → 残り ${nextVisitRoute.leave}`}
-                reasons={[]}
+                reasons={toReasonViews(nextVisitRoute.reasons)}
                 onDartFocus={focusDefaultDart}
                 focusedDartId={focusedDartId}
               />
@@ -960,7 +983,7 @@ export function PracticePage({
                       badge="参考"
                       dartIds={nextVisitRoute.darts.map((dart) => dart.id)}
                       meta={`取得 ${nextVisitRoute.scored} 点 → 残り ${nextVisitRoute.leave}`}
-                      reasons={[]}
+                      reasons={toReasonViews(nextVisitRoute.reasons)}
                       onDartFocus={focusDefaultDart}
                       focusedDartId={focusedDartId}
                     />
