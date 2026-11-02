@@ -12,12 +12,8 @@
  * **アプリのおすすめをそのまま投げる固定戦略**のプレイヤーで測る。
  * 戦略は (残り, 残り本数) だけで決まる決定論的な関数なので、memo 化できる。
  */
-import {
-  DARTS_PER_VISIT,
-  MAX_CHECKOUT,
-  MAX_SETUP_REMAINING,
-  applyDart,
-} from '../../src/domain/checkoutRules';
+import { DARTS_PER_VISIT, MAX_SETUP_REMAINING, applyDart } from '../../src/domain/checkoutRules';
+import { TRANSITION_DARTS } from '../../src/engine/simulation/accuracy';
 import { requireDart } from '../../src/domain/dart';
 import type { SegmentDefinition } from '../../src/domain/segments';
 import { DEFAULT_SETUP_MAIN_TARGET } from '../../src/data/rankingRules';
@@ -68,10 +64,10 @@ export function referenceAim(remaining: number, dartsLeft: number): SegmentDefin
 
 export interface GameOptions {
   readonly startScore: number;
-  /** 得点の場面（投げる前の残りが 171 以上）の σ（mm）。 */
-  readonly scoringSigma: number;
-  /** 上がりの場面（投げる前の残りが 170 以下）の σ（mm）。 */
-  readonly finishingSigma: number;
+  /** 1〜9 投目の σ（mm）。 */
+  readonly first9Sigma: number;
+  /** 10 投目以降に移る先の σ（mm）。 */
+  readonly lateSigma: number;
   readonly direction: MissDirection;
   readonly maxMiss: MaxMissLevel;
   /** 打ち切りラウンド数。 */
@@ -88,9 +84,12 @@ export interface GameOutcome {
   readonly bustRounds: number;
 }
 
-/** 場面で σ を分ける（`accuracy.ts` の `sigmaForThrow` と同じ境界）。 */
-function sigmaAt(options: GameOptions, leftBefore: number): number {
-  return leftBefore > MAX_CHECKOUT ? options.scoringSigma : options.finishingSigma;
+/** 投数で σ を分ける（`accuracy.ts` の `sigmaForDart` と同じ形）。 */
+function sigmaAt(options: GameOptions, dartIndex: number): number {
+  if (dartIndex <= 9) return options.first9Sigma;
+  const step = Math.min(dartIndex - 9, TRANSITION_DARTS);
+  const weight = 1 - step / TRANSITION_DARTS;
+  return options.first9Sigma * weight + options.lateSigma * (1 - weight);
 }
 
 /** 固定戦略で 1 ゲーム投げ切る。 */
@@ -114,7 +113,7 @@ export function playGame(options: GameOptions, seed: number): GameOutcome {
     for (let dart = 0; dart < DARTS_PER_VISIT; dart += 1) {
       const segment = referenceAim(left, DARTS_PER_VISIT - dart);
       darts += 1;
-      const sigma = sigmaAt(options, left);
+      const sigma = sigmaAt(options, darts);
       const result = throwWithSigma(segment, sigma, options.direction, options.maxMiss, random);
       const applied = applyDart(left, result.landing.dart);
       roundDartIndices.push(darts);
@@ -196,7 +195,7 @@ export function measure(options: GameOptions, games: number, seed = 1): Measurem
  */
 export function solveSigmaForPpr(
   targetPpr: number,
-  base: Omit<GameOptions, 'scoringSigma' | 'finishingSigma'>,
+  base: Omit<GameOptions, 'first9Sigma' | 'lateSigma'>,
   games = 400,
   iterations = 22,
   scope: 'game' | 'first9' = 'game',
@@ -205,7 +204,7 @@ export function solveSigmaForPpr(
   let high = 260;
   for (let i = 0; i < iterations; i += 1) {
     const mid = (low + high) / 2;
-    const result = measure({ ...base, scoringSigma: mid, finishingSigma: mid }, games, 20260916);
+    const result = measure({ ...base, first9Sigma: mid, lateSigma: mid }, games, 20260916);
     const observed = scope === 'game' ? result.ppr : result.first9Ppr;
     if (observed > targetPpr) low = mid;
     else high = mid;
@@ -214,22 +213,20 @@ export function solveSigmaForPpr(
 }
 
 /**
- * 得点の場面の σ を固定したまま、ゲーム全体の PPR が目標になる「上がりの場面の σ」を求める
- * （着弾モデル v2 / 案 2）。上がりの σ は得点の σ より小さくしない（下限 = scoringSigma）。
- *
- * 上がりの σ が大きいほどゲーム全体の PPR は単調に下がるので、二分探索が使える。
+ * 1〜9 投目の σ を固定したまま、ゲーム全体の PPR が目標になる「10 投目以降の σ」を求める
+ * （着弾モデル v3 / 案 3'）。後半の σ が大きいほどゲーム全体の PPR は単調に下がるので、二分探索が使える。
  */
-export function solveFinishingSigma(
+export function solveLateSigma(
   targetPpr: number,
-  base: Omit<GameOptions, 'finishingSigma'>,
+  base: Omit<GameOptions, 'lateSigma'>,
   games = 400,
   iterations = 20,
 ): number {
-  let low = base.scoringSigma;
+  let low = 0;
   let high = 400;
   for (let i = 0; i < iterations; i += 1) {
     const mid = (low + high) / 2;
-    const result = measure({ ...base, finishingSigma: mid }, games, 20260916);
+    const result = measure({ ...base, lateSigma: mid }, games, 20260916);
     if (result.ppr > targetPpr) low = mid;
     else high = mid;
   }

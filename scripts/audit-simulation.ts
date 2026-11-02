@@ -11,8 +11,7 @@ import {
   MAX_PPR,
   SIGMA_ANCHORS,
   effectiveAveragePpr,
-  finishingSigma,
-  scoringSigma,
+  lateSigma,
   sigmaForFirst9Ppr,
   sigmaForPpr,
   type MaxMissLevel,
@@ -21,7 +20,7 @@ import {
 import {
   measure,
   scatterStats,
-  solveFinishingSigma,
+  solveLateSigma,
   solveSigmaForPpr,
 } from './lib/simulationHarness';
 
@@ -52,7 +51,7 @@ function solve(): void {
     console.log(
       scope === 'game'
         ? '## SIGMA_ANCHORS（精度一定で投げ切ったときのゲーム全体 PPR・固定戦略・501・最大ブレ 中）\n'
-        : '\n## FIRST9_SIGMA_ANCHORS（得点の場面の σ。最初の 9 投の PPR・同条件）\n',
+        : '\n## FIRST9_SIGMA_ANCHORS（1〜9 投目の σ。最初の 9 投の PPR・同条件）\n',
     );
     for (const direction of DIRECTIONS) {
       const rows: string[] = [];
@@ -79,29 +78,26 @@ function solve(): void {
   }
 
   /*
-   * 着弾モデル v2（案 2）: 得点の場面は First9 の σ のまま、ゲーム全体の PPR が Average になる
-   * 上がりの場面の σ を求める。上がりの σ は得点の σ より小さくしない。
-   * cap は「First9 の精度のまま投げ切ったときのゲーム全体 PPR」で、Average の上限になる。
+   * 着弾モデル v3（案 3'）: 1〜9 投目は First9 の σ のまま、10 投目から TRANSITION_DARTS 投かけて
+   * 「後半の σ」へ移る。ゲーム全体の PPR が Average になる後半の σ を求める。
+   * cap は「後半を狙いどおり（σ = 0）にしたときのゲーム全体 PPR」で、届く Average の上限。
    */
-  console.log('\n## FINISHING_SIGMA_TABLE（上がりの場面の σ。First9 ごと・Average ごと）\n');
+  console.log('\n## LATE_SIGMA_TABLE（10 投目以降の σ。First9 ごと・Average ごと）\n');
   for (const direction of DIRECTIONS) {
     console.log(`  ${direction}: [`);
-    const first9Rows = [...targets, MAX_PPR];
-    for (const first9 of first9Rows) {
-      const scoringSigma = first9 >= MAX_PPR ? 0 : first9Solved.get(direction)!.get(first9)!;
-      const base = { startScore: START_SCORE, direction, maxMiss: 'medium' as const, scoringSigma };
-      const cap =
-        first9 >= MAX_PPR
-          ? MAX_PPR
-          : measure({ ...base, finishingSigma: scoringSigma }, SOLVE_GAMES, 20260916).ppr;
+    // First9 167 の行は作らない（最初の 9 投で必ず上がるので、後半の σ が効かない）。
+    for (const first9 of targets) {
+      const first9Sigma = first9Solved.get(direction)!.get(first9)!;
+      const base = { startScore: START_SCORE, direction, maxMiss: 'medium' as const, first9Sigma };
+      const cap = measure({ ...base, lateSigma: 0 }, SOLVE_GAMES, 20260916).ppr;
       const points = targets
         .filter((average) => average < cap - 1)
         .map((average) => {
-          const sigma = solveFinishingSigma(average, base, SOLVE_GAMES, 20);
+          const sigma = solveLateSigma(average, base, SOLVE_GAMES, 20);
           return `{ ppr: ${average}, sigma: ${sigma.toFixed(1)} }`;
         });
       console.log(
-        `    { first9: ${first9 >= MAX_PPR ? 'MAX_PPR' : first9}, cap: ${cap.toFixed(1)}, points: [${points.join(', ')}] },`,
+        `    { first9: ${first9}, cap: ${cap.toFixed(1)}, points: [${points.join(', ')}] },`,
       );
     }
     console.log('  ],');
@@ -115,8 +111,8 @@ function auditCalibration(): void {
     const result = measure(
       {
         startScore: START_SCORE,
-        scoringSigma: sigma,
-        finishingSigma: sigma,
+        first9Sigma: sigma,
+        lateSigma: sigma,
         direction: 'even',
         maxMiss: 'medium',
       },
@@ -138,8 +134,8 @@ function auditCalibration(): void {
     const result = measure(
       {
         startScore: START_SCORE,
-        scoringSigma: sigma,
-        finishingSigma: sigma,
+        first9Sigma: sigma,
+        lateSigma: sigma,
         direction: 'even',
         maxMiss: 'medium',
       },
@@ -155,43 +151,42 @@ function auditCalibration(): void {
   }
 
   /*
-   * 着弾モデル v2（案 2）: 実際の設定の組み合わせで投げ、First9 と Average の両方が
-   * 設定（Average は上限に丸めた値）に近いことを見る。上がりの σ ≧ 得点の σ も確かめる。
+   * 着弾モデル v3（案 3'）: 実際の設定の組み合わせで投げ、First9 と Average の両方が
+   * 設定（届かない Average は届く上限）に近いことを見る。
    */
   console.log('\n## 実際の設定（First9 / Average）で投げたとき\n');
-  console.log('  | 設定 First9 / Average | 使う Average | 得点の σ | 上がりの σ | 実測 First9 | 実測 Average |');
+  console.log('  | 設定 First9 / Average | 使う Average | 1〜9 投目の σ | 10 投目以降の σ | 実測 First9 | 実測 Average |');
   console.log('  | --- | ---: | ---: | ---: | ---: | ---: |');
   const pairs: readonly (readonly [number, number])[] = [
-    [40, 25],
+    [40, 40],
+    [55, 60],
     [60, 40],
     [60, 55],
-    [70, 50],
-    [80, 60],
-    [100, 80],
-    [120, 100],
-    [150, 130],
+    [60, 60],
+    [80, 75],
+    [100, 95],
+    [120, 110],
+    [150, 140],
   ];
   for (const [first9, average] of pairs) {
     for (const direction of DIRECTIONS) {
       const used = effectiveAveragePpr(first9, average, direction);
-      const scoring = scoringSigma(first9, direction);
-      const finishing = finishingSigma(first9, average, direction);
+      const early = sigmaForFirst9Ppr(first9, direction);
+      const late = lateSigma(first9, average, direction);
       const result = measure(
-        { startScore: START_SCORE, scoringSigma: scoring, finishingSigma: finishing, direction, maxMiss: 'medium' },
+        { startScore: START_SCORE, first9Sigma: early, lateSigma: late, direction, maxMiss: 'medium' },
         1500,
         424242,
       );
       if (direction === 'even') {
         console.log(
-          `  | ${first9} / ${average} | ${fixed(used)} | ${fixed(scoring)} | ${fixed(finishing)} | ${fixed(result.first9Ppr)} | ${fixed(result.ppr)} |`,
+          `  | ${first9} / ${average} | ${fixed(used)} | ${fixed(early)} | ${fixed(late)} | ${fixed(result.first9Ppr)} | ${fixed(result.ppr)} |`,
         );
       }
       check(
         `${direction.padEnd(10)} ${first9} / ${average}`,
-        Math.abs(result.first9Ppr - first9) <= 5 &&
-          Math.abs(result.ppr - used) <= 5 &&
-          finishing >= scoring,
-        `First9 実測 ${fixed(result.first9Ppr)} / Average 実測 ${fixed(result.ppr)}（使う値 ${fixed(used)}）/ σ ${fixed(scoring)} → ${fixed(finishing)}`,
+        Math.abs(result.first9Ppr - first9) <= 5 && Math.abs(result.ppr - used) <= 5,
+        `First9 実測 ${fixed(result.first9Ppr)} / Average 実測 ${fixed(result.ppr)}（使う値 ${fixed(used)}）/ σ ${fixed(early)} → ${fixed(late)}`,
       );
     }
   }
@@ -203,8 +198,8 @@ function auditCalibration(): void {
       const result = measure(
         {
           startScore: START_SCORE,
-          scoringSigma: sigma,
-          finishingSigma: sigma,
+          first9Sigma: sigma,
+          lateSigma: sigma,
           direction: 'even',
           maxMiss,
         },
@@ -226,8 +221,8 @@ function auditCalibration(): void {
       const result = measure(
         {
           startScore: START_SCORE,
-          scoringSigma: sigma,
-          finishingSigma: sigma,
+          first9Sigma: sigma,
+          lateSigma: sigma,
           direction,
           maxMiss: 'medium',
         },

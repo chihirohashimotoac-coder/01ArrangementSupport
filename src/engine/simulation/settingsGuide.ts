@@ -50,31 +50,21 @@ export const PPR_GUIDE_ROWS: readonly PprGuideRow[] = [40, 60, 80, 100, 120].map
 export const FIRST9_HELP_JA = {
   title: 'FIRST 9 PPR',
   meaning:
-    '得点の場面（残りが 171 以上）の精度に影響します。高いほど、点を取りに行く投げの着弾が狙いに近づきます。',
+    '開始から 9 投までの精度に影響します。高いほど、序盤の着弾が狙いに近づきます。',
   detail:
-    '最初の 9 投の PPR がこの値に近くなるように決めています。残りが 170 以下になったら、' +
-    'AVERAGE から決めた「上がりの場面」の精度で投げます。',
+    '10 投目から数投かけて、ゲーム全体の平均が AVERAGE になる精度へ移ります。序盤の着弾を見て調整する人、' +
+    '数ラウンドでフォームやテンポが安定する人、序盤に緊張する人は、FIRST 9 を AVERAGE より低め（または同じくらい）にすると近づきます。',
 } as const;
 
 export const AVERAGE_HELP_JA = {
   title: 'AVERAGE PPR',
   meaning:
-    'ゲーム全体の平均です。FIRST 9 との差が、上がりの場面（残り 170 以下）の精度の差になります。',
+    'ゲーム全体の平均です。10 投目以降の精度は、ゲーム全体の平均がこの値になるように決めています。',
   detail:
-    '上がりの場面の精度は、得点の場面（FIRST 9）より高くしません。そのため AVERAGE には、' +
-    'FIRST 9 の精度のまま上がりまで投げたときの値という上限があり、超えた設定は上限として投げます。' +
     `FIRST 9 と AVERAGE をどちらも ${MAX_PPR} にしたときだけ、狙った的へ 100% 入ります（501 を 9 投で上がる値）。` +
-    `${MAX_PPR - 1} ではもう完全一致にはなりません。`,
+    `${MAX_PPR - 1} ではもう完全一致にはなりません。FIRST 9 がとても低いと、10 投目以降を狙いどおりに投げても届かない AVERAGE があり、` +
+    'そのときは届くいちばん高い値で投げます。',
 } as const;
-
-/** AVERAGE が上限に丸められるときの説明（画面の AVERAGE の下に出す）。 */
-export function averageCapNoticeJa(first9: number, cap: number): string {
-  const capText = Math.floor(cap);
-  return (
-    `FIRST 9 が ${first9} のとき、AVERAGE の上限は約 ${capText} です。` +
-    `上がりの場面の精度を得点の場面より高くしないため、この設定は AVERAGE ${capText} として投げます。`
-  );
-}
 
 /** 「ブレ方向」を選ぶときの説明。 */
 export interface DirectionGuide {

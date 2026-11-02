@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { MAX_PPR } from './accuracy';
 import {
   AVERAGE_HELP_JA,
-  averageCapNoticeJa,
   DIRECTION_CRITERION_JA,
   DIRECTION_GUIDE,
   FIRST9_HELP_JA,
@@ -31,24 +30,16 @@ describe('SIMULATION の設定説明', () => {
     expect([...darts].sort((a, b) => b - a)).toEqual(darts);
   });
 
-  it('First9 / Average の意味を、影響する範囲まで書いている（着弾モデル v2 / 案 2）', () => {
-    expect(FIRST9_HELP_JA.meaning).toContain('得点の場面（残りが 171 以上）');
-    expect(FIRST9_HELP_JA.detail).toContain('9 投');
+  it('First9 / Average の意味を、影響する範囲まで書いている（着弾モデル v3 / 案 3\'）', () => {
+    expect(FIRST9_HELP_JA.meaning).toContain('9 投');
+    expect(FIRST9_HELP_JA.meaning).toContain('序盤');
+    expect(FIRST9_HELP_JA.detail).toContain('10 投目');
     expect(AVERAGE_HELP_JA.meaning).toContain('ゲーム全体');
-    expect(AVERAGE_HELP_JA.meaning).toContain('上がりの場面（残り 170 以下）');
-    // 上がりの精度を得点の精度より高くしない・上限がある、を落とさない。
-    expect(AVERAGE_HELP_JA.detail).toContain('上限');
     // 167 のときだけ完全一致、という条件を落とさない。
     expect(AVERAGE_HELP_JA.detail).toContain(`どちらも ${MAX_PPR} にしたときだけ`);
     expect(AVERAGE_HELP_JA.detail).toContain(String(MAX_PPR - 1));
-  });
-
-  it('AVERAGE を丸めるときの説明は、上限と理由を書く', () => {
-    const text = averageCapNoticeJa(60, 47.3);
-    expect(text).toBe(
-      'FIRST 9 が 60 のとき、AVERAGE の上限は約 47 です。' +
-        '上がりの場面の精度を得点の場面より高くしないため、この設定は AVERAGE 47 として投げます。',
-    );
+    // 丸めのお知らせは出さない（上限の話は届かない設定だけ）。
+    expect(AVERAGE_HELP_JA.detail).not.toContain('上がりの場面');
   });
 
   it('ブレ方向は、縦 = 同じナンバー内の上下・横 = 隣のナンバーとして説明する', () => {
