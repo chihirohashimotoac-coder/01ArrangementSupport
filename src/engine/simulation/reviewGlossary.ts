@@ -10,7 +10,7 @@
  * 新しい戦術判断は含めない。
  */
 import { BOGEY_NUMBERS } from '../../data/bogeyNumbers';
-import { ROUTE_GRADE_LABEL_JA } from '../../data/gradeLabels';
+import { GRADE_S_OVERVIEW_JA, ROUTE_GRADE_LABEL_JA } from '../../data/gradeLabels';
 import type { RouteGrade } from '../../data/rankingRules';
 
 export interface GlossaryTerm {
@@ -48,7 +48,7 @@ export const REVIEW_GLOSSARY_JA: readonly GlossaryTerm[] = [
   },
   {
     term: '推奨度',
-    meaning: GRADES.map((grade) => `${grade} = ${ROUTE_GRADE_LABEL_JA[grade]}`).join('、') +
+    meaning: GRADES.map((grade) => `${grade} = ${grade === 'S' ? GRADE_S_OVERVIEW_JA : ROUTE_GRADE_LABEL_JA[grade]}`).join('、') +
       '。ルート候補の相対評価。Cでも成立する上がり方はTRAININGでは正解。最後の1本の実戦推奨は別の比較軸で表示する。',
   },
   {

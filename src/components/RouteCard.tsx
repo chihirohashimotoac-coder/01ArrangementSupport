@@ -1,7 +1,7 @@
 import { displayDartId } from '../domain/dart';
 import { useId, useState } from 'react';
 import type { RouteGrade } from '../data/rankingRules';
-import { ROUTE_GRADE_LABEL_JA } from '../data/gradeLabels';
+import { routeGradeLabelJa } from '../data/gradeLabels';
 import type { ReasonPolarity } from '../domain/reasonCodes';
 import './RouteCard.css';
 
@@ -34,7 +34,6 @@ export interface RouteCardProps {
   readonly reasonsAlwaysVisible?: boolean;
 }
 
-const GRADE_LABEL = ROUTE_GRADE_LABEL_JA;
 
 /**
  * 1 ルートの表示。
@@ -79,7 +78,7 @@ export function RouteCard({
             {gradeContext && <span className="route-card__grade-context">基準評価</span>}
             <span className={`route-card__grade route-card__grade--${grade}`}>
               <span aria-hidden="true">{grade}</span>
-              <span className="visually-hidden">{`${gradeContext ? '基準評価' : '推奨度'} ${grade}: ${GRADE_LABEL[grade]}`}</span>
+              <span className="visually-hidden">{`${gradeContext ? '基準評価' : '推奨度'} ${grade}: ${routeGradeLabelJa(grade, isStandard === true, badge === 'BEST')}`}</span>
             </span>
           </span>
         )}

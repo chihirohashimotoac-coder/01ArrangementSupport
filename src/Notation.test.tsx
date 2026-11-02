@@ -66,7 +66,7 @@ describe('BULL の表記（D-BULL / S-BULL）', () => {
     30_000,
   );
 
-  it.each(['#/settings', '#/references', '#/simulation', '#/training'])(
+  it.each(['#/', '#/settings', '#/references', '#/simulation', '#/training'])(
     '%s: 単独の BULL / SB / DB が無い',
     (hash) => {
       window.history.replaceState(null, '', `/${hash}`);

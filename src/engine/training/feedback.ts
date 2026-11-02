@@ -233,10 +233,20 @@ export function buildFeedback(
   // 基準ルートと同等の別解（A-31）は、S の理由が分かるように添える。
   const isPeer =
     result.checkoutEvaluation?.reasons.some((reason) => reason.code === 'PEER_OF_STANDARD') ?? false;
+  // 推奨度 S の呼び方は、基準ルート自身と、それ以外（基準と同等）を分ける（監査フェーズ 2 / 2-4）。
+  const isStandardAnswer = result.checkoutEvaluation?.isStandard ?? false;
+  const gradeNote =
+    result.grade !== 'S'
+      ? ''
+      : isPeer
+        ? '・基準と同等の別解'
+        : isStandardAnswer
+          ? '・基準ルート'
+          : result.checkoutEvaluation !== null
+            ? '・基準と同等'
+            : '';
   const verdictJa = result.learningCorrect
-    ? isPeer
-      ? `正解（推奨度 ${result.grade ?? '—'}・基準と同等の別解）`
-      : `正解（推奨度 ${result.grade ?? '—'}）`
+    ? `正解（推奨度 ${result.grade ?? '—'}${gradeNote}）`
     : result.ruleValid
       ? `ルール上は成立しますが、学習目的では不正解 — ${result.failureMessageJa ?? ''}`
       : `成立しません — ${result.failureMessageJa ?? ''}`;

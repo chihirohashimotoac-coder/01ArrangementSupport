@@ -5,7 +5,8 @@ import { ScoreMap } from '../components/ui/Infographic';
 import { Accordion } from '../components/ui/Accordion';
 import { ScoreInput } from '../components/ScoreInput';
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
-import { ROUTE_GRADE_LABEL_JA } from '../data/gradeLabels';
+import { GRADE_S_OVERVIEW_JA, ROUTE_GRADE_LABEL_JA, routeGradeLabelJa } from '../data/gradeLabels';
+import { displayDartId } from '../domain/dart';
 import type { RouteGrade } from '../data/rankingRules';
 import { rankCheckoutRoutes } from '../engine/ranking/checkoutRanking';
 import './HomePage.css';
@@ -95,7 +96,7 @@ const FAQ = [
         {(['S', 'A', 'B', 'C'] as const).map((grade) => (
           <div key={grade} data-tone={grade}>
             <dt>{grade}</dt>
-            <dd>{ROUTE_GRADE_LABEL_JA[grade]}</dd>
+            <dd>{grade === 'S' ? GRADE_S_OVERVIEW_JA : ROUTE_GRADE_LABEL_JA[grade]}</dd>
           </div>
         ))}
       </dl>
@@ -151,14 +152,14 @@ export function HomePage({ modes, onSelect, onOpenCheckout, onOpenRemaining }: H
           <ol className="home-example__darts" aria-label="基準ルート">
             {example.dartIds.map((dartId, index) => (
               <li key={`${dartId}-${index}`} style={{ '--chip-i': index } as CSSProperties}>
-                {dartId}
+                {displayDartId(dartId)}
               </li>
             ))}
           </ol>
           {example.grade && (
             <span className="home-example__grade" data-tone={example.grade}>
               {example.grade}
-              <span>{ROUTE_GRADE_LABEL_JA[example.grade]}</span>
+              <span>{routeGradeLabelJa(example.grade, true)}</span>
             </span>
           )}
         </div>
