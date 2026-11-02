@@ -123,6 +123,63 @@ export interface ReasonContext {
   readonly minPlainDarts?: number | null;
   /** 基準ルートの表記（PEER_OF_STANDARD 用）。 */
   readonly standardRouteText?: string | null;
+  /** 主目標と BEST の 1 投目の比較（SETUP_WHY_NOT_MAIN_TARGET 用）。 */
+  readonly mainTargetComparison?: MainTargetComparison | null;
+}
+
+/**
+ * SETUP の BEST が主目標（既定 T20）から始まらない理由の材料（監査フェーズ 2 / 2-2）。
+ * どちらの的も「同じナンバーのシングルへ落ちた」場合を、エンジンが計算した値で比べる。
+ */
+export interface MainTargetComparison {
+  /** 主目標の表記（例: T20）。 */
+  readonly mainText: string;
+  /** 主目標が落ちたシングルの表記（例: S20）。 */
+  readonly mainMissText: string;
+  readonly mainMissLeave: number;
+  /** 主目標がシングルへ落ちても、残りの本数でテンパイを作れるか。 */
+  readonly mainMissTenpai: boolean;
+  /** BEST の 1 投目の表記（例: T18）。 */
+  readonly bestText: string;
+  readonly bestMissText: string;
+  readonly bestMissLeave: number;
+  readonly bestMissTenpai: boolean;
+  /** シングルへ落ちたあとに残る本数。 */
+  readonly dartsAfterMiss: number;
+  /** BEST の残し。 */
+  readonly bestLeave: number;
+  /** 主目標から始めたときの最良ルートの表記と残し（候補に無ければ null）。 */
+  readonly mainBestRouteText: string | null;
+  readonly mainBestLeave: number | null;
+}
+
+function whyNotMainTargetJa(c: MainTargetComparison): { summary: string; detail: string } {
+  const after = (leave: number) => `残り ${leave}・あと ${c.dartsAfterMiss} 本`;
+  if (!c.mainMissTenpai && c.bestMissTenpai) {
+    return {
+      summary:
+        `${c.mainText} を狙って ${c.mainMissText} に入ると、${after(c.mainMissLeave)}ではテンパイを作れません。` +
+        `${c.bestText} を狙って ${c.bestMissText} に入っても、${after(c.bestMissLeave)}でまだテンパイを作るチャンスが残ります。`,
+      detail:
+        `だから 1 投目は ${c.bestText} から狙います。いちばん起きるミス（同じナンバーのシングル）をしても、` +
+        'このラウンドのうちに次のラウンドで上がれる残りを作り直せる入り方です。',
+    };
+  }
+  const comparison =
+    c.mainBestRouteText !== null && c.mainBestLeave !== null
+      ? `${c.mainText} から入る最良の組み立て（${c.mainBestRouteText}）は ${c.mainBestLeave} 残しで、` +
+        `${c.bestText} から入ると ${c.bestLeave} 残しになります。`
+      : `${c.bestText} から入ると ${c.bestLeave} 残しになります。`;
+  if (c.mainMissTenpai && c.bestMissTenpai) {
+    return {
+      summary: `${c.mainText} も ${c.bestText} も、シングルに入ってもテンパイを作れます。違いは狙いどおり入ったときの残しです。`,
+      detail: `${comparison}次のラウンドで上がりやすい残しを優先して、${c.bestText} から狙います。`,
+    };
+  }
+  return {
+    summary: `${c.mainText} も ${c.bestText} も、シングルに入るとこのラウンドではテンパイを作れません。違いは狙いどおり入ったときの残しです。`,
+    detail: `${comparison}次のラウンドで上がりやすい残しを優先して、${c.bestText} から狙います。`,
+  };
 }
 
 export interface RenderedReason {
@@ -472,6 +529,14 @@ const SETUP_TEMPLATES: Record<SetupReasonCode, ReasonTemplate> = {
       detail: '狙いどおり入れば良い残りでも、シングルへ落ちた時点でこのラウンドが終わります。',
     }),
   },
+  SETUP_WHY_NOT_MAIN_TARGET: {
+    polarity: 'positive',
+    label: '1 投目の選び方',
+    render: (ctx) =>
+      ctx.mainTargetComparison
+        ? whyNotMainTargetJa(ctx.mainTargetComparison)
+        : { summary: '主目標から始めるより評価が高い入り方です。', detail: null },
+  },
   SETUP_LAST_DART_MISS_KEEPS_TENPAI: {
     polarity: 'positive',
     label: '最後の 1 投が外れてもテンパイ',
@@ -517,10 +582,30 @@ export const CURATED_CHECKOUT_EXPLANATIONS: Readonly<Record<number, string>> = {
 /** SETUP 側の書き下ろし説明（残り点をキーにする）。 */
 export const CURATED_SETUP_EXPLANATIONS: Readonly<Record<number, string>> = {
   269: '100 点を取ると 169 でノーテンになります。19 + 20 × 4 = 99 のように 99 点へ着地させると 170 残りになります。',
-  302: 'T20 が 2 本入った時点で 182 残り。3 投目を S20 にすると 162 でノーテンになるため、S18 へ振って 164 を残します。',
-  305: 'T20 が 2 本入った時点で 185 残り。3 投目を S18 にすると 167 が残ります。',
   231: 'トリプルを使わなくても、20 + 19 + S-BULL = 64 で 167 残りへ整えられます。',
   271: 'T19 + S19 + S-BULL = 101 で 170 残り。1 本目に 60 が入った後、18・19・20・S-BULL で 170 へ乗せる考え方です。',
+};
+
+/**
+ * SETUP の「別の展開例」（書き下ろし）。BEST とは別の場面（例: T20 が 2 本入ったとき）の説明なので、
+ * BEST のカードの要約には使わず、見出しを付けてカードの外に出す（監査フェーズ 2 / 2-2、APPROVALS A-34）。
+ * 302 / 305 は以前 CURATED_SETUP_EXPLANATIONS にあり、BEST（T18 始動）の要約として出ていた。文章は変えていない。
+ */
+export interface SetupLineExample {
+  /** 見出し（どの場面の話か）。 */
+  readonly heading: string;
+  readonly text: string;
+}
+
+export const CURATED_SETUP_LINE_EXAMPLES: Readonly<Record<number, SetupLineExample>> = {
+  302: {
+    heading: 'T20 が 2 本入ったとき',
+    text: 'T20 が 2 本入った時点で 182 残り。3 投目を S20 にすると 162 でノーテンになるため、S18 へ振って 164 を残します。',
+  },
+  305: {
+    heading: 'T20 が 2 本入ったとき',
+    text: 'T20 が 2 本入った時点で 185 残り。3 投目を S18 にすると 167 が残ります。',
+  },
 };
 
 /** 振り返りの `CHECKOUT_PEER_OF_RECOMMENDED` の説明文へ渡す値（表記は変換済み）。 */

@@ -158,6 +158,8 @@ export const SETUP_REASON_WEIGHTS: Readonly<Record<SetupReasonCode, number>> = {
   // ビジット最後の 1 投が外れてもテンパイが残る狙い。192（1 本）で D-BULL が D16 を上回るのに
   // 要る最小値 35.4 と、CHECKOUT の SINGLE_MISS_SAFE +45 を目安にした値。
   SETUP_LAST_DART_MISS_KEEPS_TENPAI: 40,
+  /** 表示のみ（BEST の 1 投目が主目標でない理由の説明。監査フェーズ 2 / 2-2）。順位には効かない。 */
+  SETUP_WHY_NOT_MAIN_TARGET: 0,
 };
 
 /**

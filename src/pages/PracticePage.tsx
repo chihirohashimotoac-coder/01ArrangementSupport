@@ -8,7 +8,11 @@ import { StatusBar } from '../components/StatusBar';
 import { VisitTrail } from '../components/VisitTrail';
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
 import type { Dart } from '../domain/dart';
-import { CURATED_CHECKOUT_EXPLANATIONS, CURATED_SETUP_EXPLANATIONS } from '../data/explanations';
+import {
+  CURATED_CHECKOUT_EXPLANATIONS,
+  CURATED_SETUP_EXPLANATIONS,
+  CURATED_SETUP_LINE_EXAMPLES,
+} from '../data/explanations';
 import { otherRoutesGradeContext } from '../data/gradeLabels';
 import { analyzeAimArea } from '../engine/aimArea/aimArea';
 import { selectMyRoute } from '../engine/ranking/checkoutRanking';
@@ -901,15 +905,25 @@ export function PracticePage({
                 dartIds={bestSetup.darts.map((dart) => dart.id)}
                 meta={`取得 ${bestSetup.scored} 点 → 残り ${bestSetup.leave}`}
                 reasons={toReasonViews(bestSetup.reasons)}
-                curatedExplanation={
-                  visit.remaining === 302
-                    ? `別の展開例：${CURATED_SETUP_EXPLANATIONS[302]}`
-                    : CURATED_SETUP_EXPLANATIONS[visit.remaining] ?? null
-                }
+                curatedExplanation={CURATED_SETUP_EXPLANATIONS[visit.remaining] ?? null}
                 onDartFocus={focusDefaultDart}
                 focusedDartId={focusedDartId}
                 defaultOpen
               />
+              {/*
+                別の場面（T20 が 2 本入ったとき）の書き下ろし。BEST の説明と混ざらないよう、
+                カードの外に見出しを付けて出す（監査フェーズ 2 / 2-2）。
+              */}
+              {CURATED_SETUP_LINE_EXAMPLES[visit.remaining] && (
+                <aside className="practice__line-example" data-testid="setup-line-example">
+                  <h3 className="practice__line-example-heading">
+                    別の展開例：{CURATED_SETUP_LINE_EXAMPLES[visit.remaining].heading}
+                  </h3>
+                  <p className="practice__line-example-text">
+                    {CURATED_SETUP_LINE_EXAMPLES[visit.remaining].text}
+                  </p>
+                </aside>
+              )}
             </section>
           )}
 

@@ -405,3 +405,26 @@
 
 /* 「1本」が縦に改行されないように（2026-11-01 監査 D-M6）。 */
 .practice__darts-buttons button { white-space: nowrap; }
+
+/*
+ * SETUP の「別の展開例」（監査フェーズ 2 / 2-2）。BEST の説明と別の場面の話なので、
+ * カードの外に、控えめな枠と見出しで置く。
+ */
+.practice__line-example {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-m);
+  padding: var(--space-2) var(--space-3);
+}
+
+.practice__line-example-heading {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.practice__line-example-text {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+}

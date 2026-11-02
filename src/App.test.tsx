@@ -946,8 +946,15 @@ describe('v1.2 UX（答えを先に見せる）', () => {
       .map((chip) => chip.getAttribute('data-dart'));
     expect(chips[0]).toBe('T18');
     expect(best.textContent).toContain('残り 170');
-    expect(best.textContent).toContain('別の展開例：');
-    expect(best.textContent).toContain('T20 が 2 本入った時点で 182 残り');
+    // 監査フェーズ 2 / 2-2: BEST の要約は、T18 から入る理由（T20 → S20 との比較）。
+    expect(best.textContent).toContain('T20 を狙って S20 に入ると、残り 282・あと 2 本ではテンパイを作れません。');
+    expect(best.textContent).toContain('T18 を狙って S18 に入っても、残り 284・あと 2 本でまだテンパイを作るチャンスが残ります。');
+    // 別の場面の書き下ろしは、BEST のカードの外に見出し付きで出す。
+    expect(best.textContent).not.toContain('別の展開例');
+    const example = screen.getByTestId('setup-line-example');
+    expect(example).toHaveTextContent('別の展開例：T20 が 2 本入ったとき');
+    expect(example).toHaveTextContent('T20 が 2 本入った時点で 182 残り');
+    expect(precedes(best, example)).toBe(true);
   });
 
   it('S: TRAINING は採点後にだけ、結果の直下へ「次の問題」を出す', async () => {
