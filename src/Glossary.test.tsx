@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event';
 import App from './App';
 import { GLOSSARY, glossaryEntry } from './data/glossary';
 import { REVIEW_GLOSSARY_JA } from './engine/simulation/reviewGlossary';
-import { glossaryPieces } from './components/GlossaryText';
+import { glossaryPieces } from './data/glossaryPieces';
 
 describe('用語集', () => {
   it('監査で挙がった用語（テンパイ・ノーテン・Bogey・NEXT VISIT・PPR・TON・乗せる・0/1/4/7）がそろっている', () => {
