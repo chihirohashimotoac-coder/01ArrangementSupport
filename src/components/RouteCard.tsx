@@ -2,6 +2,7 @@ import { displayDartId } from '../domain/dart';
 import { useId, useState } from 'react';
 import type { RouteGrade } from '../data/rankingRules';
 import { routeGradeLabelJa } from '../data/gradeLabels';
+import { routeSummaryLines } from '../data/routeSummary';
 import type { ReasonPolarity } from '../domain/reasonCodes';
 import './RouteCard.css';
 
@@ -59,9 +60,8 @@ export function RouteCard({
   const [open, setOpen] = useState(defaultOpen);
   const detailsId = useId();
 
-  const positives = reasons.filter((reason) => reason.polarity === 'positive');
-  const negatives = reasons.filter((reason) => reason.polarity === 'negative');
-  const headline = curatedExplanation ?? negatives[0]?.summary ?? positives[0]?.summary ?? null;
+  // 要約は「強み 1 行＋注意 1 行」（監査フェーズ 2 / 2-5）。どの理由を選ぶかは data/routeSummary.ts。
+  const summary = routeSummaryLines(reasons, curatedExplanation ?? null);
   const isPrimary = badge === 'STANDARD' || badge === 'BEST' || badge === 'PLAN';
   const isPersonal = badge === 'MY ROUTE';
 
@@ -103,10 +103,21 @@ export function RouteCard({
 
       {meta && <p className="route-card__meta">{meta}</p>}
 
-      {headline && !reasonsAlwaysVisible && (
-        <p className="route-card__headline" data-testid={testId ? `${testId}-headline` : undefined}>
-          {headline}
-        </p>
+      {(summary.strength || summary.caution) && !reasonsAlwaysVisible && (
+        <div className="route-card__headline" data-testid={testId ? `${testId}-headline` : undefined}>
+          {summary.strength && (
+            <p className="route-card__headline-line" data-tone="strength">
+              {summary.strength}
+            </p>
+          )}
+          {summary.caution && (
+            <p className="route-card__headline-line" data-tone="caution">
+              <span className="route-card__headline-mark" aria-hidden="true">注意</span>
+              <span className="visually-hidden">注意: </span>
+              {summary.caution}
+            </p>
+          )}
+        </div>
       )}
 
       {reasons.length > 0 && !reasonsAlwaysVisible && (
