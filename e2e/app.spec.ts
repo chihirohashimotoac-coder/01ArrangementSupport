@@ -1109,28 +1109,32 @@ async function withPreferredDoubles(page: Page, doubles: readonly string[]) {
 test('v1.3.3: MY ROUTE のチップをタップするだけで、そのルートを追従する', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
 
-  // 得意ダブルを D20 だけにすると、122 の MY ROUTE は T18 → D14 → D20 になる。
+  /*
+   * 得意ダブルを D20 だけにしたときの 122 の MY ROUTE は T12 → T18 → D16
+   * （戦術 v2 / docs/APPROVALS.md A-28: 通常評価で C・ダブル→ダブルは最上位にしない）。
+   */
   await withPreferredDoubles(page, ['D20']);
 
   await openCheckout(page, 122);
   const myRoute = page.getByTestId('my-route');
+  await expect(myRoute).toContainText('T12');
   await expect(myRoute).toContainText('T18');
-  await expect(myRoute).toContainText('D14');
+  await expect(myRoute).toContainText('D16');
 
   // チップを押すだけで盤面が開く。新しいボタンも確認も挟まらない。
   await myRoute.getByRole('button', { name: /^1 投目/ }).click();
   await expect(page.getByTestId('dartboard')).toBeVisible();
 
-  // 予定どおり T18 → 選んだ MY ROUTE の続き（D14 → D20）を案内する。
-  await page.getByTestId('segment-t18').click();
-  await expect(page.getByTestId('status-bar')).toContainText('68');
+  // 予定どおり T12 → 選んだ MY ROUTE の続き（T18 → D16）を案内する。
+  await page.getByTestId('segment-t12').click();
+  await expect(page.getByTestId('status-bar')).toContainText('86');
   const next = page.getByTestId('recovery-next-route');
-  await expect(next).toContainText('D14');
-  await expect(next).toContainText('D20');
+  await expect(next).toContainText('T18');
+  await expect(next).toContainText('D16');
 
-  await page.getByTestId('segment-d14').click();
-  await expect(page.getByTestId('status-bar')).toContainText('40');
-  await expect(next).toContainText('D20');
+  await page.getByTestId('segment-t18').click();
+  await expect(page.getByTestId('status-bar')).toContainText('32');
+  await expect(next).toContainText('D16');
 
   // 横スクロールを増やさない。
   const overflows = await page.evaluate(

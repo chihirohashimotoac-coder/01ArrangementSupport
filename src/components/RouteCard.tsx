@@ -62,7 +62,7 @@ export function RouteCard({
   const positives = reasons.filter((reason) => reason.polarity === 'positive');
   const negatives = reasons.filter((reason) => reason.polarity === 'negative');
   const headline = curatedExplanation ?? negatives[0]?.summary ?? positives[0]?.summary ?? null;
-  const isPrimary = badge === 'STANDARD' || badge === 'BEST';
+  const isPrimary = badge === 'STANDARD' || badge === 'BEST' || badge === 'PLAN';
   const isPersonal = badge === 'MY ROUTE';
 
   return (

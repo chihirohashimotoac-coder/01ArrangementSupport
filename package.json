@@ -19,7 +19,8 @@
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
     "audit:training": "vite-node scripts/audit-training.ts",
     "audit:simulation": "vite-node scripts/audit-simulation.ts",
-    "audit:review": "vite-node scripts/audit-review.ts"
+    "audit:review": "vite-node scripts/audit-review.ts",
+    "audit:tactics-v2": "vite-node scripts/audit-checkout-v2.ts"
   },
   "dependencies": {
     "react": "^19.2.0",

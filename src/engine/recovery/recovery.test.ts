@@ -200,12 +200,13 @@ describe('動画ケース: 121 を実着弾ごとに辿る', () => {
     return { visit, suggestion: suggestFor(visit.remaining, visit.dartsLeft) };
   }
 
-  it('T20 が入ると 61 / 2 本になり、STANDARD は T15 → D8 のまま', () => {
+  // 戦術 v2（A-27）: 残り 2 本の 61 の基準ルートは S11 → D-BULL。121 の計画（T20 → S11 → BULL）とも一致する。
+  it('T20 が入ると 61 / 2 本になり、STANDARD は S11 → D-BULL（121 の計画の続きと一致）', () => {
     const { visit, suggestion } = after('T20');
     expect(visit.remaining).toBe(61);
     expect(visit.dartsLeft).toBe(2);
     expect(suggestion.mode).toBe('checkout');
-    expect(suggestion.checkoutRoutes[0].routeText).toBe('T15 → D8');
+    expect(suggestion.checkoutRoutes[0].routeText).toBe('S11 → BULL');
     // 動画の T11 → D14 も同じ一覧に出る（選べば実戦入力が追従する）。
     expect(suggestion.checkoutRoutes.some((route) => route.key === 'T11-D14')).toBe(true);
   });

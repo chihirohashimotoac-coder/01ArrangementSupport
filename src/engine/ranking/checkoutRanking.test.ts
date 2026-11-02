@@ -128,6 +128,16 @@ describe('その他の固定ケース', () => {
     expect(ranked[0].reasons.map((r) => r.code)).toContain('FINISH_IN_ONE');
   });
 
+  it('FINISH_IN_ONE の説明は、残り本数で「外しても本数を残せる」かどうかを出し分ける', () => {
+    const detailOf = (darts: number) =>
+      rankCheckoutRoutes(40, darts)[0].reasons.find((r) => r.code === 'FINISH_IN_ONE')!.detail;
+    expect(detailOf(3)).toContain('外しても本数を残せます');
+    expect(detailOf(2)).toContain('外しても本数を残せます');
+    // 残り 1 本では外したら本数は残らない（2026-11-01 監査）。
+    expect(detailOf(1)).not.toContain('本数を残せます');
+    expect(detailOf(1)).toContain('最後の 1 本');
+  });
+
   it('繋ぎでダブルを狙うルートには NON_FINAL_DOUBLE が付く', () => {
     expect(codesOf(46, ['D11', 'D12'])).toContain('NON_FINAL_DOUBLE');
   });
@@ -217,11 +227,17 @@ describe('動画ケース: 121 からのチェックアウト', () => {
     expect(ranked[0].routeText).toBe('T17 → BULL');
   });
 
-  it('V-61-1: 61 / 2 本の基準ルートは T15 → D8 のまま（動画へ寄せない）', () => {
+  /*
+   * 戦術 v2（2026-11-01 オーナー承認 / docs/APPROVALS.md A-27）で、残り 2 本の 61〜70 の基準ルートは
+   * 「S○ → D-BULL」になった。残り 3 本の Excel 第 1 候補（T15 → D8）は変えない。
+   */
+  it('V-61-1: 61 / 2 本の基準ルートは S11 → D-BULL、3 本の Excel は T15 → D8 のまま（A-27）', () => {
     const ranked = rankCheckoutRoutes(61, 2);
-    expect(ranked[0].routeText).toBe('T15 → D8');
+    expect(ranked[0].routeText).toBe('S11 → BULL');
     expect(ranked[0].isStandard).toBe(true);
     expect(getStandardRoute(61)?.darts.map((d) => d.id)).toEqual(['T15', 'D8']);
+    expect(rankCheckoutRoutes(61, 3)[0].routeText).toBe('T15 → D8');
+    expect(rankCheckoutRoutes(61, 3)[0].isStandard).toBe(true);
   });
 
   it('V-61-1: T11 → D14 は最上位の OTHER ROUTE として実在し、安全と評価される', () => {
@@ -236,12 +252,13 @@ describe('動画ケース: 121 からのチェックアウト', () => {
 
     /*
      * 戦術評価（基準ルート加点を除いた tacticalScore）では T11 が上。
-     * それでも主表示は STANDARD のまま、というのが現行の製品方針。
-     * 主表示を入れ替えるには別 RFC と人間の承認が必要
-     * （docs/VIDEO_ARRANGEMENT_DISCUSSION_01.md §5）。
+     * 戦術 v2（A-27）で 2 本の基準ルートは S11 → D-BULL になり、T15 → D8 は基準ルートではなくなった。
+     * 主表示は基準ルート（S11 → D-BULL）のまま（基準ルート加点）。
      */
     expect(t11.tacticalScore).toBeGreaterThan(t15.tacticalScore);
-    expect(t15.score).toBeGreaterThan(t11.score);
+    const standard = rankCheckoutRoutes(61, 2)[0];
+    expect(standard.routeText).toBe('S11 → BULL');
+    expect(standard.score).toBeGreaterThan(t11.score);
   });
 
   it('V-61-1: 動画の算術どおり、S11 でも BULL が残り、S15 では上がれない', () => {

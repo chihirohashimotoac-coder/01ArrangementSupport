@@ -16,6 +16,7 @@ import { applyDart } from '../../domain/checkoutRules';
 import type { RouteGrade } from '../../data/rankingRules';
 import {
   evaluateCheckoutRoute,
+  peerOfStandard,
   rankCheckoutRoutes,
   type RankedCheckoutRoute,
 } from '../ranking/checkoutRanking';
@@ -153,12 +154,21 @@ function gradeCheckoutAnswer(
     );
   }
 
-  const evaluation = evaluateCheckoutRoute(
+  const ranked = rankCheckoutRoutes(question.currentRemaining, question.dartsAvailable);
+  const evaluated = evaluateCheckoutRoute(
     question.currentRemaining,
     question.dartsAvailable,
     answer,
   );
-  const ranked = rankCheckoutRoutes(question.currentRemaining, question.dartsAvailable);
+  /*
+   * 基準ルートと同等の別解は、TRAINING の採点でだけ S（基準と同等）にする（戦術 v2 / A-31）。
+   * 例: 41 / 2 本 S1 → D20、50 / 2 本 S10 → D20。Practice の推奨度は変えない。
+   */
+  const evaluation =
+    evaluated === null
+      ? null
+      : peerOfStandard(question.currentRemaining, question.dartsAvailable, evaluated, ranked) ??
+        evaluated;
   const finish = answer[answer.length - 1];
 
   return {

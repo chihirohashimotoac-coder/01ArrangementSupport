@@ -12,7 +12,12 @@
  * **アプリのおすすめをそのまま投げる固定戦略**のプレイヤーで測る。
  * 戦略は (残り, 残り本数) だけで決まる決定論的な関数なので、memo 化できる。
  */
-import { DARTS_PER_VISIT, MAX_SETUP_REMAINING, applyDart } from '../../src/domain/checkoutRules';
+import {
+  DARTS_PER_VISIT,
+  MAX_CHECKOUT,
+  MAX_SETUP_REMAINING,
+  applyDart,
+} from '../../src/domain/checkoutRules';
 import { requireDart } from '../../src/domain/dart';
 import type { SegmentDefinition } from '../../src/domain/segments';
 import { DEFAULT_SETUP_MAIN_TARGET } from '../../src/data/rankingRules';
@@ -63,10 +68,10 @@ export function referenceAim(remaining: number, dartsLeft: number): SegmentDefin
 
 export interface GameOptions {
   readonly startScore: number;
-  /** 1〜9 投目の σ（mm）。 */
-  readonly first9Sigma: number;
-  /** 10 投目以降の σ（mm）。 */
-  readonly averageSigma: number;
+  /** 得点の場面（投げる前の残りが 171 以上）の σ（mm）。 */
+  readonly scoringSigma: number;
+  /** 上がりの場面（投げる前の残りが 170 以下）の σ（mm）。 */
+  readonly finishingSigma: number;
   readonly direction: MissDirection;
   readonly maxMiss: MaxMissLevel;
   /** 打ち切りラウンド数。 */
@@ -83,12 +88,9 @@ export interface GameOutcome {
   readonly bustRounds: number;
 }
 
-/** First9 → Average の遷移（`accuracy.ts` の `sigmaForDart` と同じ形）。 */
-function sigmaAt(options: GameOptions, dartIndex: number, transition = 6): number {
-  if (dartIndex <= 9) return options.first9Sigma;
-  const step = Math.min(dartIndex - 9, transition);
-  const weight = 1 - step / transition;
-  return options.first9Sigma * weight + options.averageSigma * (1 - weight);
+/** 場面で σ を分ける（`accuracy.ts` の `sigmaForThrow` と同じ境界）。 */
+function sigmaAt(options: GameOptions, leftBefore: number): number {
+  return leftBefore > MAX_CHECKOUT ? options.scoringSigma : options.finishingSigma;
 }
 
 /** 固定戦略で 1 ゲーム投げ切る。 */
@@ -112,7 +114,7 @@ export function playGame(options: GameOptions, seed: number): GameOutcome {
     for (let dart = 0; dart < DARTS_PER_VISIT; dart += 1) {
       const segment = referenceAim(left, DARTS_PER_VISIT - dart);
       darts += 1;
-      const sigma = sigmaAt(options, darts);
+      const sigma = sigmaAt(options, left);
       const result = throwWithSigma(segment, sigma, options.direction, options.maxMiss, random);
       const applied = applyDart(left, result.landing.dart);
       roundDartIndices.push(darts);
@@ -184,7 +186,7 @@ export function measure(options: GameOptions, games: number, seed = 1): Measurem
 }
 
 /**
- * 目標 PPR になる σ を二分探索で求める。
+ * 目標 PPR になる σ を二分探索で求める（得点・上がりとも同じ σ で投げ切る）。
  *
  * σ が大きいほど PPR は単調に下がるので、二分探索が使える。
  *
@@ -194,7 +196,7 @@ export function measure(options: GameOptions, games: number, seed = 1): Measurem
  */
 export function solveSigmaForPpr(
   targetPpr: number,
-  base: Omit<GameOptions, 'first9Sigma' | 'averageSigma'>,
+  base: Omit<GameOptions, 'scoringSigma' | 'finishingSigma'>,
   games = 400,
   iterations = 22,
   scope: 'game' | 'first9' = 'game',
@@ -203,9 +205,32 @@ export function solveSigmaForPpr(
   let high = 260;
   for (let i = 0; i < iterations; i += 1) {
     const mid = (low + high) / 2;
-    const result = measure({ ...base, first9Sigma: mid, averageSigma: mid }, games, 20260916);
+    const result = measure({ ...base, scoringSigma: mid, finishingSigma: mid }, games, 20260916);
     const observed = scope === 'game' ? result.ppr : result.first9Ppr;
     if (observed > targetPpr) low = mid;
+    else high = mid;
+  }
+  return (low + high) / 2;
+}
+
+/**
+ * 得点の場面の σ を固定したまま、ゲーム全体の PPR が目標になる「上がりの場面の σ」を求める
+ * （着弾モデル v2 / 案 2）。上がりの σ は得点の σ より小さくしない（下限 = scoringSigma）。
+ *
+ * 上がりの σ が大きいほどゲーム全体の PPR は単調に下がるので、二分探索が使える。
+ */
+export function solveFinishingSigma(
+  targetPpr: number,
+  base: Omit<GameOptions, 'finishingSigma'>,
+  games = 400,
+  iterations = 20,
+): number {
+  let low = base.scoringSigma;
+  let high = 400;
+  for (let i = 0; i < iterations; i += 1) {
+    const mid = (low + high) / 2;
+    const result = measure({ ...base, finishingSigma: mid }, games, 20260916);
+    if (result.ppr > targetPpr) low = mid;
     else high = mid;
   }
   return (low + high) / 2;

@@ -11,12 +11,13 @@
  */
 import { parseRoute, type Dart } from '../domain/dart';
 import { DERIVED_LOW_ROUTES } from './lowStandardRoutes';
+import { TWO_DART_STANDARD_ROUTES } from './twoDartStandardRoutes';
 import {
   EXCEL_STANDARD_ROWS,
   type AlternativeFinish,
 } from './standardCheckoutRoutes.generated';
 
-export type StandardRouteSource = 'excel-first-candidate' | 'derived-rule-v1';
+export type StandardRouteSource = 'excel-first-candidate' | 'derived-rule-v1' | 'derived-two-dart-v2';
 
 /**
  * データの確認状態。
@@ -26,7 +27,11 @@ export type StandardRouteSource = 'excel-first-candidate' | 'derived-rule-v1';
  *                             （docs/APPROVALS.md A-4）。暫定値であり、見直す前提。
  *  - `pending-human-review` : まだ承認されていない導出データ。今後追加する場合に使う。
  */
-export type ReviewStatus = 'source-of-truth' | 'human-approved-v1' | 'pending-human-review';
+export type ReviewStatus =
+  | 'source-of-truth'
+  | 'human-approved-v1'
+  | 'human-approved-v2'
+  | 'pending-human-review';
 
 export interface StandardAlternativeRoute {
   readonly finish: AlternativeFinish;
@@ -84,3 +89,35 @@ export function getStandardRoute(left: number): StandardRouteEntry | null {
 
 /** 基準ルートを持つ LEFT の一覧。 */
 export const STANDARD_ROUTE_LEFTS: readonly number[] = entries.map((entry) => entry.left);
+
+/*
+ * 残り 2 本のときだけの基準ルート（51〜70。docs/APPROVALS.md A-27）。
+ * 残り 3 本・次ラウンドの残しの評価（evaluateLeave）は getStandardRoute() のまま。
+ */
+const TWO_DART_BY_LEFT = new Map<number, StandardRouteEntry>(
+  TWO_DART_STANDARD_ROUTES.map((row) => [
+    row.left,
+    {
+      left: row.left,
+      darts: parseRoute(row.darts),
+      source: 'derived-two-dart-v2',
+      reviewStatus: 'human-approved-v2',
+      alternatives: [],
+    },
+  ]),
+);
+
+/** 残り 2 本・51〜70 で使う基準ルートの一覧。 */
+export const TWO_DART_STANDARD_ENTRIES: readonly StandardRouteEntry[] = [...TWO_DART_BY_LEFT.values()];
+
+/**
+ * 残り本数を考えた基準ルート。残り 2 本の 51〜70 だけ導出規則（R3 / R4）を返し、
+ * それ以外は getStandardRoute()（2〜40 の導出規則 / 41〜170 の Excel 第 1 候補）と同じ。
+ */
+export function getStandardRouteFor(left: number, dartsAvailable: number): StandardRouteEntry | null {
+  if (dartsAvailable === 2) {
+    const twoDart = TWO_DART_BY_LEFT.get(left);
+    if (twoDart) return twoDart;
+  }
+  return getStandardRoute(left);
+}

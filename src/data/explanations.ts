@@ -115,6 +115,14 @@ export interface ReasonContext {
   readonly switchCount: number;
   /** 続けて狙えるナンバー（TARGET_CONTINUITY 用）。 */
   readonly continuityTargetId: string | null;
+  /** 最上位のルートの表記（BELOW_TOP_ROUTE 用）。 */
+  readonly topRouteText?: string | null;
+  /** 最上位のルートとの戦術スコアの差（BELOW_TOP_ROUTE 用）。 */
+  readonly scoreGap?: number | null;
+  /** BULL を使わずに上がれる最少本数（SPENDS_EXTRA_DART 用）。 */
+  readonly minPlainDarts?: number | null;
+  /** 基準ルートの表記（PEER_OF_STANDARD 用）。 */
+  readonly standardRouteText?: string | null;
 }
 
 export interface RenderedReason {
@@ -143,7 +151,11 @@ const CHECKOUT_TEMPLATES: Record<CheckoutReasonCode, ReasonTemplate> = {
     label: '1本で上がれる',
     render: (ctx) => ({
       summary: `${ctx.finishDartId} 1本で上がれます。`,
-      detail: `残り ${ctx.remaining} はそのまま ${ctx.finishDartId} なので、外しても本数を残せます。`,
+      // 残り 1 本では「外しても本数を残せる」は成り立たない（2026-11-01 監査）。
+      detail:
+        ctx.dartsAvailable >= 2
+          ? `残り ${ctx.remaining} はそのまま ${ctx.finishDartId} なので、外しても本数を残せます。`
+          : `残り ${ctx.remaining} はそのまま ${ctx.finishDartId} です。最後の 1 本なので、ここで決めます。`,
     }),
   },
   FEWER_DARTS: {
@@ -282,6 +294,36 @@ const CHECKOUT_TEMPLATES: Record<CheckoutReasonCode, ReasonTemplate> = {
       summary: '上がり以外のダートでダブルリングを狙っています。',
       detail:
         'ダブルリングは細く、繋ぎの的としては割に合いません。大きなシングル面かトリプルで刻む方が安定します。',
+    }),
+  },
+  SPENDS_EXTRA_DART: {
+    polarity: 'negative',
+    label: '1 本を繋ぎに使う',
+    render: (ctx) => ({
+      summary: `残り ${ctx.remaining} は ${ctx.minPlainDarts ?? '少ない'} 本で上がれるのに、1 投目のシングルで 1 本を繋ぎに使っています。`,
+      detail:
+        '本数に余裕があるときは、少ない本数で上がるルートを狙います。得意なダブルへ持っていくのは、1 投目を外したあとの場面です。',
+    }),
+  },
+  BELOW_TOP_ROUTE: {
+    polarity: 'negative',
+    label: '最上位のルートより評価が低い',
+    render: (ctx) => ({
+      summary:
+        ctx.topRouteText && ctx.scoreGap !== null && ctx.scoreGap !== undefined
+          ? `${ctx.topRouteText} より戦術評価が ${ctx.scoreGap} 点低いため C です。`
+          : '最上位のルートより戦術評価が低いため C です。',
+      detail: '目立った弱点はありませんが、外したときの安全さやダブルの扱いやすさなどの合計で差があります。',
+    }),
+  },
+  PEER_OF_STANDARD: {
+    polarity: 'positive',
+    label: '基準と同等の別解',
+    render: (ctx) => ({
+      summary: ctx.standardRouteText
+        ? `基準ルート ${ctx.standardRouteText} と戦術評価が同等以上で、基準ルートに無い弱点もありません。`
+        : '基準ルートと戦術評価が同等以上で、基準ルートに無い弱点もありません。',
+      detail: '練習では基準ルートを覚えるのが近道ですが、この答えも良い別解です。',
     }),
   },
 };
@@ -428,6 +470,15 @@ const SETUP_TEMPLATES: Record<SetupReasonCode, ReasonTemplate> = {
           ? '1 投目を外すと、このラウンドではテンパイを作れなくなります。'
           : `1 投目が ${ctx.missDartId} へ落ちると ${ctx.missLeave} が残り、残り ${ctx.dartsAfterMiss} 本ではテンパイを作れません。`,
       detail: '狙いどおり入れば良い残りでも、シングルへ落ちた時点でこのラウンドが終わります。',
+    }),
+  },
+  SETUP_LAST_DART_MISS_KEEPS_TENPAI: {
+    polarity: 'positive',
+    label: '最後の 1 投が外れてもテンパイ',
+    render: () => ({
+      summary: 'このラウンド最後の 1 投は、同じナンバーの別のリングへ外れてもテンパイが残ります。',
+      detail:
+        'トリプルはシングルへ、ダブルはシングルか盤外へ、D-BULL は S-BULL へ外れる場合を見ています。外れた分だけ点は減りますが、次のラウンドで上がれる残りは守れます。',
     }),
   },
 };

@@ -29,12 +29,14 @@ import { renderSetupReason, type ReasonContext } from '../../data/explanations';
 import { evaluateLeave, isTonTrap, leaveTierOf, type LeaveTier } from './leaveQuality';
 import {
   difficultyOf,
+  lastDartAwareSequenceTable,
+  mainTargetFirstSequenceTable,
   scoringTripleFirstSequenceTables,
-  sequenceTable,
   targetKeyOf,
+  type SequenceEntry,
   type SequenceTable,
 } from './sequences';
-import { isSingleMissTenpaiSafe, singleMissDartOf } from './tenpai';
+import { isSingleMissTenpaiSafe, lastDartMissKeepsTenpai, singleMissDartOf } from './tenpai';
 
 export { canReachTenpai, isSingleMissTenpaiSafe, singleMissDartOf } from './tenpai';
 
@@ -79,6 +81,8 @@ export interface SetupOptions {
 const DEFAULT_MAX_ROUTES = 40;
 /** Phase B（理由文の生成）へ渡す上限。 */
 const DETAILED_LIMIT = 60;
+/** 並べ替えの前に残す候補の数。同じシーケンスは高々 2 回現れるので DETAILED_LIMIT の 2 倍。 */
+const SLOT_POOL = DETAILED_LIMIT * 2;
 
 interface ScoredSetup {
   readonly codes: readonly SetupReasonCode[];
@@ -149,6 +153,13 @@ export function scoreSetupRoute(
         : 'SETUP_SINGLE_MISS_DEAD_END',
     );
   }
+
+  /*
+   * ビジット最後の 1 投が縦ズレしてもテンパイが残るか（戦術 v2 / docs/APPROVALS.md A-29）。
+   * SETUP は残り本数を投げ切るので、ルートの最後の 1 投がビジット最後の 1 投にあたる。
+   */
+  const beforeLast = remaining - (scored - last.score);
+  if (lastDartMissKeepsTenpai(beforeLast, last)) codes.push('SETUP_LAST_DART_MISS_KEEPS_TENPAI');
 
   // 「ビジットを丸ごと無駄にした」指標なので、3 本投げ切る場面でだけ評価する。
   if (
@@ -247,7 +258,7 @@ export function rankSetupRoutes(
   const cached = rankingCache.get(cacheKey);
   if (cached) return cached.slice(0, limit);
 
-  const table = sequenceTable(darts, mainTarget);
+  const table = lastDartAwareSequenceTable(darts, mainTarget);
 
   interface Slot {
     readonly darts: readonly Dart[];
@@ -255,14 +266,25 @@ export function rankSetupRoutes(
     readonly leave: number;
     readonly score: number;
     readonly key: string;
+    /** 主目標（既定 T20）が先頭に続く本数。同点のときの並びに使う（A-29）。 */
+    readonly mainPrefix: number;
   }
 
+  /*
+   * 候補は数万件になる（最後の 1 投の加点で順位が変わりうる候補も表に持つため）。
+   * まず数値だけで評価し、上位 SLOT_POOL 件ぶんの境目以上（同点はすべて含む）だけを
+   * Slot にして並べる。表示に使うのは重複を除いた上位 DETAILED_LIMIT 件で、
+   * 同じシーケンスは高々 2 つの表（通常の表と主目標始動の表）にしか現れないので、
+   * 全件を並べたときと同じ上位が得られる。
+   */
   const collect = (
     tables: readonly SequenceTable[],
     tenpaiOnly: boolean,
     singleMissSafeOnly: boolean,
   ): Slot[] => {
-    const found: Slot[] = [];
+    const entries: SequenceEntry[] = [];
+    const totals: number[] = [];
+    const scores: number[] = [];
     for (const source of tables) {
       for (let total = 0; total < source.length; total += 1) {
         const bucket = source[total];
@@ -285,15 +307,39 @@ export function rankSetupRoutes(
           ) {
             continue;
           }
-          found.push({
-            darts: entry.darts,
-            total,
-            leave,
-            score: base + entry.intrinsic,
-            key: routeKey(entry.darts),
-          });
+          const last = entry.darts[entry.darts.length - 1];
+          const missBonus = lastDartMissKeepsTenpai(leave + last.score, last)
+            ? SETUP_REASON_WEIGHTS.SETUP_LAST_DART_MISS_KEEPS_TENPAI
+            : 0;
+          entries.push(entry);
+          totals.push(total);
+          scores.push(base + entry.intrinsic + missBonus);
         }
       }
+    }
+    if (entries.length === 0) return [];
+
+    let floor = -Infinity;
+    if (scores.length > SLOT_POOL) {
+      const sorted = Float64Array.from(scores).sort();
+      floor = sorted[sorted.length - SLOT_POOL];
+    }
+    const found: Slot[] = [];
+    for (let i = 0; i < entries.length; i += 1) {
+      if (scores[i] < floor) continue;
+      const entryDarts = entries[i].darts;
+      let mainPrefix = 0;
+      while (mainPrefix < entryDarts.length && entryDarts[mainPrefix].id === mainTarget) {
+        mainPrefix += 1;
+      }
+      found.push({
+        darts: entryDarts,
+        total: totals[i],
+        leave: remaining - totals[i],
+        score: scores[i],
+        key: routeKey(entryDarts),
+        mainPrefix,
+      });
     }
     return found;
   };
@@ -374,13 +420,24 @@ export function rankSetupRoutes(
    * 残り 1 本の場面では、外した時点でビジットが終わるため 1 と 2 は必ず空になり、
    * これまでどおり 3 が使われる。302〜309 のラスト 1 投調整は変わらない。
    */
+  /*
+   * 主目標から始まるシーケンスは枝刈りせずに持つ表（A-9）も一緒に見る。
+   * 同点のときに主目標始動を先にする（A-29）ので、その候補が表から落ちていてはいけない。
+   */
+  const tables = [table, mainTargetFirstSequenceTable(darts, mainTarget)];
   let slots = allowUnsafe ? [] : collectSafeScoringTripleFirst();
-  if (slots.length === 0 && !allowUnsafe) slots = collect([table], true, true);
-  if (slots.length === 0) slots = collect([table], true, false);
-  if (slots.length === 0) slots = collect([table], false, false);
+  if (slots.length === 0 && !allowUnsafe) slots = collect(tables, true, true);
+  if (slots.length === 0) slots = collect(tables, true, false);
+  if (slots.length === 0) slots = collect(tables, false, false);
   if (slots.length === 0) return [];
 
-  slots.sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));
+  /*
+   * 同点のときは、主目標（既定 T20）が先頭に続く本数が多いルートを先にする（戦術 v2 / A-29）。
+   * 以前は表記の辞書順で、D20 → T20 → T20 のような D 始動が先頭に出ていた。最後は表記順。
+   */
+  slots.sort(
+    (a, b) => b.score - a.score || b.mainPrefix - a.mainPrefix || a.key.localeCompare(b.key),
+  );
 
   const best = slots[0].score;
   const detailed: RankedSetupRoute[] = [];

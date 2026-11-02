@@ -70,7 +70,7 @@ import {
   type NextVisitProposalFacet,
 } from '../../domain/reasonCodes';
 import { suggestFor, type Suggestion } from '../recovery/suggest';
-import { rankCheckoutRoutes, type RankedCheckoutRoute } from '../ranking/checkoutRanking';
+import { type RankedCheckoutRoute, selectMyRoute } from '../ranking/checkoutRanking';
 import {
   buildNextVisitCandidates,
   nextVisitTierOf,
@@ -1707,11 +1707,8 @@ function myRouteFirstDartOf(
 ): string | null {
   const preferred = options.preferredDoubles ?? [];
   if (preferred.length === 0) return null;
-  const ranked = rankCheckoutRoutes(remaining, dartsLeft, {
-    preferredDoubles: preferred,
-    applyStandardBonus: false,
-  });
-  return ranked[0]?.darts[0]?.id ?? null;
+  // 戦術 v2（A-28）: 通常評価で C・ダブル→ダブル・本数を使う繋ぎは MY ROUTE の最上位にしない。
+  return selectMyRoute(remaining, dartsLeft, preferred)?.darts[0]?.id ?? null;
 }
 
 function discouragingCodesOf(route: RankedCheckoutRoute): readonly string[] {

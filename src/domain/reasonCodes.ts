@@ -42,6 +42,15 @@ export const CHECKOUT_REASON_CODES = [
   'UNNECESSARY_TRIPLE',
   /** 最終ダート以外でダブルを狙っている（細いリングを繋ぎに使っている）。 */
   'NON_FINAL_DOUBLE',
+  /**
+   * BULL を使わずに少ない本数で上がれるのに、1 投目のシングルで 1 本を繋ぎに使う
+   * （戦術 v2 / docs/APPROVALS.md A-28）。
+   */
+  'SPENDS_EXTRA_DART',
+  /** 点数の差だけで C になった（否定理由が他に無い）。表示のみ（A-30）。 */
+  'BELOW_TOP_ROUTE',
+  /** TRAINING の採点で、基準ルートと同等以上の別解（A-31）。表示のみ。 */
+  'PEER_OF_STANDARD',
 ] as const;
 
 export type CheckoutReasonCode = (typeof CHECKOUT_REASON_CODES)[number];
@@ -82,6 +91,11 @@ export const SETUP_REASON_CODES = [
   'SETUP_SINGLE_MISS_TENPAI_SAFE',
   /** 第一ターゲットが同ナンバーのシングルへ落ちると、このビジットでテンパイを作れない。 */
   'SETUP_SINGLE_MISS_DEAD_END',
+  /**
+   * ビジット最後の 1 投が縦ズレ（T→S、D→S・盤外、BULL→S-BULL、S→T・D）しても
+   * テンパイが残る（戦術 v2 / docs/APPROVALS.md A-29）。
+   */
+  'SETUP_LAST_DART_MISS_KEEPS_TENPAI',
 ] as const;
 
 export type SetupReasonCode = (typeof SETUP_REASON_CODES)[number];

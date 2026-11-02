@@ -80,9 +80,10 @@ describe('SIMULATION の導線', () => {
     expect(ppr).not.toHaveAttribute('open');
 
     // FIRST 9 / AVERAGE の意味と、167 だけが完全一致であること。
-    expect(ppr).toHaveTextContent('開始から 9 投まで');
-    expect(ppr).toHaveTextContent('ゲーム全体の精度');
-    expect(ppr).toHaveTextContent(`${MAX_PPR} のときだけ`);
+    // 着弾モデル v2（案 2）: FIRST 9 は得点の場面、AVERAGE はゲーム全体（差が上がりの場面）。
+    expect(ppr).toHaveTextContent('得点の場面（残りが 171 以上）');
+    expect(ppr).toHaveTextContent('ゲーム全体の平均');
+    expect(ppr).toHaveTextContent(`どちらも ${MAX_PPR} にしたときだけ`);
     // 設定目安は「501 が何投で終わるか」。
     const rows = within(screen.getByTestId('sim-help-ppr-rows')).getAllByRole('listitem');
     expect(rows.length).toBe(PPR_GUIDE_ROWS.length);
@@ -660,5 +661,24 @@ describe('既存モードへの影響', () => {
     await user.type(input, '170');
     // CHECKOUT では従来どおり答えが出る。
     expect(await screen.findByTestId('standard-route')).toBeInTheDocument();
+  });
+});
+
+describe('着弾モデル v2（案 2）の AVERAGE の上限', () => {
+  it('上限を超える AVERAGE は、丸めて投げることと理由を設定のすぐ下に出す', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('nav-simulation'));
+    // 既定（70 / 50）は丸めない。
+    expect(screen.queryByTestId('sim-average-capped')).toBeNull();
+
+    fireEvent.change(screen.getByTestId('sim-first9'), { target: { value: '60' } });
+    fireEvent.change(screen.getByTestId('sim-average'), { target: { value: '55' } });
+    const notice = screen.getByTestId('sim-average-capped');
+    expect(notice).toHaveTextContent('FIRST 9 が 60 のとき、AVERAGE の上限は約 47 です。');
+    expect(notice).toHaveTextContent('上がりの場面の精度を得点の場面より高くしない');
+
+    fireEvent.change(screen.getByTestId('sim-average'), { target: { value: '40' } });
+    expect(screen.queryByTestId('sim-average-capped')).toBeNull();
   });
 });

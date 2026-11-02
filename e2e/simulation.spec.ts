@@ -350,8 +350,9 @@ test('設定の意味と選び方を、折りたたみで読める', async ({ pa
   // 設定画面を長くしないため、既定は閉じている。
   expect(await ppr.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(false);
   await ppr.locator('summary').click();
-  await expect(ppr).toContainText('開始から 9 投まで');
-  await expect(ppr).toContainText('ゲーム全体の精度');
+  // 着弾モデル v2（docs/APPROVALS.md A-33）: FIRST 9 は得点の場面、AVERAGE はゲーム全体の平均。
+  await expect(ppr).toContainText('得点の場面（残りが 171 以上）');
+  await expect(ppr).toContainText('ゲーム全体の平均');
   await expect(ppr).toContainText('501 を約');
 
   await page.getByTestId('sim-help-direction').locator('summary').click();

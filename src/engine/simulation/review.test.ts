@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isBogey } from '../../domain/checkoutRules';
 import { rankSetupRoutes } from '../setup/enumerate';
-import { rankCheckoutRoutes } from '../ranking/checkoutRanking';
+import { rankCheckoutRoutes, selectMyRoute } from '../ranking/checkoutRanking';
 import { suggestFor } from '../recovery/suggest';
 import { canReachTenpai, isSingleMissTenpaiSafe } from '../setup/tenpai';
 import { requireDart, THROWABLE_DARTS } from '../../domain/dart';
@@ -61,8 +61,9 @@ describe('最後の1本の実戦推奨とレビュー', () => {
     expect(checkout.checkoutRoutes[0].routeText).toBe('S9 → D16');
     expect(checkout.practicalLastDart).toBeNull();
 
+    // 戦術 v2（A-29）: 最後の 1 投の縦ズレでもテンパイが残る T18 → T20 → S18 が先頭。
     const setup = suggestFor(302, 3);
-    expect(setup.setupRoutes[0].routeText).toBe('T18 → S18 → T20');
+    expect(setup.setupRoutes[0].routeText).toBe('T18 → T20 → S18');
     expect(setup.practicalLastDart).toBeNull();
   });
 });
@@ -284,15 +285,18 @@ describe('分類', () => {
     let found: { left: number; myRoute: string } | null = null;
     for (let left = 2; left <= 170 && found === null; left += 1) {
       const standard = rankCheckoutRoutes(left, 3);
-      const my = rankCheckoutRoutes(left, 3, { preferredDoubles, applyStandardBonus: false });
-      if (standard.length === 0 || my.length === 0) continue;
-      const myFirst = my[0].darts[0].id;
+      // 戦術 v2（A-28）: MY ROUTE の最上位は selectMyRoute（通常評価で C などは最上位にしない）。
+      const my = selectMyRoute(left, 3, preferredDoubles);
+      if (standard.length === 0 || my === null) continue;
+      const myFirst = my.darts[0].id;
       if (standard[0].darts[0].id === myFirst) continue;
       // 標準ランキングでの、その 1 投目の最良グレード。
       const grades = standard
         .filter((route) => route.darts[0].id === myFirst)
         .map((route) => route.grade);
       if (grades.includes('S') || grades.includes('A')) continue;
+      // 設定が無いと GOOD DECISION にならない（設定でしか救われない）場面だけを使う。
+      if (reviewThrow(record(left, myFirst, 'S1')).verdict === 'GOOD_DECISION') continue;
       found = { left, myRoute: myFirst };
     }
     expect(found).not.toBeNull();
@@ -1052,16 +1056,19 @@ describe('CHECKOUT: おすすめと戦術評価で同等以上の上がり方を
     expect(miss.noteJa).toBe(hit.noteJa);
   });
 
-  it('80 / 残り 2 本の T16 → D16 も、おすすめ T20 → D10 以上の戦術評価なので否定しない', () => {
+  /*
+   * 戦術 v2（A-28）: ダブル→ダブルを「トリプル不要」の代替に数えなくなり、80 / 2 本の
+   * T16 → D16 は UNNECESSARY_TRIPLE が外れて推奨度 S（戦術スコアは基準ルート T20 → D10 以上）。
+   */
+  it('80 / 残り 2 本の T16 → D16 は推奨度 S になり、否定しない', () => {
     const ranked = rankCheckoutRoutes(80, 2);
     const t16 = ranked.find((route) => route.key === 'T16-D16')!;
     expect(ranked[0].key).toBe('T20-D10');
-    expect(t16.grade).toBe('C');
+    expect(t16.grade).toBe('S');
     expect(t16.tacticalScore).toBeGreaterThanOrEqual(ranked[0].tacticalScore);
 
     const result = reviewThrow(record(80, 'T16', 'T16', 2));
     expect(result.verdict).toBe('GOOD_DECISION');
-    expect(result.reason).toMatchObject({ code: 'CHECKOUT_PEER_OF_RECOMMENDED', routeDartIds: ['T16', 'D16'] });
     expect(result.noteJa).not.toContain('不適切');
   });
 
@@ -1089,11 +1096,15 @@ describe('CHECKOUT: おすすめと戦術評価で同等以上の上がり方を
     expect(result.grade).toBe('C');
   });
 
+  /*
+   * 戦術 v2（A-28）: BULL の外れ（S-BULL）を評価するようになり、50 / 残り 3 本の BULL は
+   * S-BULL に外れても 25 / 2 本で上がれるので推奨度 S。説明文は途切れない。
+   */
   it('1 本で上がる形でも説明文が途切れない（50 / 残り 3 本の BULL）', () => {
     const result = reviewThrow(record(50, 'BULL', 'BULL'));
     expect(result.verdict).toBe('GOOD_DECISION');
-    expect(result.reason?.code).toBe('CHECKOUT_PEER_OF_RECOMMENDED');
-    expect(result.noteJa).toContain('この 1 投で上がれます');
+    expect(result.grade).toBe('S');
+    expect(result.noteJa.length).toBeGreaterThan(0);
     expect(result.noteJa).not.toContain('残り 0');
   });
 
@@ -1115,8 +1126,13 @@ describe('CHECKOUT: おすすめと戦術評価で同等以上の上がり方を
     );
   });
 
+  /*
+   * 戦術 v2（A-28）で 41 / 2 本の S1 → D20（通常評価で C）は MY ROUTE の最上位にしなくなったので、
+   * 52 / 2 本・得意 D16 の S20 → D16 で確かめる（設定が無ければ「もっと良い狙いあり」）。
+   */
   it('得意ダブル（MY ROUTE）の保護が先に効く', () => {
-    const result = reviewThrow(record(41, 'S1', 'S1', 2), { preferredDoubles: ['D20'] });
+    expect(reviewThrow(record(52, 'S20', 'S20', 2)).verdict).toBe('BETTER_OPTION_AVAILABLE');
+    const result = reviewThrow(record(52, 'S20', 'S20', 2), { preferredDoubles: ['D16'] });
     expect(result.verdict).toBe('GOOD_DECISION');
     expect(result.noteJa).toContain('MY ROUTE');
   });
