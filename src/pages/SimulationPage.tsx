@@ -37,6 +37,7 @@ import {
   type ThrowRecord,
 } from '../engine/simulation/game';
 import { REVIEW_GLOSSARY_JA } from '../engine/simulation/reviewGlossary';
+import { throwConclusionJa } from '../engine/simulation/reviewConclusion';
 import {
   IMPROVEMENT_PRIORITY,
   buildReviewHighlights,
@@ -1022,8 +1023,22 @@ export function SimulationPage({ onContextChange, onSessionActiveChange }: Simul
                               {throwReview.record.bust && '（BUST）'}
                               {throwReview.record.checkout && '（CHECKOUT）'}
                             </p>
+                            {/*
+                              結論を 1 行で先に出し、詳しい説明はたたむ（監査フェーズ 2 / 2-9）。
+                            */}
                             {throwReview.verdict !== 'SCORING_PHASE' && (
-                              <p className="simulation__review-explain">{throwReview.noteJa}</p>
+                              <>
+                                <p
+                                  className="simulation__review-conclusion"
+                                  data-testid={`sim-conclusion-${throwReview.record.dartIndex}`}
+                                >
+                                  {throwConclusionJa(throwReview)}
+                                </p>
+                                <details className="simulation__review-more">
+                                  <summary>詳しい説明</summary>
+                                  <p className="simulation__review-explain">{throwReview.noteJa}</p>
+                                </details>
+                              </>
                             )}
                             {IMPROVEMENT_PRIORITY[throwReview.verdict] !== undefined && (
                               <ReviewSuggestions
