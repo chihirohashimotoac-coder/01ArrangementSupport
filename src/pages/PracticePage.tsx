@@ -700,7 +700,14 @@ export function PracticePage({
       <section className="practice__controls" aria-label="残り点の設定">
         <ScoreInput
           label={entering ? 'ラウンド開始' : '残り点 LEFT'}
-          hint={entering && visit !== null ? `いまの残り ${visit.remaining}・${visit.dartsLeft} 本` : inputCopy.hint}
+          hint={
+            entering && visit !== null
+              ? `いまの残り ${visit.remaining}・${visit.dartsLeft} 本`
+              : // SETUP で「次の3投へ」を押して 170 以下になったら、CHECKOUT 側の補足に合わせる（監査フェーズ 2 / 2-9）。
+                mode === 'setup' && suggestion?.mode === 'checkout' && !restoringUnknownBust
+                ? COPY.checkout.hint
+                : inputCopy.hint
+          }
           compact={entering}
           inputRef={scoreInputRef}
           redirect={restoringUnknownBust ? undefined : redirectOf}

@@ -325,6 +325,11 @@ export interface TrainingStats {
   readonly migrationSkippedCount: number;
 }
 
+/** 苦手スコアに載せる最少の間違い回数（監査フェーズ 2 / 2-9。提案値・TRAINING_DESIGN §8）。 */
+export const WEAK_SCORE_MIN_MISSES = 2;
+/** 苦手スコアに載せる正答率の上限（未満）。 */
+export const WEAK_SCORE_MAX_ACCURACY = 0.6;
+
 function summarize(records: readonly TrainingRecord[], key: string): Breakdown {
   const attempts = records.length;
   const correct = records.filter((record) => record.learningCorrect).length;
@@ -386,8 +391,15 @@ export function computeStats(history: TrainingHistory): TrainingStats {
   }
 
   const byScore = groupBy(records, (record) => [String(record.startRemaining)]);
+  /*
+   * 苦手スコアは「2 回以上間違え、正答率が 60% 未満」の残り点（監査フェーズ 2 / 2-9。基準は提案値）。
+   * 以前は 1 回間違えただけで載っていた。1 回の間違いは「直近の間違い」として復習には残る。
+   */
   const weakScores = [...byScore]
-    .filter((item) => item.attempts >= 1 && item.accuracy < 1)
+    .filter(
+      (item) =>
+        item.attempts - item.correct >= WEAK_SCORE_MIN_MISSES && item.accuracy < WEAK_SCORE_MAX_ACCURACY,
+    )
     .sort((a, b) => a.accuracy - b.accuracy || b.attempts - a.attempts)
     .map((item) => Number(item.key));
 

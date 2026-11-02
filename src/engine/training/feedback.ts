@@ -248,8 +248,9 @@ export function buildFeedback(
   const verdictJa = result.learningCorrect
     ? `正解（推奨度 ${result.grade ?? '—'}${gradeNote}）`
     : result.ruleValid
-      ? `ルール上は成立しますが、学習目的では不正解 — ${result.failureMessageJa ?? ''}`
-      : `成立しません — ${result.failureMessageJa ?? ''}`;
+      ? // 硬い言い方をやわらげる（監査フェーズ 2 / 2-9）。以前は「ルール上は成立しますが、学習目的では不正解」。
+        `投げ方としては成り立ちますが、今回のねらいとは違います。${result.failureMessageJa ?? ''}`
+      : `この答えは成り立ちません。${result.failureMessageJa ?? ''}`;
 
   const isFirstDart = question.format === 'setup-first-dart';
   const dartsAfterMiss = question.visitDartsAvailable - 1;

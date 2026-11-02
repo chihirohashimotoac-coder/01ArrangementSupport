@@ -2010,3 +2010,20 @@ describe('1-6 狙いどおりに入っているあいだは計画を続ける（
     expect(screen.getByTestId('standard-heading')).toHaveTextContent('残り 40 の基準ルート');
   });
 });
+
+describe('監査フェーズ 2 / 2-9: SETUP から 170 以下になったときの補足', () => {
+  it('250 → T20・T20・S20 で 110 になったら、補足を CHECKOUT 側の文言にする', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await openSetupWith(user, '250');
+    await openRecovery(user);
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-t20'));
+    await user.click(screen.getByTestId('segment-s20-outer'));
+    await user.click(screen.getByTestId('next-visit-button'));
+    expect(screen.getByTestId('status-left')).toHaveTextContent('110');
+    const hint = container.querySelector('.score-input__hint')!;
+    expect(hint).toHaveTextContent('2〜170・この3投で上がる');
+    expect(hint).not.toHaveTextContent('次の3投に向けて整える');
+  });
+});
