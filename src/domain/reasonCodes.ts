@@ -96,6 +96,11 @@ export const SETUP_REASON_CODES = [
    * テンパイが残る（戦術 v2 / docs/APPROVALS.md A-29）。
    */
   'SETUP_LAST_DART_MISS_KEEPS_TENPAI',
+  /**
+   * BEST の 1 投目が主目標（既定 T20）でない理由。主目標と BEST の 1 投目のそれぞれが
+   * 同じナンバーのシングルへ落ちたとき、テンパイを作れるかを比べる（表示のみ。監査フェーズ 2 / 2-2）。
+   */
+  'SETUP_WHY_NOT_MAIN_TARGET',
 ] as const;
 
 export type SetupReasonCode = (typeof SETUP_REASON_CODES)[number];

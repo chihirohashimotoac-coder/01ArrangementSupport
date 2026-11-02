@@ -9,7 +9,7 @@
  *   1 判定 → 2 あなたの回答 → 3 その結果 → 4 おすすめ → 5 その結果 → 6 違いの理由 → 7 他の成立回答
  * とし、UI 側はこの構造をそのまま並べるだけでよいようにする。
  */
-import { findDart, formatRoute, requireDart, type Dart } from '../../domain/dart';
+import { displayDartId, findDart, formatRoute, requireDart, type Dart } from '../../domain/dart';
 import { DARTS_PER_VISIT } from '../../domain/checkoutRules';
 import { rankCheckoutRoutes } from '../ranking/checkoutRanking';
 import { rankSetupRoutes } from '../setup/enumerate';
@@ -147,7 +147,9 @@ export function alternativeFirstDarts(
   for (const option of setupFirstDartOptions(question.currentRemaining)) {
     if (!option.singleMissSafe) continue;
     if (option.dart.id === recommendedId) continue;
-    texts.push(`${option.dart.id}（推奨度 ${option.grade}）→ ${option.missDart.id} でも ${option.missLeave}`);
+    texts.push(
+      `${displayDartId(option.dart.id)}（推奨度 ${option.grade}）→ ${displayDartId(option.missDart.id)} でも ${option.missLeave}`,
+    );
     if (texts.length >= limit) break;
   }
   return texts;
@@ -231,13 +233,24 @@ export function buildFeedback(
   // 基準ルートと同等の別解（A-31）は、S の理由が分かるように添える。
   const isPeer =
     result.checkoutEvaluation?.reasons.some((reason) => reason.code === 'PEER_OF_STANDARD') ?? false;
+  // 推奨度 S の呼び方は、基準ルート自身と、それ以外（基準と同等）を分ける（監査フェーズ 2 / 2-4）。
+  const isStandardAnswer = result.checkoutEvaluation?.isStandard ?? false;
+  const gradeNote =
+    result.grade !== 'S'
+      ? ''
+      : isPeer
+        ? '・基準と同等の別解'
+        : isStandardAnswer
+          ? '・基準ルート'
+          : result.checkoutEvaluation !== null
+            ? '・基準と同等'
+            : '';
   const verdictJa = result.learningCorrect
-    ? isPeer
-      ? `正解（推奨度 ${result.grade ?? '—'}・基準と同等の別解）`
-      : `正解（推奨度 ${result.grade ?? '—'}）`
+    ? `正解（推奨度 ${result.grade ?? '—'}${gradeNote}）`
     : result.ruleValid
-      ? `ルール上は成立しますが、学習目的では不正解 — ${result.failureMessageJa ?? ''}`
-      : `成立しません — ${result.failureMessageJa ?? ''}`;
+      ? // 硬い言い方をやわらげる（監査フェーズ 2 / 2-9）。以前は「ルール上は成立しますが、学習目的では不正解」。
+        `投げ方としては成り立ちますが、今回のねらいとは違います。${result.failureMessageJa ?? ''}`
+      : `この答えは成り立ちません。${result.failureMessageJa ?? ''}`;
 
   const isFirstDart = question.format === 'setup-first-dart';
   const dartsAfterMiss = question.visitDartsAvailable - 1;

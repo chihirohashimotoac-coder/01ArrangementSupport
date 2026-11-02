@@ -425,16 +425,16 @@ describe('表示用の説明', () => {
     expect(describeThrow(double.current!.throws[0])).toEqual({ intended: 'D16', actual: 'D16' });
   });
 
-  it('BULL は SB / DB で表す', () => {
+  it('BULL は S-BULL / D-BULL で表す', () => {
     const inner = throwAt(createGame(perfect(501), 1), 'segment-inner-bull');
-    expect(describeThrow(inner.current!.throws[0])).toEqual({ intended: 'DB', actual: 'DB' });
+    expect(describeThrow(inner.current!.throws[0])).toEqual({ intended: 'D-BULL', actual: 'D-BULL' });
     expect(inner.current!.throws[0].score).toBe(50);
   });
 
-  it('アウターブルを押したら SB を狙い、狙い通りなら SB に入る', () => {
-    // DB（中心）と SB（外側のリング）は別の的として扱う。
+  it('アウターブルを押したら S-BULL を狙い、狙い通りなら S-BULL に入る', () => {
+    // D-BULL（中心）と S-BULL（外側のリング）は別の的として扱う。
     const outer = throwAt(createGame(perfect(501), 1), 'segment-outer-bull');
-    expect(describeThrow(outer.current!.throws[0])).toEqual({ intended: 'SB', actual: 'SB' });
+    expect(describeThrow(outer.current!.throws[0])).toEqual({ intended: 'S-BULL', actual: 'S-BULL' });
     expect(outer.current!.throws[0].score).toBe(25);
   });
 });

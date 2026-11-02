@@ -32,8 +32,10 @@ describe('参考資料・出典', () => {
     const history = screen.getByTestId('home-version-history');
     const references = screen.getByTestId('home-references');
     expect(history.parentElement).toBe(references.parentElement);
-    // トップページ下部の補助リンクはこの 2 つだけ。
-    expect(history.parentElement?.children).toHaveLength(2);
+    // トップページ下部の補助リンクは、バージョン履歴・参考資料・用語集の 3 つだけ
+    // （用語集は 2026-11-01 監査フェーズ 2 / 2-8 のオーナー決定で、ホームから開けるようにした）。
+    expect(history.parentElement?.children).toHaveLength(3);
+    expect(screen.getByTestId('home-glossary').parentElement).toBe(history.parentElement);
   });
 
   it('他の画面では「参考資料・出典」ボタンを出さない', async () => {

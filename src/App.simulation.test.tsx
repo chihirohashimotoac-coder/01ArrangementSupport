@@ -292,12 +292,15 @@ describe('SIMULATION のプレイ', () => {
     await startPerfectGame(user, 501);
 
     await user.click(screen.getByTestId('segment-outer-bull'));
-    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('狙い SB');
-    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('着弾 SB');
+    // 投げた順番は「1投目」と書く（以前は D1 / D2 / D3。監査フェーズ 2 / 2-7）。
+    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('1投目');
+    expect(screen.getByTestId('sim-throw-row-1')).not.toHaveTextContent(/^D1/);
+    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('狙い S-BULL');
+    expect(screen.getByTestId('sim-throw-row-1')).toHaveTextContent('着弾 S-BULL');
 
     await user.click(screen.getByTestId('segment-inner-bull'));
-    expect(screen.getByTestId('sim-throw-row-2')).toHaveTextContent('狙い DB');
-    expect(screen.getByTestId('sim-throw-row-2')).toHaveTextContent('着弾 DB');
+    expect(screen.getByTestId('sim-throw-row-2')).toHaveTextContent('狙い D-BULL');
+    expect(screen.getByTestId('sim-throw-row-2')).toHaveTextContent('着弾 D-BULL');
   });
 
   it('BUST ではラウンド開始時の残りへ戻る', async () => {

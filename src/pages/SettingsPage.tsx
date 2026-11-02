@@ -1,3 +1,4 @@
+import { displayDartId } from '../domain/dart';
 import { usePreferences } from '../hooks/usePreferences';
 import { SELECTABLE_FINISH_TARGETS } from '../storage/preferences';
 import { DOUBLE_QUALITY } from '../data/rankingRules';
@@ -86,7 +87,7 @@ export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
           <li>
             <strong>いちばん上の 1 つ</strong>だけは、上がれないときの残し（NEXT VISIT）にも効きます。
           </li>
-          <li>STANDARD（基準ルート）の並びは変わりません。BULL 上がりも選べます。</li>
+          <li>STANDARD（基準ルート）の並びは変わりません。D-BULL 上がりも選べます。</li>
         </ul>
 
         <ol className="settings__ranked" data-testid="preferred-doubles">
@@ -94,12 +95,12 @@ export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
           {selected.map((id, index) => (
             <li key={id}>
               <span className="settings__rank">{index + 1}</span>
-              <span className="settings__id">{id}</span>
+              <span className="settings__id">{displayDartId(id)}</span>
               <span className="settings__reason">{DOUBLE_QUALITY[id]?.reasonJa ?? ''}</span>
               <span className="settings__move">
                 <button
                   type="button"
-                  aria-label={`${id} を上へ`}
+                  aria-label={`${displayDartId(id)} を上へ`}
                   onClick={() => move(index, -1)}
                   disabled={index === 0}
                 >
@@ -107,13 +108,13 @@ export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
                 </button>
                 <button
                   type="button"
-                  aria-label={`${id} を下へ`}
+                  aria-label={`${displayDartId(id)} を下へ`}
                   onClick={() => move(index, 1)}
                   disabled={index === selected.length - 1}
                 >
                   ↓
                 </button>
-                <button type="button" aria-label={`${id} を外す`} onClick={() => toggle(id)}>
+                <button type="button" aria-label={`${displayDartId(id)} を外す`} onClick={() => toggle(id)}>
                   ×
                 </button>
               </span>
@@ -131,7 +132,7 @@ export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
               aria-pressed={selected.includes(id)}
               onClick={() => toggle(id)}
             >
-              {id}
+              {displayDartId(id)}
             </button>
           ))}
         </div>

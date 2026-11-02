@@ -449,7 +449,8 @@
 }
 
 .simulation__throw-dart {
-  min-width: 1.8rem;
+  min-width: 3.2rem;
+  white-space: nowrap;
   color: var(--text-dim);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1020,6 +1021,23 @@
   color: var(--text-secondary);
   font-size: var(--text-sm);
   line-height: 1.65;
+}
+
+/* 1 投ごとの結論 1 行と、たたんだ詳しい説明（監査フェーズ 2 / 2-9）。 */
+.simulation__review-conclusion {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  line-height: 1.6;
+}
+
+.simulation__review-more > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
 }
 
 /* --- 広い画面 ------------------------------------------------------------- */

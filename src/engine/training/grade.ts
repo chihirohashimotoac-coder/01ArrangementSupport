@@ -11,7 +11,7 @@
  * ruleValid = true / learningCorrect = false とする。
  * 主 UI の正答率は learningCorrect で数える（本仕様 8 節）。
  */
-import { formatRoute, isFinishingDart, routeTotal, type Dart } from '../../domain/dart';
+import { displayDartId, formatRoute, isFinishingDart, routeTotal, type Dart } from '../../domain/dart';
 import { applyDart } from '../../domain/checkoutRules';
 import type { RouteGrade } from '../../data/rankingRules';
 import {
@@ -91,7 +91,7 @@ const FAILURE_MESSAGES: Record<FailureCode, string> = {
   EMPTY: '1 投も選ばれていません。',
   TOO_MANY_DARTS: '使える本数を超えています。',
   BUST: 'このルートは途中で Bust します（マイナス、または 1 残し）。',
-  NOT_DOUBLE_FINISH: '最後の 1 投がダブル / BULL ではないため、上がりになりません。',
+  NOT_DOUBLE_FINISH: '最後の 1 投がダブル / D-BULL ではないため、上がりになりません。',
   TOTAL_MISMATCH: '合計が残り点と一致しません。',
   NOT_FINISHED: '使える本数ぶんすべてを選んでください。',
   LEAVES_BOGEY: 'ノーテンが残ります。次のラウンドで 3 本あっても上がれません。',
@@ -317,7 +317,7 @@ function gradeSetupAdjustmentAnswer(
 
 /** 「20 はトリプルなら 122、シングルなら 162 でノーテン」のように説明する。 */
 function adjustmentFailureMessageJa(current: number, dart: Dart): string {
-  const target = dart.baseNumber === null ? 'BULL エリア' : `${dart.baseNumber}`;
+  const target = dart.baseNumber === null ? 'ブル（D-BULL / S-BULL）' : `${dart.baseNumber}`;
   const unsafe = unsafeLandingsOf(current, dart);
   const safe = safeLandingsOf(current, dart);
   const describe = (outcome: { dart: Dart; leave: number; verdict: LeaveVerdict }): string => {
@@ -327,13 +327,13 @@ function adjustmentFailureMessageJa(current: number, dart: Dart): string {
         : outcome.verdict === 'above-range'
           ? '170 超え'
           : 'Bust';
-    return `${outcome.dart.id} に入ると ${outcome.leave}（${reason}）`;
+    return `${displayDartId(outcome.dart.id)} に入ると ${outcome.leave}（${reason}）`;
   };
   const unsafeText = unsafe.map(describe).join('、');
   if (safe.length === 0) {
     return `${target} は、${unsafeText} で、次のラウンドで上がれません。`;
   }
-  const safeText = safe.map((outcome) => `${outcome.dart.id} なら ${outcome.leave}`).join('、');
+  const safeText = safe.map((outcome) => `${displayDartId(outcome.dart.id)} なら ${outcome.leave}`).join('、');
   return `${target} は ${safeText} で上がれますが、${unsafeText} になります。`;
 }
 

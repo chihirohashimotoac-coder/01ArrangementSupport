@@ -1,6 +1,9 @@
+import { displayDartId } from '../domain/dart';
 import { useId, useState } from 'react';
 import type { RouteGrade } from '../data/rankingRules';
-import { ROUTE_GRADE_LABEL_JA } from '../data/gradeLabels';
+import { routeGradeLabelJa } from '../data/gradeLabels';
+import { routeSummaryLines } from '../data/routeSummary';
+import { GlossaryText } from './GlossaryText';
 import type { ReasonPolarity } from '../domain/reasonCodes';
 import './RouteCard.css';
 
@@ -33,7 +36,6 @@ export interface RouteCardProps {
   readonly reasonsAlwaysVisible?: boolean;
 }
 
-const GRADE_LABEL = ROUTE_GRADE_LABEL_JA;
 
 /**
  * 1 ルートの表示。
@@ -59,9 +61,8 @@ export function RouteCard({
   const [open, setOpen] = useState(defaultOpen);
   const detailsId = useId();
 
-  const positives = reasons.filter((reason) => reason.polarity === 'positive');
-  const negatives = reasons.filter((reason) => reason.polarity === 'negative');
-  const headline = curatedExplanation ?? negatives[0]?.summary ?? positives[0]?.summary ?? null;
+  // 要約は「強み 1 行＋注意 1 行」（監査フェーズ 2 / 2-5）。どの理由を選ぶかは data/routeSummary.ts。
+  const summary = routeSummaryLines(reasons, curatedExplanation ?? null);
   const isPrimary = badge === 'STANDARD' || badge === 'BEST' || badge === 'PLAN';
   const isPersonal = badge === 'MY ROUTE';
 
@@ -78,7 +79,7 @@ export function RouteCard({
             {gradeContext && <span className="route-card__grade-context">基準評価</span>}
             <span className={`route-card__grade route-card__grade--${grade}`}>
               <span aria-hidden="true">{grade}</span>
-              <span className="visually-hidden">{`${gradeContext ? '基準評価' : '推奨度'} ${grade}: ${GRADE_LABEL[grade]}`}</span>
+              <span className="visually-hidden">{`${gradeContext ? '基準評価' : '推奨度'} ${grade}: ${routeGradeLabelJa(grade, isStandard === true, badge === 'BEST')}`}</span>
             </span>
           </span>
         )}
@@ -93,9 +94,9 @@ export function RouteCard({
               data-dart={dartId}
               data-active={focusedDartId === dartId ? 'true' : undefined}
               onClick={() => onDartFocus?.(dartId)}
-              aria-label={`${index + 1} 投目 ${dartId}。盤面で位置を確認する`}
+              aria-label={`${index + 1} 投目 ${displayDartId(dartId)}。盤面で位置を確認する`}
             >
-              {dartId}
+              {displayDartId(dartId)}
             </button>
           </li>
         ))}
@@ -103,10 +104,21 @@ export function RouteCard({
 
       {meta && <p className="route-card__meta">{meta}</p>}
 
-      {headline && !reasonsAlwaysVisible && (
-        <p className="route-card__headline" data-testid={testId ? `${testId}-headline` : undefined}>
-          {headline}
-        </p>
+      {(summary.strength || summary.caution) && !reasonsAlwaysVisible && (
+        <div className="route-card__headline" data-testid={testId ? `${testId}-headline` : undefined}>
+          {summary.strength && (
+            <p className="route-card__headline-line" data-tone="strength">
+              <GlossaryText text={summary.strength} />
+            </p>
+          )}
+          {summary.caution && (
+            <p className="route-card__headline-line" data-tone="caution">
+              <span className="route-card__headline-mark" aria-hidden="true">注意</span>
+              <span className="visually-hidden">注意: </span>
+              <GlossaryText text={summary.caution} />
+            </p>
+          )}
+        </div>
       )}
 
       {reasons.length > 0 && !reasonsAlwaysVisible && (
@@ -125,9 +137,13 @@ export function RouteCard({
               {reasons.map((reason) => (
                 <li key={reason.code} data-polarity={reason.polarity} data-code={reason.code}>
                   <span className="route-card__reason-label">{reason.label}</span>
-                  <span className="route-card__reason-summary">{reason.summary}</span>
+                  <span className="route-card__reason-summary">
+                    <GlossaryText text={reason.summary} />
+                  </span>
                   {reason.detail && (
-                    <span className="route-card__reason-detail">{reason.detail}</span>
+                    <span className="route-card__reason-detail">
+                      <GlossaryText text={reason.detail} />
+                    </span>
                   )}
                 </li>
               ))}

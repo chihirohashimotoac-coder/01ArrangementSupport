@@ -143,18 +143,18 @@ test('3 投目のあとでも、得点を確定する前なら UNDO できる', 
   await expect(page.getByTestId('sim-score-input')).toBeFocused();
 });
 
-test('ターゲット表記が Sxx / Txx / Dxx / SB / DB でそろう', async ({ page }) => {
+test('ターゲット表記が Sxx / Txx / Dxx / S-BULL / D-BULL でそろう', async ({ page }) => {
   await startPerfectGame(page, 170);
   await page.getByTestId('segment-t20').click();
   await expect(page.getByTestId('sim-throw-row-1')).toContainText('狙い T20');
-  // アウターブル（SB）とインナーブル（DB）は別の的。
-  // 中心はインナーブルが覆っているので、SB はリングの部分をタップする。
+  // アウターブル（S-BULL）とインナーブル（D-BULL）は別の的（表記は監査フェーズ 2 / 2-3 で統一）。
+  // 中心はインナーブルが覆っているので、S-BULL はリングの部分をタップする。
   await clickOuterBull(page);
-  await expect(page.getByTestId('sim-throw-row-2')).toContainText('狙い SB');
-  await expect(page.getByTestId('sim-throw-row-2')).toContainText('着弾 SB');
+  await expect(page.getByTestId('sim-throw-row-2')).toContainText('狙い S-BULL');
+  await expect(page.getByTestId('sim-throw-row-2')).toContainText('着弾 S-BULL');
   await page.getByTestId('segment-inner-bull').click();
-  await expect(page.getByTestId('sim-throw-row-3')).toContainText('狙い DB');
-  await expect(page.getByTestId('sim-throw-row-3')).toContainText('着弾 DB');
+  await expect(page.getByTestId('sim-throw-row-3')).toContainText('狙い D-BULL');
+  await expect(page.getByTestId('sim-throw-row-3')).toContainText('着弾 D-BULL');
 
   // 読み下し表記が残っていないこと。
   const play = page.getByLabel('SIMULATION プレイ中');
@@ -301,7 +301,11 @@ test('ダブルアウトで上がると「ゲームの振り返り」が出る',
   await expect(page.getByTestId('sim-throw-1')).toBeVisible();
   await expect(page.getByTestId('sim-throw-2')).toBeVisible();
   await expect(page.getByTestId('sim-throw-3')).toBeVisible();
-  await expect(page.getByTestId('sim-all-throws').locator('summary')).toHaveCount(0);
+  // 全投は開かなくても読める。判定と結論 1 行は常に見え、たたむのは各投の「詳しい説明」だけ（監査フェーズ 2 / 2-9）。
+  const summaries = page.getByTestId('sim-all-throws').locator('summary');
+  await expect(summaries).toHaveCount(3);
+  for (const text of await summaries.allTextContents()) expect(text).toBe('詳しい説明');
+  await expect(page.getByTestId('sim-conclusion-1')).toBeVisible();
   await expect(page.getByTestId('sim-verdict-1')).toBeVisible();
   await expect(page.getByTestId('sim-verdict-1')).toContainText('良い判断');
   for (const width of [390, 320]) {

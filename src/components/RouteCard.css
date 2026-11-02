@@ -157,6 +157,24 @@
 .route-card--primary .route-card__darts li { flex: 1 1 0; }
 .route-card--primary .route-card__darts li .route-card__dart { flex: 1 1 auto; }
 
+/*
+ * D-BULL / S-BULL は 6 文字あり、T20 などと同じ大きさでは幅 320px の画面でカードからはみ出す
+ * （監査フェーズ 2 / 2-3）。この 2 つだけ文字を少し小さくし、余白を詰める。
+ */
+.route-card__dart[data-dart='BULL'],
+.route-card__dart[data-dart='SB'] {
+  padding: 0 0.4rem;
+  font-size: var(--text-md);
+  letter-spacing: -0.01em;
+}
+.route-card--primary .route-card__dart[data-dart='BULL'],
+.route-card--primary .route-card__dart[data-dart='SB'] {
+  min-width: 0;
+  padding: 0 0.35rem;
+  font-size: clamp(1.05rem, 5.2vw, 1.5rem);
+}
+.route-card--primary .route-card__darts li { min-width: 0; }
+
 /* 盤面で位置を確かめている的。盤面側の印と同じ色で結ぶ。 */
 .route-card__dart[data-active='true'] {
   color: var(--target);
@@ -191,6 +209,23 @@
 }
 
 .route-card--primary .route-card__headline { color: var(--text); }
+
+/* 要約は「強み 1 行＋注意 1 行」（監査フェーズ 2 / 2-5）。 */
+.route-card__headline-line { margin: 0; }
+.route-card__headline-line + .route-card__headline-line { margin-top: 2px; }
+.route-card__headline-line[data-tone='caution'] { color: var(--text-secondary); }
+.route-card__headline-mark {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: var(--text-xs);
+  font-weight: 650;
+  line-height: 1.6;
+  vertical-align: 1px;
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+}
 
 /* --- 理由（progressive disclosure） -------------------------------------- */
 

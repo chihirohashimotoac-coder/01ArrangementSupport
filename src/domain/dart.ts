@@ -112,9 +112,21 @@ export function isFinishingDart(dart: Dart): boolean {
   return dart.kind === 'double' || dart.id === INNER_BULL_DART.id;
 }
 
-/** ルートを "T19 → S6 → D20" のような表示文字列にする。 */
+/**
+ * 画面に出す 1 投の表記（2026-11-01 監査フェーズ 2 / 2-3）。
+ *
+ * インナーブル（50 点）は「D-BULL」、アウターブル（25 点）は「S-BULL」に統一する。
+ * 内部 ID（BULL / SB）・保存データ・Excel の取り込みは変えない。表示の変換はここだけで行う。
+ */
+export function displayDartId(id: string): string {
+  if (id === INNER_BULL_DART.id) return 'D-BULL';
+  if (id === OUTER_BULL_DART.id) return 'S-BULL';
+  return id;
+}
+
+/** ルートを "T19 → S6 → D20" / "T20 → T20 → D-BULL" のような表示文字列にする。 */
 export function formatRoute(darts: readonly Dart[]): string {
-  return darts.map((dart) => dart.id).join(' → ');
+  return darts.map((dart) => displayDartId(dart.id)).join(' → ');
 }
 
 /** ルートの安定キー（ソートの決定性・重複排除に使う）。 */

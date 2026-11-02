@@ -5,7 +5,7 @@
  * 説明可能なスコアを付ける。重みはこのファイルではなくデータ側にあり、
  * ここには「どの特徴を見るか」だけを書く。
  */
-import { findDart, formatRoute, isFinishingDart, type Dart } from '../../domain/dart';
+import { displayDartId, findDart, formatRoute, isFinishingDart, type Dart } from '../../domain/dart';
 import { isBogey, isCheckoutable } from '../../domain/checkoutRules';
 import type { CheckoutReasonCode, ReasonPolarity } from '../../domain/reasonCodes';
 import {
@@ -23,7 +23,7 @@ import {
 import { renderCheckoutReason, type ReasonContext } from '../../data/explanations';
 import { missVariantsOf } from '../../data/boardAdjacency';
 import { getStandardRouteFor } from '../../data/standardCheckoutRoutes';
-import { enumerateCheckoutRoutes, sampleCheckoutRoute, type CheckoutRoute } from '../checkout/enumerate';
+import { enumerateCheckoutRoutes, type CheckoutRoute } from '../checkout/enumerate';
 
 export interface RouteReason {
   readonly code: CheckoutReasonCode;
@@ -75,6 +75,25 @@ interface RouteFeatures {
 }
 
 const minPlainCache = new Map<string, number>();
+
+const topRouteTextCache = new Map<string, string | null>();
+
+/**
+ * 外れたあとの説明に出す上がり方（2026-11-01 監査フェーズ 2 / 2-1）。
+ *
+ * 以前は説明専用の軽い指標（`sampleCheckoutRoute`）で選んでいたため、ランキングとは別のルート
+ * （例: 62 / 2 本で非推奨のダブル→ダブル D15 → D16）が出ていた。いまは**その残り・本数の
+ * ランキング 1 位**（既定の設定。基準ルートがあれば基準ルート）を出す。
+ * 外れたあとは本数が必ず 1 本減るので、ランキングの呼び出しは有限回で止まる。
+ */
+function topRouteTextFor(remaining: number, dartsAvailable: number): string | null {
+  const cacheKey = `${remaining}/${dartsAvailable}`;
+  if (topRouteTextCache.has(cacheKey)) return topRouteTextCache.get(cacheKey) ?? null;
+  const top = rankCheckoutRoutes(remaining, dartsAvailable)[0];
+  const text = top === undefined ? null : top.routeText;
+  topRouteTextCache.set(cacheKey, text);
+  return text;
+}
 
 /**
  * BULL / S-BULL を使わずに上がれる最少本数（無ければ BULL を含めた最少本数）。
@@ -152,8 +171,7 @@ function analyze(
       missLeave = leave;
       singleMissSafe = safe;
       if (safe) {
-        const sample = sampleCheckoutRoute(leave, dartsAfterMiss);
-        missRecoveryText = sample ? formatRoute(sample.darts) : null;
+        missRecoveryText = leave >= 2 ? topRouteTextFor(leave, dartsAfterMiss) : null;
         codes.push('SINGLE_MISS_SAFE');
       } else {
         codes.push('SINGLE_MISS_LOSES_CHECKOUT');
@@ -200,15 +218,13 @@ function analyze(
       const { leave, safe } = leaveIsSafe(variant.dart);
       if (safe && leave === 0) {
         safeCount += 1;
-        neighborNotes.push(`${variant.dart.id} ならそのまま上がりです`);
+        neighborNotes.push(`${displayDartId(variant.dart.id)} ならそのまま上がりです`);
       } else if (safe) {
         safeCount += 1;
-        const sample = sampleCheckoutRoute(leave, dartsAfterMiss);
-        neighborNotes.push(
-          `${variant.dart.id} なら ${leave} 残りで ${sample ? formatRoute(sample.darts) : '上がりが残ります'}`,
-        );
+        const top = topRouteTextFor(leave, dartsAfterMiss);
+        neighborNotes.push(`${displayDartId(variant.dart.id)} なら ${leave} 残りで ${top ?? '上がりが残ります'}`);
       } else {
-        neighborNotes.push(`${variant.dart.id} だと ${Math.max(leave, 0)} 残りで上がれません`);
+        neighborNotes.push(`${displayDartId(variant.dart.id)} だと ${Math.max(leave, 0)} 残りで上がれません`);
       }
     }
     if (horizontal.length > 0) {
@@ -438,12 +454,12 @@ export function rankCheckoutRoutes(
 const PEER_WEAKNESS_CODES: readonly string[] = [...DISCOURAGING_REASON_CODES, 'SPENDS_EXTRA_DART'];
 
 /**
- * TRAINING の採点で、基準ルートと同等の別解を S にする（戦術 v2 / A-31）。
+ * TRAINING の採点で、基準ルートと同等の別解を S にする（戦術 v2 / A-31。対象の推奨度は 2026-11-02 に A まで広げた）。
  *
  * 次をすべて満たすときだけ、推奨度を S にして `PEER_OF_STANDARD` を付けたルートを返す。
  * 満たさなければ null（推奨度は変えない）。
  *   - その状態の第 1 候補が基準ルートである
- *   - 回答は基準ルートではなく、推奨度が B / C
+ *   - 回答は基準ルートではなく、推奨度が S 以外（A / B / C）
  *   - 戦術スコア（基準ルート加点を除く）が基準ルート以上
  *   - 基準ルートに無い非推奨理由（DISCOURAGING_REASON_CODES と SPENDS_EXTRA_DART）を持たない
  *
@@ -456,7 +472,8 @@ export function peerOfStandard(
   route: RankedCheckoutRoute,
   ranked: readonly RankedCheckoutRoute[],
 ): RankedCheckoutRoute | null {
-  if (route.isStandard || (route.grade !== 'B' && route.grade !== 'C')) return null;
+  // 推奨度 A の別解も対象にする（2026-11-02 オーナー決定。B / C だけだと A の別解と評価が逆転していた）。
+  if (route.isStandard || route.grade === 'S') return null;
   const standard = ranked.find((item) => item.isStandard);
   if (standard === undefined || ranked[0]?.key !== standard.key) return null;
   if (route.tacticalScore < standard.tacticalScore) return null;
