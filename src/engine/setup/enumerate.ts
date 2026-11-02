@@ -196,7 +196,8 @@ function buildReasons(evaluated: ScoredSetup, darts: readonly Dart[]): SetupReas
     missRecoveryText: leaveEval.standardRouteText,
     neighborNotes: [],
     verticalNotes: [],
-    doubleReason: null,
+    // LEAVE_GOOD_FINISH_DOUBLE の詳細（残りの上がりのダブルと、外しても続く理由）。
+    doubleReason: leaveEval.finishDoubleText,
     userPreferenceRank: null,
     switchCount: 0,
     continuityTargetId: evaluated.continuityTargetId,

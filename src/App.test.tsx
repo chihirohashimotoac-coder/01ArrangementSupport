@@ -1395,6 +1395,18 @@ describe('v1.3.1 CHECKOUT 不能時の NEXT VISIT', () => {
     expect(screen.getAllByTestId('next-visit-route')).toHaveLength(1);
   });
 
+  it('169（ノーテン）の NEXT VISIT に、その残しを選んだ理由を出す（監査フェーズ 2 / 2-6）', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openCheckoutWith(user, '169');
+    const card = screen.getByTestId('next-visit-route');
+    // 169 の残しは T20 → T20 → S17 で 32。32 は D16 で上がれ、外しても 16 → 8 と続く。
+    expect(card).toHaveTextContent('残り 32');
+    await user.click(within(card).getByRole('button', { name: /理由を見る/ }));
+    expect(card).toHaveTextContent('D16 で上がれます');
+    expect(card).toHaveTextContent('16 → 8 → 4 → 2');
+  });
+
   it('上がれないときの警告文を 2 回表示しない', async () => {
     const user = userEvent.setup();
     render(<App />);

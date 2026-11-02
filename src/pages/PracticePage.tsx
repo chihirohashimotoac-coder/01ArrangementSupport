@@ -915,7 +915,8 @@ export function PracticePage({
 
           {/*
             1.5. 上がれないときの答え —— 盤面より前に置く。
-            判断を増やさないよう最適候補 1 件だけを出し、理由の展開もしない。
+            判断を増やさないよう最適候補 1 件だけを出す。理由は他のカードと同じく要約と折りたたみで出す
+            （2026-11-01 監査フェーズ 2 / 2-6。以前は理由を出しておらず、なぜその残しなのかが分からなかった）。
           */}
           {suggestion.mode === 'checkout' && nextVisitRoute && !practicalLastDart && (
             <section className="practice__routes" aria-label="次ラウンドへの残し">
@@ -927,7 +928,7 @@ export function PracticePage({
                 badge={planDiverges ? ALTERNATIVE_BADGE : 'NEXT VISIT'}
                 dartIds={nextVisitRoute.darts.map((dart) => dart.id)}
                 meta={`取得 ${nextVisitRoute.scored} 点 → 残り ${nextVisitRoute.leave}`}
-                reasons={[]}
+                reasons={toReasonViews(nextVisitRoute.reasons)}
                 onDartFocus={focusDefaultDart}
                 focusedDartId={focusedDartId}
               />
@@ -960,7 +961,7 @@ export function PracticePage({
                       badge="参考"
                       dartIds={nextVisitRoute.darts.map((dart) => dart.id)}
                       meta={`取得 ${nextVisitRoute.scored} 点 → 残り ${nextVisitRoute.leave}`}
-                      reasons={[]}
+                      reasons={toReasonViews(nextVisitRoute.reasons)}
                       onDartFocus={focusDefaultDart}
                       focusedDartId={focusedDartId}
                     />

@@ -37,6 +37,11 @@ export interface LeaveEvaluation {
   readonly minDarts: 1 | 2 | 3 | null;
   /** その残りの基準ルート（表示・説明用）。 */
   readonly standardRouteText: string | null;
+  /**
+   * 基準ルートが扱いやすいダブルで終わるとき、そのダブルと理由（説明用）。
+   * 例: 32 → 「D16 で上がれます。16 → 8 → 4 → 2 と half が続き…」
+   */
+  readonly finishDoubleText: string | null;
 }
 
 const cache = new Map<number, LeaveEvaluation>();
@@ -53,6 +58,7 @@ export function evaluateLeave(leave: number): LeaveEvaluation {
   if (cached) return cached;
 
   const codes: SetupReasonCode[] = [];
+  let finishDoubleText: string | null = null;
   const checkoutable = isCheckoutable(leave, DARTS_PER_VISIT);
   const bogey = isBogey(leave);
   const standard = getStandardRoute(leave);
@@ -74,6 +80,7 @@ export function evaluateLeave(leave: number): LeaveEvaluation {
       const quality = DOUBLE_QUALITY[finish.id];
       if (quality && GOOD_DOUBLE_TIERS.includes(quality.tier)) {
         codes.push('LEAVE_GOOD_FINISH_DOUBLE');
+        finishDoubleText = `${formatRoute([finish])} で上がれます。${quality.reasonJa}。`;
       }
     }
   }
@@ -87,6 +94,7 @@ export function evaluateLeave(leave: number): LeaveEvaluation {
     isBogey: bogey,
     minDarts: minDartsToCheckout(leave),
     standardRouteText: standard ? formatRoute(standard.darts) : null,
+    finishDoubleText,
   };
   cache.set(leave, evaluation);
   return evaluation;
