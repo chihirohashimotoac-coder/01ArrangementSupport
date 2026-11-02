@@ -182,6 +182,27 @@ for (const viewport of [
       expect(d3).not.toBeNull();
       await page.mouse.click(d3!.x, d3!.y);
       await expect(page.getByTestId('next-remaining')).toHaveText('110');
+
+      // 盤面が外枠より小さくなっても、タッチの拡大鏡は指の真上に出る。
+      const fingerX = await page.evaluate(() => {
+        const rect = document
+          .querySelector('.dartboard__svg [data-testid="segment-s20-outer"]')!
+          .getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        document.querySelector('.dartboard__svg')!.dispatchEvent(
+          new PointerEvent('pointerdown', {
+            pointerType: 'touch',
+            pointerId: 7,
+            isPrimary: true,
+            clientX: x,
+            clientY: rect.top + rect.height / 2,
+            bubbles: true,
+          }),
+        );
+        return x;
+      });
+      const loupe = (await page.getByTestId('board-loupe').boundingBox())!;
+      expect(Math.abs(loupe.x + loupe.width / 2 - fingerX)).toBeLessThan(2);
     });
   });
 }
