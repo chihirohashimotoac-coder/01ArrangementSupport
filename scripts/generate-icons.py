@@ -2,7 +2,17 @@
 アプリアイコン（favicon / apple-touch-icon / PWA / maskable）を原本から書き出すスクリプト。
 
 原本は assets/app-icon-source.webp（正式なアプリアイコン。1254x1254, RGBA, sRGB）。
-デザインは描き変えず、縮小と余白の付加だけを行う。
+原本のファイルは変えない。形（ターゲットとダーツ）は描き変えず、
+書き出しのときに色の置き換え（下記）、縮小、余白の付加だけを行う。
+
+色の置き換え（2026-11-02 オーナー決定。監査 第 4 段階 4-8）
+  原本の背景の紺を、アプリの無彩色の配色（manifest と背景の #15181b）に合わせた
+  濃い灰色へ置き換える。中心の丸と羽根の青緑は残す（見比べた 3 案のうち「案 2」）。
+  - 各画素の明るさ（輝度）を保ったまま無彩色にし、暗い側は #15181b の青みがかった灰色、
+    明るい側は文字色 #eeece7 の白へ寄せる（白いリング・ダーツの陰影はそのまま残る）。
+  - 青緑の画素（緑 − 赤 が大きい）は元の色を残す。青緑と背景の境目は割合で混ぜるので、
+    縁に継ぎ目は出ない。
+  元の配色へ戻すときは RECOLOR を False にして npm run icons を実行する。
 
   npm run icons        # = python3 scripts/generate-icons.py（要 Pillow）
 
@@ -15,11 +25,11 @@
 不透明が必要な 2 種類について
   - iOS はホーム画面アイコンの透明部分を黒で表示し、角丸は OS 側で切り抜く。
     そのため apple-touch-icon は原本の角丸四角形の外接正方形へ切り詰め、
-    角丸の外側だけを周囲のネイビーの延長で塗る。
+    角丸の外側だけを周囲の背景色（濃い灰色）の延長で塗る。
   - maskable は OS が円や squircle で切り抜くため、主要部分を中心から半径 40% の
     safe zone に収める必要がある。原本の前景（ターゲットとダーツ）の最遠点は
     外接正方形の半辺の約 0.95 倍にあるので、外接正方形を一辺の 80% へ縮めて中央に置き
-    （最遠点は約 38%）、周囲をネイビーの延長で塗る。
+    （最遠点は約 38%）、周囲を背景色の延長で塗る。
   塗りは、角丸四角形の縁のすぐ内側の細い帯を、中心から放射方向へ引き伸ばして作る
   （各画素は、中心と結んだ線が縁と交わる位置の色になる）。境目に継ぎ目が出ず、
   ターゲットやダーツの色は混ざらない。
@@ -42,6 +52,50 @@ RESAMPLE = Image.Resampling.LANCZOS
 # maskable で外接正方形が占める割合。safe zone は中心から半径 40%。
 MASKABLE_ART_RATIO = 0.8
 SAFE_ZONE_RADIUS = 0.4
+
+# 色の置き換え（冒頭の説明を参照）。False で原本の配色のまま書き出す。
+RECOLOR = True
+# 明るさの対応（入力の輝度 → 出力の輝度）。背景の紺（輝度 0〜30）を #15181b 前後の
+# 濃い灰色（17〜40）へ、白（240 前後）はほぼそのまま。
+LUMA_IN = (0, 30, 120, 185, 255)
+LUMA_OUT = (17, 40, 120, 175, 240)
+# 色味。暗い側はアプリの背景 #15181b、明るい側は文字色 #eeece7（各成分を平均で割った比）。
+DARK_TINT = tuple(c / 24 for c in (21, 24, 27))
+LIGHT_TINT = tuple(c / 235 for c in (238, 236, 231))
+# 青緑とみなす度合い：(緑 − 赤 − 40) / 150 を 0〜1 に収めた値。紺は 32 以下、白は 0 前後。
+TEAL_OFFSET, TEAL_RANGE = 40, 150
+
+
+def interpolate(value, xs, ys):
+    """折れ線 (xs, ys) 上で value に対応する値。"""
+    for (x0, y0), (x1, y1) in zip(zip(xs, ys), zip(xs[1:], ys[1:])):
+        if value <= x1:
+            return y0 + (y1 - y0) * (max(value, x0) - x0) / (x1 - x0)
+    return ys[-1]
+
+
+def clamp01(value):
+    return min(1.0, max(0.0, value))
+
+
+def recolor(image):
+    """背景の紺を無彩色の濃い灰色へ置き換え、青緑は残した画像（形と alpha は変えない）。"""
+    result = image.copy()
+    pixels = result.load()
+    w, h = result.size
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = pixels[x, y]
+            if a == 0:
+                continue
+            luma = interpolate(0.2126 * r + 0.7152 * g + 0.0722 * b, LUMA_IN, LUMA_OUT)
+            t = clamp01((luma - 40) / 160)
+            gray = [min(255.0, luma * (d * (1 - t) + l * t)) for d, l in zip(DARK_TINT, LIGHT_TINT)]
+            teal = clamp01((g - r - TEAL_OFFSET) / TEAL_RANGE)
+            pixels[x, y] = tuple(
+                round(c * (1 - teal) + o * teal) for c, o in zip(gray, (r, g, b))
+            ) + (a,)
+    return result
 
 
 def body_bbox(image):
@@ -111,7 +165,7 @@ def radial_extension(body, canvas_size):
 
 
 def opaque_on_extended_background(body, canvas_size):
-    """body を中央に置いた canvas_size の不透明画像（周囲はネイビーの延長）。"""
+    """body を中央に置いた canvas_size の不透明画像（周囲は背景色の延長）。"""
     offset = ((canvas_size - body.width) // 2,) * 2
     solid_body = body.copy()
     solid_body.putalpha(body.getchannel('A').point(lambda a: 255 if a >= 250 else a))
@@ -148,6 +202,8 @@ def main():
     source = source.convert('RGBA')
     if source.width != source.height:
         raise SystemExit(f'原本が正方形ではありません: {source.size}')
+    if RECOLOR:
+        source = recolor(source)
 
     body = source.crop(body_bbox(source))
     if body.width != body.height:
