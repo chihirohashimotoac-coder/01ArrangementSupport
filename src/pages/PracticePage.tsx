@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AimAreaCard } from '../components/AimAreaCard';
 import { Dartboard } from '../components/Dartboard';
 import { GlossaryText } from '../components/GlossaryText';
@@ -22,7 +22,34 @@ import type { VisitState } from '../engine/recovery/visit';
 import { followVisitPlan } from '../engine/recovery/visitPlan';
 import { useVisit } from '../hooks/useVisit';
 import { usePreferences } from '../hooks/usePreferences';
+import { ENTRY_BAR_RESERVE_REM, entryScrollOffset } from './entryBarLayout';
 import './PracticePage.css';
+
+/** 帯のために確保する高さを CSS へ渡す（盤面の大きさの上限に使う）。 */
+const ENTRY_BOARD_STYLE = { '--entry-bar-reserve': `${ENTRY_BAR_RESERVE_REM}rem` } as CSSProperties;
+
+/**
+ * 実戦入力を開いたとき、まとまりの先頭から「さらに下へずらす量」を実測から求める。
+ * 盤面は帯の直前の要素（Dartboard の外枠）。
+ */
+function measureEntryScrollOffset(section: HTMLElement, bar: HTMLElement | null): number {
+  const board = bar?.previousElementSibling;
+  if (!bar || !board) return 0;
+  const px = (value: string) => Number.parseFloat(value) || 0;
+  const rootFontSize = px(getComputedStyle(document.documentElement).fontSize) || 16;
+  const sectionRect = section.getBoundingClientRect();
+  const boardRect = board.getBoundingClientRect();
+  return entryScrollOffset({
+    sectionTop: sectionRect.top,
+    boardTop: boardRect.top,
+    boardBottom: boardRect.bottom,
+    gap: px(getComputedStyle(section).rowGap),
+    barHeight: bar.offsetHeight,
+    // iPhone のホームバーのぶん（帯の下の余白）も足す。
+    reserve: ENTRY_BAR_RESERVE_REM * rootFontSize + px(getComputedStyle(bar).paddingBottom),
+    viewportHeight: window.innerHeight,
+  });
+}
 
 export type PracticeMode = 'checkout' | 'setup';
 
@@ -265,6 +292,7 @@ export function PracticePage({
   const resultRef = useRef<HTMLDivElement | null>(null);
   const scoreInputRef = useRef<HTMLInputElement | null>(null);
   const recoveryRef = useRef<HTMLElement | null>(null);
+  const entryBarRef = useRef<HTMLDivElement | null>(null);
   const scrollTimer = useRef<number | null>(null);
   /** 実戦入力を開いたあと、描画が済んでから盤面まで移動するか。 */
   const scrollToRecovery = useRef(false);
@@ -313,11 +341,25 @@ export function PracticePage({
    * ルートのチップから実戦入力を開いたときだけ、盤面が見える位置まで移動する。
    * 開いた直後は DOM がまだ無いので、描画が終わる effect まで待つ。
    * すでに開いている（盤面が見えている）ときは動かさない。
+   *
+   * 縦の短い画面では、先頭を上端へ合わせるだけだと画面下に固定した帯が盤面の下端に
+   * かぶる。そのときは、盤面と（伸びたときの）帯が収まるところまで、さらに下へずらす
+   * （entryBarLayout.ts）。収まる画面では、これまでどおり先頭へ合わせるだけ。
    */
   useEffect(() => {
     if (!recoveryOpen || !scrollToRecovery.current) return;
     scrollToRecovery.current = false;
-    recoveryRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+    const section = recoveryRef.current;
+    if (!section) return;
+    const offset = measureEntryScrollOffset(section, entryBarRef.current);
+    if (offset <= 0) {
+      section.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+      return;
+    }
+    window.scrollTo({
+      top: window.scrollY + section.getBoundingClientRect().top + offset,
+      behavior: scrollBehavior(),
+    });
   }, [recoveryOpen]);
 
   const selectedRoute = useMemo(
@@ -623,6 +665,7 @@ export function PracticePage({
           className="practice__board"
           id="practice-recovery"
           ref={recoveryRef}
+          style={ENTRY_BOARD_STYLE}
           aria-label="実戦入力"
         >
           <StatusBar
@@ -661,7 +704,7 @@ export function PracticePage({
             いまの残り・本数・次の狙い・「1投戻す」は、親指の届く画面下に固定する（2026-11-01 監査）。
             盤面を見ながら、次に狙う的と訂正の操作を探さずに済むように。
           */}
-          <div className="practice__entry-bar" data-testid="entry-bar">
+          <div className="practice__entry-bar" data-testid="entry-bar" ref={entryBarRef}>
           <NextTarget
             remaining={visit.status === 'bust' && !visit.visitStartKnown ? null : visit.remaining}
             dartsLeft={visit.dartsLeft}
