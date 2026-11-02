@@ -5,10 +5,9 @@ import { StackedBar } from '../components/ui/Infographic';
 import { KineticText } from '../components/ui/Kinetic';
 import { ConfirmDialog } from '../components/ui/Modal';
 import { toDisplayPoint } from '../engine/simulation/boardGeometry';
-import { MAX_PPR, averageCapFor, isAverageCapped } from '../engine/simulation/accuracy';
+import { MAX_PPR } from '../engine/simulation/accuracy';
 import {
   AVERAGE_HELP_JA,
-  averageCapNoticeJa,
   DIRECTION_CRITERION_JA,
   DIRECTION_GUIDE,
   FIRST9_HELP_JA,
@@ -436,18 +435,6 @@ export function SimulationPage({ onContextChange, onSessionActiveChange }: Simul
                 }
               />
             </label>
-            {/*
-              上がりの場面の精度を得点の場面より高くしない（着弾モデル v2 / 案 2）。
-              AVERAGE が上限を超えるときは、丸めて投げることとその理由を、スライダーのすぐ下で伝える。
-            */}
-            {isAverageCapped(form.first9Ppr, form.averagePpr, form.missDirection) && (
-              <p className="simulation__hint simulation__hint--notice" data-testid="sim-average-capped" role="status">
-                {averageCapNoticeJa(
-                  form.first9Ppr,
-                  averageCapFor(form.first9Ppr, form.missDirection),
-                )}
-              </p>
-            )}
             <p className="simulation__hint">
               501 を 9 ダーツで上がると 501 ÷ 9 × 3 = {MAX_PPR} なので、上限は {MAX_PPR} です。
               FIRST 9 と AVERAGE をどちらも {MAX_PPR} にしたときだけ、狙った的へ 100% 入ります。

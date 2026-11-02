@@ -171,14 +171,6 @@
   line-height: 1.65;
 }
 
-/* AVERAGE を上限に丸めるときのお知らせ（着弾モデル v2）。読み飛ばされないよう地の色を付ける。 */
-.simulation__hint--notice {
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-}
-
 /*
  * 設定の説明は折りたたみで置く。初見のユーザーが意味を確かめられるようにしつつ、
  * 設定画面そのものは短いままにする。振り返りの各区画も同じ枠を使う。

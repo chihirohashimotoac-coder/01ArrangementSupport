@@ -17,7 +17,7 @@ import {
 } from './boardGeometry';
 import {
   scatterProfile,
-  sigmaForThrow,
+  sigmaForDart,
   type MaxMissLevel,
   type MissDirection,
   type ScatterProfile,
@@ -93,18 +93,18 @@ export function throwWithSigma(
  *
  * @param segment 狙った区画（盤面でタップしたところ）。
  * @param ability プレイヤー能力。
- * @param leftBefore この 1 投を投げる前の残り（得点の場面か上がりの場面かを決める）。
+ * @param dartIndex 1 から数えた通し投数（FIRST 9 の反映に使う）。
  */
 export function simulateThrow(
   segment: SegmentDefinition,
   ability: ThrowAbility,
-  leftBefore: number,
+  dartIndex: number,
   random: RandomSource,
 ): SimulatedThrow {
-  const sigma = sigmaForThrow(
+  const sigma = sigmaForDart(
     ability.first9Ppr,
     ability.averagePpr,
-    leftBefore,
+    dartIndex,
     ability.missDirection,
   );
   return throwWithSigma(segment, sigma, ability.missDirection, ability.maxMiss, random);
