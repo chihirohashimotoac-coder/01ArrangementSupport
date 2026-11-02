@@ -23,7 +23,7 @@ import {
 import { renderCheckoutReason, type ReasonContext } from '../../data/explanations';
 import { missVariantsOf } from '../../data/boardAdjacency';
 import { getStandardRouteFor } from '../../data/standardCheckoutRoutes';
-import { enumerateCheckoutRoutes, sampleCheckoutRoute, type CheckoutRoute } from '../checkout/enumerate';
+import { enumerateCheckoutRoutes, type CheckoutRoute } from '../checkout/enumerate';
 
 export interface RouteReason {
   readonly code: CheckoutReasonCode;
@@ -75,6 +75,25 @@ interface RouteFeatures {
 }
 
 const minPlainCache = new Map<string, number>();
+
+const topRouteTextCache = new Map<string, string | null>();
+
+/**
+ * 外れたあとの説明に出す上がり方（2026-11-01 監査フェーズ 2 / 2-1）。
+ *
+ * 以前は説明専用の軽い指標（`sampleCheckoutRoute`）で選んでいたため、ランキングとは別のルート
+ * （例: 62 / 2 本で非推奨のダブル→ダブル D15 → D16）が出ていた。いまは**その残り・本数の
+ * ランキング 1 位**（既定の設定。基準ルートがあれば基準ルート）を出す。
+ * 外れたあとは本数が必ず 1 本減るので、ランキングの呼び出しは有限回で止まる。
+ */
+function topRouteTextFor(remaining: number, dartsAvailable: number): string | null {
+  const cacheKey = `${remaining}/${dartsAvailable}`;
+  if (topRouteTextCache.has(cacheKey)) return topRouteTextCache.get(cacheKey) ?? null;
+  const top = rankCheckoutRoutes(remaining, dartsAvailable)[0];
+  const text = top === undefined ? null : top.routeText;
+  topRouteTextCache.set(cacheKey, text);
+  return text;
+}
 
 /**
  * BULL / S-BULL を使わずに上がれる最少本数（無ければ BULL を含めた最少本数）。
@@ -152,8 +171,7 @@ function analyze(
       missLeave = leave;
       singleMissSafe = safe;
       if (safe) {
-        const sample = sampleCheckoutRoute(leave, dartsAfterMiss);
-        missRecoveryText = sample ? formatRoute(sample.darts) : null;
+        missRecoveryText = leave >= 2 ? topRouteTextFor(leave, dartsAfterMiss) : null;
         codes.push('SINGLE_MISS_SAFE');
       } else {
         codes.push('SINGLE_MISS_LOSES_CHECKOUT');
@@ -203,10 +221,8 @@ function analyze(
         neighborNotes.push(`${variant.dart.id} ならそのまま上がりです`);
       } else if (safe) {
         safeCount += 1;
-        const sample = sampleCheckoutRoute(leave, dartsAfterMiss);
-        neighborNotes.push(
-          `${variant.dart.id} なら ${leave} 残りで ${sample ? formatRoute(sample.darts) : '上がりが残ります'}`,
-        );
+        const top = topRouteTextFor(leave, dartsAfterMiss);
+        neighborNotes.push(`${variant.dart.id} なら ${leave} 残りで ${top ?? '上がりが残ります'}`);
       } else {
         neighborNotes.push(`${variant.dart.id} だと ${Math.max(leave, 0)} 残りで上がれません`);
       }
