@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AimAreaCard } from '../components/AimAreaCard';
 import { Dartboard } from '../components/Dartboard';
+import { GlossaryText } from '../components/GlossaryText';
 import { NextTarget } from '../components/NextTarget';
 import { RouteCard, type RouteReasonView } from '../components/RouteCard';
 import { ScoreInput } from '../components/ScoreInput';
@@ -791,7 +792,7 @@ export function PracticePage({
           */}
           {!recoveryOpen && statusNote && statusNote !== emptyNotice && (
             <p className="practice__note" data-testid="status-note">
-              {statusNote}
+              <GlossaryText text={statusNote} />
             </p>
           )}
 
@@ -865,7 +866,7 @@ export function PracticePage({
           {/* 上がれないことは、答え（実戦推奨・NEXT VISIT）より先に伝える。 */}
           {emptyNotice && (
             <p className="practice__empty" data-testid="no-routes">
-              {emptyNotice}
+              <GlossaryText text={emptyNotice} />
             </p>
           )}
 

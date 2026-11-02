@@ -13,7 +13,8 @@ export type Tab =
   | 'simulation'
   | 'settings'
   | 'history'
-  | 'references';
+  | 'references'
+  | 'glossary';
 
 const ALL_TABS: readonly Tab[] = [
   'home',
@@ -24,6 +25,7 @@ const ALL_TABS: readonly Tab[] = [
   'settings',
   'history',
   'references',
+  'glossary',
 ];
 
 /** 知らない hash はホームとして扱う。 */

@@ -3,6 +3,7 @@ import { useId, useState } from 'react';
 import type { RouteGrade } from '../data/rankingRules';
 import { routeGradeLabelJa } from '../data/gradeLabels';
 import { routeSummaryLines } from '../data/routeSummary';
+import { GlossaryText } from './GlossaryText';
 import type { ReasonPolarity } from '../domain/reasonCodes';
 import './RouteCard.css';
 
@@ -107,14 +108,14 @@ export function RouteCard({
         <div className="route-card__headline" data-testid={testId ? `${testId}-headline` : undefined}>
           {summary.strength && (
             <p className="route-card__headline-line" data-tone="strength">
-              {summary.strength}
+              <GlossaryText text={summary.strength} />
             </p>
           )}
           {summary.caution && (
             <p className="route-card__headline-line" data-tone="caution">
               <span className="route-card__headline-mark" aria-hidden="true">注意</span>
               <span className="visually-hidden">注意: </span>
-              {summary.caution}
+              <GlossaryText text={summary.caution} />
             </p>
           )}
         </div>
@@ -136,9 +137,13 @@ export function RouteCard({
               {reasons.map((reason) => (
                 <li key={reason.code} data-polarity={reason.polarity} data-code={reason.code}>
                   <span className="route-card__reason-label">{reason.label}</span>
-                  <span className="route-card__reason-summary">{reason.summary}</span>
+                  <span className="route-card__reason-summary">
+                    <GlossaryText text={reason.summary} />
+                  </span>
                   {reason.detail && (
-                    <span className="route-card__reason-detail">{reason.detail}</span>
+                    <span className="route-card__reason-detail">
+                      <GlossaryText text={reason.detail} />
+                    </span>
                   )}
                 </li>
               ))}

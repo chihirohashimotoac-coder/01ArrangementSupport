@@ -1936,7 +1936,9 @@ describe('動画ケース: 121 の OTHER ROUTE を選んで追従する', () => 
     render(<App />);
     await openCheckoutWith(user, '121');
     // 主表示は基準ルートのまま。
-    expect(within(screen.getByTestId('standard-route')).getByText('D-BULL')).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('standard-route')).getByRole('button', { name: /3 投目 D-BULL/ }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByTestId('show-all-routes'));
     await user.click(chipOf(screen.getByTestId('route-T20-T11-D14'), 1));

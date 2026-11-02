@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { HomePage, type HomeDestination } from './pages/HomePage';
+import { GlossaryPage } from './pages/GlossaryPage';
 import { PracticePage } from './pages/PracticePage';
 import { TrainingPage } from './pages/TrainingPage';
 import { SimulationPage } from './pages/SimulationPage';
@@ -39,6 +40,7 @@ const TAB_LABEL: Record<Tab, string> = {
   settings: '設定',
   history: 'バージョン履歴',
   references: '参考資料・出典',
+  glossary: '用語集',
 };
 
 const THEME_COLOR: Record<Theme, string> = {
@@ -295,6 +297,7 @@ export default function App() {
           {tab === 'settings' && <SettingsPage theme={preferences.theme} onThemeChange={setTheme} />}
           {tab === 'history' && <VersionHistoryPage onBack={backToHome} />}
           {tab === 'references' && <ReferencesPage onBack={backToHome} />}
+          {tab === 'glossary' && <GlossaryPage onBack={backToHome} />}
         </div>
       </main>
 

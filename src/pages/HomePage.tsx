@@ -17,7 +17,8 @@ export type HomeDestination =
   | 'training'
   | 'simulation'
   | 'history'
-  | 'references';
+  | 'references'
+  | 'glossary';
 
 export interface HomeMode {
   readonly id: 'checkout' | 'setup' | 'training' | 'simulation';
@@ -306,6 +307,14 @@ export function HomePage({ modes, onSelect, onOpenCheckout, onOpenRemaining }: H
           onClick={() => onSelect('references')}
         >
           参考資料・出典
+        </button>
+        <button
+          type="button"
+          className="home__history"
+          data-testid="home-glossary"
+          onClick={() => onSelect('glossary')}
+        >
+          用語集
         </button>
       </div>
     </div>
