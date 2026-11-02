@@ -438,12 +438,12 @@ export function rankCheckoutRoutes(
 const PEER_WEAKNESS_CODES: readonly string[] = [...DISCOURAGING_REASON_CODES, 'SPENDS_EXTRA_DART'];
 
 /**
- * TRAINING の採点で、基準ルートと同等の別解を S にする（戦術 v2 / A-31）。
+ * TRAINING の採点で、基準ルートと同等の別解を S にする（戦術 v2 / A-31。対象の推奨度は 2026-11-02 に A まで広げた）。
  *
  * 次をすべて満たすときだけ、推奨度を S にして `PEER_OF_STANDARD` を付けたルートを返す。
  * 満たさなければ null（推奨度は変えない）。
  *   - その状態の第 1 候補が基準ルートである
- *   - 回答は基準ルートではなく、推奨度が B / C
+ *   - 回答は基準ルートではなく、推奨度が S 以外（A / B / C）
  *   - 戦術スコア（基準ルート加点を除く）が基準ルート以上
  *   - 基準ルートに無い非推奨理由（DISCOURAGING_REASON_CODES と SPENDS_EXTRA_DART）を持たない
  *
@@ -456,7 +456,8 @@ export function peerOfStandard(
   route: RankedCheckoutRoute,
   ranked: readonly RankedCheckoutRoute[],
 ): RankedCheckoutRoute | null {
-  if (route.isStandard || (route.grade !== 'B' && route.grade !== 'C')) return null;
+  // 推奨度 A の別解も対象にする（2026-11-02 オーナー決定。B / C だけだと A の別解と評価が逆転していた）。
+  if (route.isStandard || route.grade === 'S') return null;
   const standard = ranked.find((item) => item.isStandard);
   if (standard === undefined || ranked[0]?.key !== standard.key) return null;
   if (route.tacticalScore < standard.tacticalScore) return null;
