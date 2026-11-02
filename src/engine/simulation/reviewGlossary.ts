@@ -23,7 +23,7 @@ const GRADES: readonly RouteGrade[] = ['S', 'A', 'B', 'C'];
 export const REVIEW_GLOSSARY_JA: readonly GlossaryTerm[] = [
   {
     term: 'CHECKOUT',
-    meaning: '残りをちょうど 0 にして上がること。最後の 1 投はダブル（DB を含む）。',
+    meaning: '残りをちょうど 0 にして上がること。最後の 1 投はダブル（D-BULL を含む）。',
   },
   {
     term: 'BUST',

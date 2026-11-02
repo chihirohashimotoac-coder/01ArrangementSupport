@@ -15,9 +15,9 @@ const reasonOf = (remaining: number, darts: number, ids: readonly string[], code
 
 describe('外れたときの説明文', () => {
   it.each([
-    [['T19', 'D12'], 'S12 → BULL'],
-    [['T15', 'D18'], 'S16 → BULL'],
-    [['T17', 'D15'], 'S14 → BULL'],
+    [['T19', 'D12'], 'S12 → D-BULL'],
+    [['T15', 'D18'], 'S16 → D-BULL'],
+    [['T17', 'D15'], 'S14 → D-BULL'],
   ] as const)('81 / 3 本の %j: シングルに落ちたあとはランキング 1 位の %s を示す', (ids, expected) => {
     const reason = reasonOf(81, 3, ids, 'SINGLE_MISS_SAFE')!;
     expect(reason.detail).toContain(expected);

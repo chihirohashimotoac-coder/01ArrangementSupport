@@ -11,9 +11,9 @@ describe('SIMULATION の表記', () => {
     expect(displayTargetId('D16')).toBe('D16');
   });
 
-  it('アウターブルは SB、インナーブルは DB', () => {
-    expect(displayTargetId('SB')).toBe('SB');
-    expect(displayTargetId('BULL')).toBe('DB');
+  it('アウターブルは S-BULL、インナーブルは D-BULL（アプリ全体と同じ表記。監査フェーズ 2 / 2-3）', () => {
+    expect(displayTargetId('SB')).toBe('S-BULL');
+    expect(displayTargetId('BULL')).toBe('D-BULL');
   });
 
   it('盤外は MISS', () => {
@@ -21,7 +21,7 @@ describe('SIMULATION の表記', () => {
   });
 
   it('全 63 種が略記だけになる（読み下しが混ざらない）', () => {
-    const pattern = /^([SDT](?:[1-9]|1\d|20)|SB|DB|MISS)$/;
+    const pattern = /^([SDT](?:[1-9]|1\d|20)|S-BULL|D-BULL|MISS)$/;
     const wrong: string[] = [];
     for (const dart of ALL_DARTS) {
       const label = displayTargetId(dart.id);
@@ -34,15 +34,17 @@ describe('SIMULATION の表記', () => {
   });
 
   it('内部 ID は書き換えない（表示だけの写像）', () => {
-    // BULL 以外は入力と出力が同じ。
+    // BULL / SB 以外は入力と出力が同じ。
     const changed = ALL_DARTS.filter((dart) => displayTargetId(dart.id) !== dart.id);
-    expect(changed.map((dart) => dart.id)).toEqual(['BULL']);
+    expect(changed.map((dart) => dart.id).sort()).toEqual(['BULL', 'SB']);
   });
 
   it('ルート表示も同じ規則になる', () => {
-    expect(displayRouteText('T20 → T20 → BULL')).toBe('T20 → T20 → DB');
+    expect(displayRouteText('T20 → T20 → BULL')).toBe('T20 → T20 → D-BULL');
     expect(displayRouteText('T19 → S6 → D20')).toBe('T19 → S6 → D20');
-    expect(displayRouteText('BULL')).toBe('DB');
-    expect(displayRouteText('SB → D16')).toBe('SB → D16');
+    expect(displayRouteText('BULL')).toBe('D-BULL');
+    expect(displayRouteText('SB → D16')).toBe('S-BULL → D16');
+    // 表記済みの並びを通しても変わらない。
+    expect(displayRouteText('T20 → T20 → D-BULL')).toBe('T20 → T20 → D-BULL');
   });
 });

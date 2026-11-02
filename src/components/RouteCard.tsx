@@ -1,3 +1,4 @@
+import { displayDartId } from '../domain/dart';
 import { useId, useState } from 'react';
 import type { RouteGrade } from '../data/rankingRules';
 import { ROUTE_GRADE_LABEL_JA } from '../data/gradeLabels';
@@ -93,9 +94,9 @@ export function RouteCard({
               data-dart={dartId}
               data-active={focusedDartId === dartId ? 'true' : undefined}
               onClick={() => onDartFocus?.(dartId)}
-              aria-label={`${index + 1} 投目 ${dartId}。盤面で位置を確認する`}
+              aria-label={`${index + 1} 投目 ${displayDartId(dartId)}。盤面で位置を確認する`}
             >
-              {dartId}
+              {displayDartId(dartId)}
             </button>
           </li>
         ))}

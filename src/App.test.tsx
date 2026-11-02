@@ -1645,7 +1645,7 @@ describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
     await user.click(screen.getByTestId('segment-t20'));
     expect(screen.getByTestId('status-left')).toHaveTextContent('62');
     // 62 / 2 本の MY ROUTE。STANDARD（T10 → D16）へは戻さない。
-    expect(nextRoute()).toEqual(['S12', 'BULL']);
+    expect(nextRoute()).toEqual(['S12', 'D-BULL']);
   });
 
   it('MY ROUTE で外して上がれなくなったら、NEXT VISIT へ移る', async () => {
@@ -1936,7 +1936,7 @@ describe('動画ケース: 121 の OTHER ROUTE を選んで追従する', () => 
     render(<App />);
     await openCheckoutWith(user, '121');
     // 主表示は基準ルートのまま。
-    expect(within(screen.getByTestId('standard-route')).getByText('BULL')).toBeInTheDocument();
+    expect(within(screen.getByTestId('standard-route')).getByText('D-BULL')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('show-all-routes'));
     await user.click(chipOf(screen.getByTestId('route-T20-T11-D14'), 1));
@@ -1956,14 +1956,14 @@ describe('動画ケース: 121 の OTHER ROUTE を選んで追従する', () => 
     expect(nextRoute()).toEqual(['D14']);
   });
 
-  it('S20 へ落ちたら、101 / 2 本の T17 → BULL へ計算し直す', async () => {
+  it('S20 へ落ちたら、101 / 2 本の T17 → D-BULL へ計算し直す', async () => {
     const user = userEvent.setup();
     await selectVideoRoute(user);
 
     // T20 の予定に対して S20。選択は自動で解除され、現在の答えへ戻る。
     await user.click(screen.getByTestId('segment-s20-outer'));
     expect(screen.getByTestId('status-left')).toHaveTextContent('101');
-    expect(nextRoute()).toEqual(['T17', 'BULL']);
+    expect(nextRoute()).toEqual(['T17', 'D-BULL']);
   });
 });
 

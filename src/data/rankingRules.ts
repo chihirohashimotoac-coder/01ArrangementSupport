@@ -116,7 +116,7 @@ export const DOUBLE_QUALITY: Readonly<Record<string, DoubleQuality>> = {
   D15: { tier: 'awkward', reasonJa: '奇数ダブルのため、外すと残りが奇数になり組み立て直しが要ります' },
   D17: { tier: 'awkward', reasonJa: '奇数ダブルのため、外すと残りが奇数になり組み立て直しが要ります' },
   D19: { tier: 'awkward', reasonJa: '奇数ダブルのため、外すと残りが奇数になり組み立て直しが要ります' },
-  BULL: { tier: 'fair', reasonJa: 'BULL 上がりは合法ですが、外したときの代替が乏しくなります' },
+  BULL: { tier: 'fair', reasonJa: 'D-BULL 上がりは合法ですが、外したときの代替が乏しくなります' },
 };
 
 /** GOOD_DOUBLE / WEAK_DOUBLE を付与する境界。 */

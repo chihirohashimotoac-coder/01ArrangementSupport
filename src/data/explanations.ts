@@ -9,6 +9,7 @@
  *  1) engine の計算結果から機械的に組み立てる説明（このファイルのテンプレート）
  *  2) 特に重要なスコアに人間が書き下ろす説明（CURATED_CHECKOUT_EXPLANATIONS）
  */
+import { displayDartId } from '../domain/dart';
 import type {
   CheckoutReasonCode,
   NextVisitProposalFacet,
@@ -101,7 +102,7 @@ export interface ReasonContext {
   readonly missLeave: number | null;
   /** 縦ズレ後に残る本数。 */
   readonly dartsAfterMiss: number;
-  /** 縦ズレ後のリカバリー例（例: "T18 → BULL"）。 */
+  /** 縦ズレ後のリカバリー例（例: "T18 → D-BULL"）。 */
   readonly missRecoveryText: string | null;
   /** 横ズレの説明（例: "S10 なら 36 残りで D18"）。 */
   readonly neighborNotes: readonly string[];
@@ -303,10 +304,10 @@ const CHECKOUT_TEMPLATES: Record<CheckoutReasonCode, ReasonTemplate> = {
   },
   BULL_REQUIRED: {
     polarity: 'negative',
-    label: 'BULLが必要',
+    label: 'D-BULL が必要',
     render: () => ({
-      summary: 'BULL を要求するルートです。',
-      detail: 'BULL は的が小さく、外したときの代替が乏しくなります。',
+      summary: 'D-BULL を要求するルートです。',
+      detail: 'D-BULL は的が小さく、外したときの代替が乏しくなります。',
     }),
   },
   TARGET_CONTINUITY: {
@@ -437,9 +438,9 @@ const SETUP_TEMPLATES: Record<SetupReasonCode, ReasonTemplate> = {
   },
   LEAVE_REQUIRES_BULL: {
     polarity: 'negative',
-    label: '上がりにBULLが要る',
+    label: '上がりに D-BULL が要る',
     render: (ctx) => ({
-      summary: `${ctx.remaining} 残りは基準ルートが BULL を要求します。`,
+      summary: `${ctx.remaining} 残りは基準ルートが D-BULL を要求します。`,
       detail: null,
     }),
   },
@@ -548,12 +549,27 @@ const SETUP_TEMPLATES: Record<SetupReasonCode, ReasonTemplate> = {
   },
 };
 
+/**
+ * テンプレートへ渡す前に、内部 ID（BULL / SB）を画面の表記（D-BULL / S-BULL）へ直す（監査フェーズ 2 / 2-3）。
+ * テンプレートの中では ID を比べず（null かどうかだけを見る）、表示にだけ使うので、ここで一括で直してよい。
+ */
+function displayContext(ctx: ReasonContext): ReasonContext {
+  const show = (id: string | null) => (id === null ? null : displayDartId(id));
+  return {
+    ...ctx,
+    firstDartId: displayDartId(ctx.firstDartId),
+    finishDartId: displayDartId(ctx.finishDartId),
+    missDartId: show(ctx.missDartId),
+    continuityTargetId: show(ctx.continuityTargetId),
+  };
+}
+
 export function renderCheckoutReason(
   code: CheckoutReasonCode,
   ctx: ReasonContext,
 ): RenderedReason & { polarity: ReasonPolarity; label: string } {
   const template = CHECKOUT_TEMPLATES[code];
-  return { ...template.render(ctx), polarity: template.polarity, label: template.label };
+  return { ...template.render(displayContext(ctx)), polarity: template.polarity, label: template.label };
 }
 
 export function renderSetupReason(
@@ -561,7 +577,7 @@ export function renderSetupReason(
   ctx: ReasonContext,
 ): RenderedReason & { polarity: ReasonPolarity; label: string } {
   const template = SETUP_TEMPLATES[code];
-  return { ...template.render(ctx), polarity: template.polarity, label: template.label };
+  return { ...template.render(displayContext(ctx)), polarity: template.polarity, label: template.label };
 }
 
 /**
@@ -570,13 +586,13 @@ export function renderSetupReason(
  */
 export const CURATED_CHECKOUT_EXPLANATIONS: Readonly<Record<number, string>> = {
   103: 'T19 で 46 を残し、S6 で 40（D20）へ整えます。1 投目を S19 へ落としても 84 が残り、残り 2 本での上がりが消えません。',
-  122: 'T18 始動が基準です。S18 へ落ちても 104 が残り、残り 2 本で T18 → BULL の上がりが残ります。T20 始動は S20 へ落ちると 102 となり、残り 2 本では上がれません。',
+  122: 'T18 始動が基準です。S18 へ落ちても 104 が残り、残り 2 本で T18 → D-BULL の上がりが残ります。T20 始動は S20 へ落ちると 102 となり、残り 2 本では上がれません。',
   46: 'S6 → D20 が基準です。隣の S10 へ横ズレしても 36 残りで D18 が残るため、盤面のズレに強い入り方です。',
-  170: '3 本での最大チェックアウトです。T20 → T20 → BULL 以外の組み立てはありません。',
-  167: 'T20 → T19 → BULL。167 は 3 本で上がれる数字なので、セットアップで積極的に「乗せる」価値があります。',
-  164: 'T20 → T18 → BULL。162 / 163 がノーテンであるぶん、164 へ着地させる意識が効きます。',
-  161: 'T20 → T17 → BULL。160 と並んで、340 点台から 180 を出したときに残したい数字です。',
-  160: 'T20 → T20 → D20。BULL を使わずに上がれるため、161 / 164 / 167 より組み立てが素直です。',
+  170: '3 本での最大チェックアウトです。T20 → T20 → D-BULL 以外の組み立てはありません。',
+  167: 'T20 → T19 → D-BULL。167 は 3 本で上がれる数字なので、セットアップで積極的に「乗せる」価値があります。',
+  164: 'T20 → T18 → D-BULL。162 / 163 がノーテンであるぶん、164 へ着地させる意識が効きます。',
+  161: 'T20 → T17 → D-BULL。160 と並んで、340 点台から 180 を出したときに残したい数字です。',
+  160: 'T20 → T20 → D20。D-BULL を使わずに上がれるため、161 / 164 / 167 より組み立てが素直です。',
 };
 
 /** SETUP 側の書き下ろし説明（残り点をキーにする）。 */

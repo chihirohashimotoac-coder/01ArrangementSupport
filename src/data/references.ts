@@ -141,7 +141,7 @@ export const REFERENCE_SECTIONS: readonly ReferenceSection[] = [
         title: 'スティールダーツ 01 / Double Out の一般ルール',
         url: null,
         what:
-          '最終ダートはダブルまたは BULL、アウターブル（25）では上がれない、'
+          '最終ダートはダブルまたは D-BULL、S-BULL（25）では上がれない、'
           + '残りが 0 未満 / 1 / ダブル以外での 0 は Bust。'
           + 'これらは特定の外部資料からの引用ではなく、競技として広く共有されているルールとして'
           + 'engine に実装し、テストで検証しています。',

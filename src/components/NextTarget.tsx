@@ -1,3 +1,4 @@
+import { displayDartId } from '../domain/dart';
 import { nextVisitProposalNoteJa } from '../data/explanations';
 import type { NextVisitProposal } from '../engine/recovery/nextVisitSelection';
 import type { VisitStatus } from '../engine/recovery/visit';
@@ -59,7 +60,7 @@ export function NextTarget({
       : nextVisitProposals.length > 0
         ? `残り ${remaining ?? ''}。次ラウンドへの残しは ${nextVisitProposals[0].route.routeText}`
         : dartIds !== null && dartIds.length > 0
-          ? `残り ${remaining ?? ''}、${dartsLeft} 本。次の狙いは ${dartIds.join('、')}`
+          ? `残り ${remaining ?? ''}、${dartsLeft} 本。次の狙いは ${dartIds.map(displayDartId).join('、')}`
           : null;
   useEffect(() => {
     if (spoken !== null) announce(spoken);
@@ -116,7 +117,7 @@ export function NextTarget({
             <span className="next-target__label">NEXT</span>
             <ol className="next-target__darts" aria-label="次に狙うルート">
               {dartIds.map((dartId, index) => (
-                <li key={`${dartId}-${index}`}>{dartId}</li>
+                <li key={`${dartId}-${index}`}>{displayDartId(dartId)}</li>
               ))}
             </ol>
           </div>

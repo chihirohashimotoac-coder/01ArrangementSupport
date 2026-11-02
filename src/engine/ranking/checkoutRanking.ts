@@ -5,7 +5,7 @@
  * 説明可能なスコアを付ける。重みはこのファイルではなくデータ側にあり、
  * ここには「どの特徴を見るか」だけを書く。
  */
-import { findDart, formatRoute, isFinishingDart, type Dart } from '../../domain/dart';
+import { displayDartId, findDart, formatRoute, isFinishingDart, type Dart } from '../../domain/dart';
 import { isBogey, isCheckoutable } from '../../domain/checkoutRules';
 import type { CheckoutReasonCode, ReasonPolarity } from '../../domain/reasonCodes';
 import {
@@ -218,13 +218,13 @@ function analyze(
       const { leave, safe } = leaveIsSafe(variant.dart);
       if (safe && leave === 0) {
         safeCount += 1;
-        neighborNotes.push(`${variant.dart.id} ならそのまま上がりです`);
+        neighborNotes.push(`${displayDartId(variant.dart.id)} ならそのまま上がりです`);
       } else if (safe) {
         safeCount += 1;
         const top = topRouteTextFor(leave, dartsAfterMiss);
-        neighborNotes.push(`${variant.dart.id} なら ${leave} 残りで ${top ?? '上がりが残ります'}`);
+        neighborNotes.push(`${displayDartId(variant.dart.id)} なら ${leave} 残りで ${top ?? '上がりが残ります'}`);
       } else {
-        neighborNotes.push(`${variant.dart.id} だと ${Math.max(leave, 0)} 残りで上がれません`);
+        neighborNotes.push(`${displayDartId(variant.dart.id)} だと ${Math.max(leave, 0)} 残りで上がれません`);
       }
     }
     if (horizontal.length > 0) {
