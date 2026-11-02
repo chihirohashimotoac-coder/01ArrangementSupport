@@ -2,6 +2,7 @@
  * 2026-11-01 監査 フェーズ 4（デザイン・アクセシビリティ）の E2E。
  */
 import { expect, test, type Page } from '@playwright/test';
+import { waitForScrollEnd } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -157,23 +158,21 @@ test('D-M3: 盤面の狙う的に投げる順番の番号札を置く', async ({
 });
 
 
-/** 盤面全体が、画面下に固定した NEXT のまとまりより上に見える位置へ移る。 */
-async function showWholeBoard(page: Page) {
-  await page.evaluate(() => {
-    document.querySelector('.dartboard__svg')!.scrollIntoView({ block: 'start' });
-    window.scrollBy(0, -8);
-  });
-}
-
+/*
+ * 以前は、画面下に固定した帯が盤面の下端に重なるのを避けるため、盤面を帯より上へ
+ * ずらしてから押していた（showWholeBoard）。2026-11-02 に、開いたときの位置合わせと
+ * 盤面の大きさの上限で重ならないようにしたので、開いたままの位置で押す。
+ * 開いたときのスクロールは滑らかに動くので、止まるまで待ってから座標を測る。
+ */
 test.describe('D-M2: タッチの拡大鏡', () => {
-  // 動きを減らす設定でも使えること（盤面を開いたときの移動も即座になり、座標が安定する）。
+  // 動きを減らす設定でも使えること。
   test.use({ hasTouch: true, viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
 
   test('押しているあいだは拡大鏡を出し、指を離した区画で確定する', async ({ page }) => {
     await page.getByTestId('nav-checkout').click();
     await page.getByTestId('score-input').fill('103');
     await page.getByTestId('recovery-toggle').click();
-    await showWholeBoard(page);
+    await waitForScrollEnd(page);
     // 区画の中心を測るのと同じ瞬間に、その位置へポインターイベントを送る（途中のスクロールでずれないように）。
     const pointer = (type: string, testId: string) =>
       page.evaluate(
@@ -213,7 +212,7 @@ test.describe('D-M2: タッチの拡大鏡', () => {
     await page.getByTestId('nav-checkout').click();
     await page.getByTestId('score-input').fill('103');
     await page.getByTestId('recovery-toggle').click();
-    await showWholeBoard(page);
+    await waitForScrollEnd(page);
     const box = (await page.getByTestId('segment-s19-outer').boundingBox())!;
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
     await expect(page.getByTestId('next-remaining')).toHaveText('84');

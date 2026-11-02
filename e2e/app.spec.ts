@@ -597,6 +597,12 @@ test('v1.2: LEFT の blur で予約された移動は、実戦入力を開いた
       w.__scrolls.push(this.id || this.className);
       return (original as (...a: unknown[]) => void).apply(this, args);
     };
+    // 縦の短い画面では、帯が盤面に重ならない位置まで window.scrollTo でずらす（2026-11-02）。
+    const originalScrollTo = window.scrollTo.bind(window);
+    window.scrollTo = ((...args: Parameters<typeof window.scrollTo>) => {
+      w.__scrolls.push('window.scrollTo');
+      return (originalScrollTo as (...a: unknown[]) => void)(...args);
+    }) as typeof window.scrollTo;
   });
 
   await page.getByTestId('score-input').click();
@@ -608,12 +614,13 @@ test('v1.2: LEFT の blur で予約された移動は、実戦入力を開いた
   await expect(page.getByTestId('dartboard')).toBeVisible();
 
   // 予約されていた 250ms 後の「答えへの移動」は起きない。
-  // 開いたときは盤面の先頭へ 1 回だけ移る（2026-11-01 監査 U-H1）。
+  // 開いたときは盤面の位置へ 1 回だけ移る（2026-11-01 監査 U-H1）。画面の高さによって、
+  // 実戦入力の先頭へ合わせる（scrollIntoView）か、帯が収まるまでずらす（window.scrollTo）。
   await page.waitForTimeout(500);
-  expect(await page.evaluate(() => (window as unknown as { __scrolls: string[] }).__scrolls)).toEqual([
-    'practice-recovery',
-  ]);
-  await expect(page.getByTestId('dartboard')).toBeVisible();
+  const scrolls = await page.evaluate(() => (window as unknown as { __scrolls: string[] }).__scrolls);
+  expect(scrolls).toHaveLength(1);
+  expect(['practice-recovery', 'window.scrollTo']).toContain(scrolls[0]);
+  await expect(page.getByTestId('dartboard')).toBeInViewport();
 });
 
 test('v1.2: TRAINING は採点後にだけ結果の直下へ「次の問題」を出す', async ({ page }) => {

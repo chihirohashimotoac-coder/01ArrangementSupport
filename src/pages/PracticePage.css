@@ -377,6 +377,28 @@
   background: var(--background);
 }
 
+/*
+ * 縦の短い画面でも、盤面と（伸びたときの）帯が 1 画面に収まるよう、盤面の大きさに
+ * 上限を付ける（2026-11-02 オーナー決定）。上限 = 画面の高さ − 帯の確保ぶん
+ * （--entry-bar-reserve。entryBarLayout.ts の ENTRY_BAR_RESERVE_REM）− ホームバー − 隙間と余白。
+ * 小さくなりすぎて押しにくくならないよう、15rem を下限にする（横向きのスマートフォンなど、
+ * それでも収まらない画面では帯が盤面の下端にかぶる）。svh に対応しない環境では
+ * この宣言ごと無視され、元の上限（Dartboard.css）が使われる。
+ */
+.practice__board .dartboard__svg {
+  max-width: min(
+    100%,
+    32rem,
+    max(
+      15rem,
+      calc(
+        100svh - var(--entry-bar-reserve, 16rem) - env(safe-area-inset-bottom, 0px) -
+          var(--space-3) - 8px
+      )
+    )
+  );
+}
+
 /* 次に狙う的は、このまとまりでいちばん大きく見せる（以前は 24px で盤面の下に埋もれていた）。 */
 .practice__entry-bar .next-target__darts li {
   font-size: var(--text-2xl);

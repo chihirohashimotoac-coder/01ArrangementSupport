@@ -8,6 +8,7 @@
  * U-M1 範囲外の残り点を、もう一方のモードへ案内する
  */
 import { expect, test, type Page } from '@playwright/test';
+import { waitForScrollEnd } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -131,6 +132,80 @@ test.describe('U-H1 / U-H2: 着弾の入力（390 × 844）', () => {
     await expect(page.getByTestId('score-input')).toBeFocused();
   });
 });
+
+/*
+ * 画面下に固定した帯が、盤面の下端に重ならないこと（2026-11-02）。
+ * 縦の短い画面（iPhone SE の Safari 相当 375 × 553、iPhone の Safari 相当 390 × 664）で、
+ * 開いた直後と、入力して帯が伸びたあと（NEXT VISIT の候補が 2 つ）の両方を確かめる。
+ * 押すのは画面上の座標（Playwright の click は要素を画面内へ動かしてしまうため使わない）。
+ */
+for (const viewport of [
+  { width: 375, height: 553 },
+  { width: 390, height: 664 },
+]) {
+  test.describe(`着弾の入力：帯と盤面が重ならない（${viewport.width} × ${viewport.height}）`, () => {
+    test.use({ viewport, reducedMotion: 'reduce' });
+
+    test('開いた直後も、帯が伸びたあとも、盤面の下端の区画を押せる', async ({ page }) => {
+      const overlap = () =>
+        page.evaluate(() => {
+          const board = document.querySelector('.dartboard__svg')!.getBoundingClientRect();
+          const bar = document.querySelector('[data-testid="entry-bar"]')!.getBoundingClientRect();
+          return Math.max(0, board.bottom - bar.top);
+        });
+      /** 区画の中心がいちばん上に見えていれば（帯に隠れていなければ）その座標を返す。 */
+      const visibleCenter = (testId: string) =>
+        page.evaluate((id) => {
+          const target = document.querySelector(`.dartboard__svg [data-testid="${id}"]`)!;
+          const rect = target.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const top = document.elementFromPoint(x, y);
+          return top !== null && top.closest('[data-testid^="segment-"]') === target ? { x, y } : null;
+        }, testId);
+
+      await page.getByTestId('nav-checkout').click();
+      await page.getByTestId('score-input').fill('121');
+      await page.getByTestId('recovery-toggle').click();
+      await waitForScrollEnd(page);
+      expect(await overlap()).toBe(0);
+
+      // S5 → 残り 116・2 本。NEXT VISIT の候補が 2 つ出て、帯が伸びる。
+      const s5 = await visibleCenter('segment-s5-outer');
+      expect(s5).not.toBeNull();
+      await page.mouse.click(s5!.x, s5!.y);
+      await expect(page.getByTestId('next-remaining')).toHaveText('116');
+      expect(await overlap()).toBe(0);
+
+      // 盤面のいちばん下（D3）も、帯に隠れず押せる。
+      const d3 = await visibleCenter('segment-d3');
+      expect(d3).not.toBeNull();
+      await page.mouse.click(d3!.x, d3!.y);
+      await expect(page.getByTestId('next-remaining')).toHaveText('110');
+
+      // 盤面が外枠より小さくなっても、タッチの拡大鏡は指の真上に出る。
+      const fingerX = await page.evaluate(() => {
+        const rect = document
+          .querySelector('.dartboard__svg [data-testid="segment-s20-outer"]')!
+          .getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        document.querySelector('.dartboard__svg')!.dispatchEvent(
+          new PointerEvent('pointerdown', {
+            pointerType: 'touch',
+            pointerId: 7,
+            isPrimary: true,
+            clientX: x,
+            clientY: rect.top + rect.height / 2,
+            bubbles: true,
+          }),
+        );
+        return x;
+      });
+      const loupe = (await page.getByTestId('board-loupe').boundingBox())!;
+      expect(Math.abs(loupe.x + loupe.width / 2 - fingerX)).toBeLessThan(2);
+    });
+  });
+}
 
 test('U-M1: CHECKOUT に 250 を入れたら SETUP へ案内し、その値で開く', async ({ page }) => {
   await page.getByTestId('nav-checkout').click();

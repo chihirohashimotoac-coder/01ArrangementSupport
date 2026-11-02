@@ -197,7 +197,9 @@ function DartboardComponent({
     const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
     const element = document.elementFromPoint(event.clientX, event.clientY);
     const path = element instanceof Element ? element.closest<SVGPathElement>('path[data-testid^="segment-"]') : null;
-    const bounds = svg.getBoundingClientRect();
+    // 拡大鏡は外枠（.dartboard）を基準に置くので、外枠からの位置で測る。
+    // 盤面の大きさに上限があると SVG は外枠より細く中央寄せになり、SVG から測るとずれる。
+    const bounds = (svg.parentElement ?? svg).getBoundingClientRect();
     return {
       x: point.x,
       y: point.y,
